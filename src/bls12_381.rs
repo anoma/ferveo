@@ -2,7 +2,7 @@
 Operations involving BLS12-381.
 */
 
-use bls12_381::{G1Affine, G1Projective};
+use bls12_381::{G1Affine, G1Projective, Scalar};
 
 /*
 Polynomials are represented as vectors of G1 points.
@@ -55,4 +55,15 @@ impl std::ops::Add for Poly {
         let res = zipper.map(|(x, y)| add_affine(*x, *y)).collect();
         clear_trailing_zeros(Self(res))
     }
+}
+
+// Evaluate a polynomial at a scalar point.
+fn eval(poly: Poly, scalar: Scalar) -> G1Affine {
+    let mut v = Scalar::one();
+    let mut res = G1Projective::identity();
+    for coefficient in poly.0.iter() {
+        res += coefficient * v;
+        v *= scalar;
+    }
+    G1Affine::from(res)
 }
