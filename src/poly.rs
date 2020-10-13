@@ -2,7 +2,7 @@
 Operations involving polynomials.
 */
 
-use bls12_381::{G1Affine, G1Projective, Scalar};
+use crate::bls12_381::{G1Affine, G1Projective, Scalar};
 use ff;
 use nalgebra::base::{DMatrix, DVector, Dynamic};
 use rand;
@@ -38,17 +38,12 @@ is encoded as
 */
 type Share = DVector<Scalar>;
 
-// Addition in affine coordinates
-fn add_g1_affine(x: G1Affine, y: G1Affine) -> G1Affine {
-    G1Affine::from(x + G1Projective::from(y))
-}
-
 /*
 Addition on polynomials is defined such that the `(i, j)`th coefficients are added.
 ie. `f(x) + g(x) = (f_i_j + g_i_j) * x^i * y^j`
 */
 fn add_public(f: Public, g: Public) -> Public {
-    f.zip_map(&g, |fij, gij| G1Affine::from(fij + G1Projective::from(gij)))
+    f + g
 }
 
 /*
@@ -74,11 +69,9 @@ fn powers(x: Scalar, n: usize) -> Vec<Scalar> {
 fn eval_public(f: Public, (x, y): (Scalar, Scalar)) -> G1Affine {
     let xi = powers(x, f.ncols() - 1); // x^i from 0 to ncols - 1
     let yj = powers(y, f.nrows() - 1); // y^j from 0 to nrows - 1
-    let mut res = G1Projective::identity();
-    for v in f.map_with_location(|j, i, fij| fij * xi[i] * yj[j]).iter() {
-        res += v
-    }
-    G1Affine::from(res)
+    f.map_with_location(|j, i, fij| fij * xi[i] * yj[j])
+        .sum()
+        .into()
 }
 
 /*
@@ -87,88 +80,64 @@ Partially evaluate a secret polynomial at a particular point `x`.
 */
 fn eval_secret_x(f: Secret, x: Scalar) -> Share {
     let xi = powers(x, f.ncols() - 1); // x^i from 0 to ncols - 1
-    f.map_with_location(|j, i, fij| fij * xi[i])
-        .compress_columns(
-            DVector::from_element(f.nrows(), Scalar::zero()),
-            |res, col| *res += col,
-        )
+    f.map_with_location(|j, i, fij| fij * xi[i]).column_sum()
 }
 
 // Evaluate a share at a particular point.
 fn eval_share(f: Share, x: Scalar) -> Scalar {
     let xi = powers(x, f.ncols() - 1); // x^i from 0 to ncols - 1
-    let mut res = Scalar::zero();
-    for (i, f_i) in f.iter().enumerate() {
-        res += f_i * xi[i]
-    }
-    res
+    f.iter().enumerate().map(|(i, fi)| *fi * xi[i]).sum()
 }
 
 // Evaluate a secret polynomial at a particular point.
 fn eval_secret(f: Secret, (x, y): (Scalar, Scalar)) -> Scalar {
     let xi = powers(x, f.ncols() - 1); // x^i from 0 to ncols - 1
     let yj = powers(y, f.nrows() - 1); // y^j from 0 to nrows - 1
-    let mut res = Scalar::zero();
-    for v in f.map_with_location(|j, i, fij| fij * xi[i] * yj[j]).iter() {
-        res += v
-    }
-    res
+    f.map_with_location(|j, i, fij| fij * xi[i] * yj[j]).sum()
 }
 
 // Generate a random secret polynomial of order `threshold`.
 fn random_secret<R: rand::Rng + Sized>(threshold: i32, mut rng: R) -> Secret {
     let threshold = threshold as usize;
-    DMatrix::from_fn(threshold, threshold, |_, _| {
-        <Scalar as ff::Field>::random(&mut rng)
-    })
+    DMatrix::from_fn(threshold, threshold, |_, _| Scalar::random(&mut rng))
 }
 
 // Generate the public polynomial for a given secret polynomial.
 fn public(f: Secret) -> Public {
-    f.map(|fij| G1Affine::from(G1Affine::generator() * fij))
+    f.map(|fij| (G1Projective::one() * fij).into())
 }
 
 // Generate the `j`th secret share
 fn share(f: Secret, j: u32) -> Share {
-    let j = Scalar::from(u64::from(j));
-    eval_secret_x(f, j)
+    eval_secret_x(f, j.into())
 }
 
 // Verify that the given share with index `i` is consistent with the public polynomial.
 fn verify_share(p: Public, s: Share, i: u32) -> bool {
-    let i = Scalar::from(u64::from(i));
-
     // ∀ l ∈ [0, t]. 1_{G1} * s_l = ∑_{j=0}^t (p_j_l * i * j)
-    let mut res = true;
-    for (l, s_l) in s.iter().enumerate() {
-        let lhs = G1Affine::generator() * s_l;
-        let mut rhs = G1Projective::identity();
-        for (j, p_j) in p.column_iter().enumerate() {
-            rhs += p_j[l] * i * Scalar::from(j as u64)
-        }
-        res &= lhs == rhs
-    }
-    res
+    s.iter().enumerate().all(|(l, sl)| {
+        let lhs = G1Projective::one() * *sl;
+        let rhs = p
+            .column_iter()
+            .enumerate()
+            .map(|(j, pj)| pj[l] * i.into() * (j as u64).into())
+            .sum();
+        lhs == rhs
+    })
 }
 
 // Verify that a given point from node `m` with index `i` is consistent with the public polynomial.
 fn verify_point(p: Public, i: u32, m: u32, x: Scalar) -> bool {
-    let i = Scalar::from(u64::from(i));
-    let m = Scalar::from(u64::from(m));
-
     // Scalar exponentiation by u64. `exp(x, y) = x^y`
-    fn exp(x: Scalar, y: u64) -> Scalar {
+    fn exp<X: Into<Scalar>>(x: X, y: u64) -> Scalar {
         let y = [u64::to_le(y), 0, 0, 0];
-        x.pow(&y)
+        x.into().pow(&y)
     }
 
     // 1_{G1} * x = ∑_{j,l=0}^t (p_j_l * m^j * i^l)
-    let lhs = G1Affine::generator() * x;
-    let mut rhs = G1Projective::identity();
-    for (j, p_j) in p.column_iter().enumerate() {
-        for (l, p_j_l) in p_j.iter().enumerate() {
-            rhs += p_j_l * exp(m, j as u64) * exp(i, l as u64)
-        }
-    }
+    let lhs = G1Projective::one() * x;
+    let rhs = p
+        .map_with_location(|l, j, pjl| pjl * exp(m, j as u64) * exp(i, l as u64))
+        .sum();
     lhs == rhs
 }
