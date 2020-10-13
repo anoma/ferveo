@@ -140,6 +140,22 @@ impl std::ops::MulAssign<Scalar> for Scalar {
     }
 }
 
+impl std::ops::Neg for Scalar {
+    type Output = Scalar;
+
+    fn neg(self) -> Scalar {
+        (-self.0).into()
+    }
+}
+
+impl std::ops::Sub for Scalar {
+    type Output = Scalar;
+
+    fn sub(self, rhs: Scalar) -> Scalar {
+        (self.0 - rhs.0).into()
+    }
+}
+
 impl G1Projective {
     pub fn zero() -> G1Projective {
         bls12_381::G1Projective::identity().into()
@@ -173,12 +189,20 @@ impl Scalar {
         *self == Scalar::zero()
     }
 
+    pub fn one() -> Scalar {
+        bls12_381::Scalar::one().into()
+    }
+
     pub fn random<R: rand::Rng + Sized>(mut rng: R) -> Scalar {
         <bls12_381::Scalar as ff::Field>::random(&mut rng).into()
     }
 
     pub fn pow(&self, i: &[u64; 4]) -> Scalar {
         self.0.pow(i).into()
+    }
+
+    pub fn invert(&self) -> Scalar {
+        self.0.invert().unwrap().into()
     }
 }
 

@@ -142,6 +142,14 @@ fn verify_point(p: Public, i: u32, m: u32, x: Scalar) -> bool {
     lhs == rhs
 }
 
+// Polynomial sum
+fn poly_sum(x: DVector<Scalar>, y: DVector<Scalar>) -> DVector<Scalar> {
+    let res_size = std::cmp::max(x.len(), y.len());
+    let x = x.resize_vertically(res_size, Scalar::zero());
+    let y = y.resize_vertically(res_size, Scalar::zero());
+    x + y
+}
+
 // Polynomial product
 fn poly_prod(x: DVector<Scalar>, y: DVector<Scalar>) -> DVector<Scalar> {
     let mut res = DVector::from_element(x.len() + y.len() - 1, Scalar::zero());
@@ -149,6 +157,30 @@ fn poly_prod(x: DVector<Scalar>, y: DVector<Scalar>) -> DVector<Scalar> {
         for (j, yj) in y.iter().enumerate() {
             res[(0, i + j)] += *xi * *yj
         }
+    }
+    res
+}
+
+// lagrange basis polynomial L_n_j(x)
+fn lagrange_basis(j: usize, xs: &DVector<Scalar>) -> DVector<Scalar> {
+    let mut num = DVector::from_element(1, Scalar::one()); // numerator
+    let mut den = Scalar::one(); // denominator
+    for (k, xk) in xs.iter().enumerate() {
+        if k != j {
+            num = poly_prod(num, DVector::from_vec(vec![-(*xk), Scalar::one()]));
+            den *= xs[j] - *xk
+        }
+    }
+    den = den.invert();
+    num.map(|v| v * den)
+}
+
+fn lagrange_interpolate(points: DVector<(Scalar, Scalar)>) -> DVector<Scalar> {
+    let xs = points.map(|(x, _)| x);
+    let ys = points.map(|(_, y)| y);
+    let mut res = DVector::from_vec(Vec::new());
+    for (j, yj) in ys.iter().enumerate() {
+        res = poly_sum(res, lagrange_basis(j, &xs).map(|v| v * *yj))
     }
     res
 }
