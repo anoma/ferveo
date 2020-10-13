@@ -201,3 +201,14 @@ fn verify_point(p: Public, i: u32, m: u32, x: Scalar) -> bool {
     }
     lhs == rhs
 }
+
+// Polynomial product
+fn poly_prod(x: Vec<Scalar>, y: Vec<Scalar>) -> Vec<Scalar> {
+    let mut res = vec![Scalar::zero(); x.len() + y.len() - 1];
+    for (i, xi) in x.iter().enumerate() {
+        for (j, yj) in y.iter().enumerate() {
+            res[i+j] += xi * yj
+        }
+    }
+    res
+}
