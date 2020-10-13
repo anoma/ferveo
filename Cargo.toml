@@ -9,4 +9,5 @@ edition = "2018"
 [dependencies]
 bls12_381 = "0.3.1"
 ff = "0.8.0"
+nalgebra = "0.22.0"
 rand = "0.7.3"

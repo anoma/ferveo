@@ -4,6 +4,7 @@ Operations involving polynomials.
 
 use bls12_381::{G1Affine, G1Projective, Scalar};
 use ff;
+use nalgebra::base::{DMatrix, DVector, Dynamic};
 use rand;
 
 /*
@@ -14,7 +15,7 @@ For example, the polynomial
 is encoded as
 `vec![vec![c_0_0, ..., c_0_{t-1}], ..., vec![c_{t-1}_0, ..., c_{t-1}_{t-1}]]`.
 */
-type Public = Vec<Vec<G1Affine>>;
+type Public = DMatrix<G1Affine>;
 
 /*
 A secret polynomial, used during the setup phase.
@@ -24,7 +25,8 @@ For example, the polynomial
 is encoded as
 `vec![vec![c_0_0, ..., c_0_{t-1}], ..., vec![c_{t-1}_0, ..., c_{t-1}_{t-1}]]`.
 */
-type Secret = Vec<Vec<Scalar>>;
+
+type Secret = DMatrix<Scalar>;
 
 /*
 A secret share, used during the setup phase.
@@ -34,11 +36,11 @@ For example, the polynomial
 is encoded as
 `vec![c_0, ..., c_{t-1}]`.
 */
-type Share = Vec<Scalar>;
+type Share = DVector<Scalar>;
 
 // Addition in affine coordinates
 fn add_g1_affine(x: G1Affine, y: G1Affine) -> G1Affine {
-    G1Affine::from(G1Projective::from(x) + G1Projective::from(y))
+    G1Affine::from(x + G1Projective::from(y))
 }
 
 /*
@@ -46,16 +48,7 @@ Addition on polynomials is defined such that the `(i, j)`th coefficients are add
 ie. `f(x) + g(x) = (f_i_j + g_i_j) * x^i * y^j`
 */
 fn add_public(f: Public, g: Public) -> Public {
-    // zip f and g with addition in G1
-    f.iter()
-        .zip(g.iter())
-        .map(|(f_j, g_j)| {
-            f_j.iter()
-                .zip(g_j.iter())
-                .map(|(f_i_j, g_i_j)| add_g1_affine(*f_i_j, *g_i_j))
-                .collect()
-        })
-        .collect()
+    f.zip_map(&g, |fij, gij| G1Affine::from(fij + G1Projective::from(gij)))
 }
 
 /*
@@ -63,29 +56,27 @@ Addition on polynomials is defined such that the `(i, j)`th coefficients are add
 ie. `f(x) + g(x) = (f_i_j + g_i_j) * x^i * y^j`
 */
 fn add_secret(f: Secret, g: Secret) -> Secret {
-    // zip f and g with addition in Fr
-    f.iter()
-        .zip(g.iter())
-        .map(|(f_j, g_j)| {
-            f_j.iter()
-                .zip(g_j.iter())
-                .map(|(f_i_j, g_i_j)| *f_i_j + *g_i_j)
-                .collect()
-        })
-        .collect()
+    f + g
+}
+
+// Powers of `x` from 0 to `n`.
+fn powers(x: Scalar, n: usize) -> Vec<Scalar> {
+    let mut res = Vec::new();
+    let mut xi = Scalar::zero(); // x^i
+    for _ in 0..n {
+        res.push(xi);
+        xi *= x
+    }
+    res
 }
 
 // Evaluate a public polynomial at a particular point.
 fn eval_public(f: Public, (x, y): (Scalar, Scalar)) -> G1Affine {
-    let mut xi = Scalar::one(); // x^i
+    let xi = powers(x, f.ncols() - 1); // x^i from 0 to ncols - 1
+    let yj = powers(y, f.nrows() - 1); // y^j from 0 to nrows - 1
     let mut res = G1Projective::identity();
-    for f_i in f.iter() {
-        let mut yj = Scalar::one(); // y^j
-        for f_i_j in f_i.iter() {
-            res += f_i_j * xi * yj;
-            yj *= y;
-        }
-        xi *= x;
+    for v in f.map_with_location(|j, i, fij| fij * xi[i] * yj[j]).iter() {
+        res += v
     }
     G1Affine::from(res)
 }
@@ -95,66 +86,46 @@ Partially evaluate a secret polynomial at a particular point `x`.
 `eval_secret_x(f, x) ≅ f(x)` where `≅` is isomorphism.
 */
 fn eval_secret_x(f: Secret, x: Scalar) -> Share {
-    let mut xi = Scalar::one(); // x^i
-    let mut res = vec![Scalar::zero(); f.len()];
-    for f_i in f.iter() {
-        for (j, f_i_j) in f_i.iter().enumerate() {
-            res[j] += f_i_j * xi;
-        }
-        xi *= x;
-    }
-    res
+    let xi = powers(x, f.ncols() - 1); // x^i from 0 to ncols - 1
+    f.map_with_location(|j, i, fij| fij * xi[i])
+        .compress_columns(
+            DVector::from_element(f.nrows(), Scalar::zero()),
+            |res, col| *res += col,
+        )
 }
 
 // Evaluate a share at a particular point.
 fn eval_share(f: Share, x: Scalar) -> Scalar {
-    let mut xi = Scalar::one(); // x^i
+    let xi = powers(x, f.ncols() - 1); // x^i from 0 to ncols - 1
     let mut res = Scalar::zero();
-    for f_i in f.iter() {
-        res += f_i * xi;
-        xi *= x
+    for (i, f_i) in f.iter().enumerate() {
+        res += f_i * xi[i]
     }
     res
 }
 
 // Evaluate a secret polynomial at a particular point.
 fn eval_secret(f: Secret, (x, y): (Scalar, Scalar)) -> Scalar {
-    let mut xi = Scalar::one(); // x^i
+    let xi = powers(x, f.ncols() - 1); // x^i from 0 to ncols - 1
+    let yj = powers(y, f.nrows() - 1); // y^j from 0 to nrows - 1
     let mut res = Scalar::zero();
-    for f_i in f.iter() {
-        let mut yj = Scalar::one(); // y^j
-        for f_i_j in f_i.iter() {
-            res += f_i_j * xi * yj;
-            yj *= y;
-        }
-        xi *= x;
+    for v in f.map_with_location(|j, i, fij| fij * xi[i] * yj[j]).iter() {
+        res += v
     }
     res
 }
 
 // Generate a random secret polynomial of order `threshold`.
 fn random_secret<R: rand::Rng + Sized>(threshold: i32, mut rng: R) -> Secret {
-    let mut res = Vec::new();
-    for _ in 0..threshold {
-        let mut res_i = Vec::new();
-        for _ in 0..threshold {
-            res_i.push(<Scalar as ff::Field>::random(&mut rng))
-        }
-        res.push(res_i);
-    }
-    res
+    let threshold = threshold as usize;
+    DMatrix::from_fn(threshold, threshold, |_, _| {
+        <Scalar as ff::Field>::random(&mut rng)
+    })
 }
 
 // Generate the public polynomial for a given secret polynomial.
 fn public(f: Secret) -> Public {
-    f.iter()
-        .map(|f_i| {
-            f_i.iter()
-                .map(|v| G1Affine::generator() * v)
-                .map(|v| G1Affine::from(v))
-                .collect()
-        })
-        .collect()
+    f.map(|fij| G1Affine::from(G1Affine::generator() * fij))
 }
 
 // Generate the `j`th secret share
@@ -172,7 +143,7 @@ fn verify_share(p: Public, s: Share, i: u32) -> bool {
     for (l, s_l) in s.iter().enumerate() {
         let lhs = G1Affine::generator() * s_l;
         let mut rhs = G1Projective::identity();
-        for (j, p_j) in p.iter().enumerate() {
+        for (j, p_j) in p.column_iter().enumerate() {
             rhs += p_j[l] * i * Scalar::from(j as u64)
         }
         res &= lhs == rhs
@@ -194,7 +165,7 @@ fn verify_point(p: Public, i: u32, m: u32, x: Scalar) -> bool {
     // 1_{G1} * x = ∑_{j,l=0}^t (p_j_l * m^j * i^l)
     let lhs = G1Affine::generator() * x;
     let mut rhs = G1Projective::identity();
-    for (j, p_j) in p.iter().enumerate() {
+    for (j, p_j) in p.column_iter().enumerate() {
         for (l, p_j_l) in p_j.iter().enumerate() {
             rhs += p_j_l * exp(m, j as u64) * exp(i, l as u64)
         }
