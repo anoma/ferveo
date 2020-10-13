@@ -106,6 +106,17 @@ fn eval_secret_x(f: Secret, x: Scalar) -> Share {
     res
 }
 
+// Evaluate a share at a particular point.
+fn eval_share(f: Share, x: Scalar) -> Scalar {
+    let mut xi = Scalar::one(); // x^i
+    let mut res = Scalar::zero();
+    for f_i in f.iter() {
+        res += f_i * xi;
+        xi *= x
+    }
+    res
+}
+
 // Evaluate a secret polynomial at a particular point.
 fn eval_secret(f: Secret, (x, y): (Scalar, Scalar)) -> Scalar {
     let mut xi = Scalar::one(); // x^i
@@ -155,17 +166,38 @@ fn share(f: Secret, j: u32) -> Share {
 // Verify that the given share with index `i` is consistent with the public polynomial.
 fn verify_share(p: Public, s: Share, i: u32) -> bool {
     let i = Scalar::from(u64::from(i));
-    let mut res = true;
+
     // ∀ l ∈ [0, t]. 1_{G1} * s_l = ∑_{j=0}^t (p_j_l * i * j)
+    let mut res = true;
     for (l, s_l) in s.iter().enumerate() {
         let lhs = G1Affine::generator() * s_l;
         let mut rhs = G1Projective::identity();
-        let mut j = Scalar::zero();
-        for p_j in p.iter() {
-            rhs += p_j[l] * i * j;
-            j += Scalar::one()
+        for (j, p_j) in p.iter().enumerate() {
+            rhs += p_j[l] * i * Scalar::from(j as u64)
         }
         res &= lhs == rhs
     }
     res
+}
+
+// Verify that a given point from node `m` with index `i` is consistent with the public polynomial.
+fn verify_point(p: Public, i: u32, m: u32, x: Scalar) -> bool {
+    let i = Scalar::from(u64::from(i));
+    let m = Scalar::from(u64::from(m));
+
+    // Scalar exponentiation by u64. `exp(x, y) = x^y`
+    fn exp(x: Scalar, y: u64) -> Scalar {
+        let y = [u64::to_le(y), 0, 0, 0];
+        x.pow(&y)
+    }
+
+    // 1_{G1} * x = ∑_{j,l=0}^t (p_j_l * m^j * i^l)
+    let lhs = G1Affine::generator() * x;
+    let mut rhs = G1Projective::identity();
+    for (j, p_j) in p.iter().enumerate() {
+        for (l, p_j_l) in p_j.iter().enumerate() {
+            rhs += p_j_l * exp(m, j as u64) * exp(i, l as u64)
+        }
+    }
+    lhs == rhs
 }
