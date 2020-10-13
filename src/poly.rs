@@ -4,7 +4,7 @@ Operations involving polynomials.
 
 use crate::bls12_381::{G1Affine, G1Projective, Scalar};
 use ff;
-use nalgebra::base::{DMatrix, DVector, Dynamic};
+use nalgebra::base::{DMatrix, DVector};
 use rand;
 
 /*
@@ -140,4 +140,15 @@ fn verify_point(p: Public, i: u32, m: u32, x: Scalar) -> bool {
         .map_with_location(|l, j, pjl| pjl * exp(m, j as u64) * exp(i, l as u64))
         .sum();
     lhs == rhs
+}
+
+// Polynomial product
+fn poly_prod(x: DVector<Scalar>, y: DVector<Scalar>) -> DVector<Scalar> {
+    let mut res = DVector::from_element(x.len() + y.len() - 1, Scalar::zero());
+    for (i, xi) in x.iter().enumerate() {
+        for (j, yj) in y.iter().enumerate() {
+            res[(0, i + j)] += *xi * *yj
+        }
+    }
+    res
 }
