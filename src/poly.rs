@@ -26,6 +26,16 @@ is encoded as
 */
 type Secret = Vec<Vec<Scalar>>;
 
+/*
+A secret share, used during the setup phase.
+The element at 0 is the free coefficient of the polynomial.
+For example, the polynomial
+`f(y) = c_0 + ... + c_i * y^i + ... + c_{t-1} * y^{t-1}`
+is encoded as
+`vec![c_0, ..., c_{t-1}]`.
+*/
+type Share = Vec<Scalar>;
+
 // Addition in affine coordinates
 fn add_g1_affine(x: G1Affine, y: G1Affine) -> G1Affine {
     G1Affine::from(G1Projective::from(x) + G1Projective::from(y))
@@ -80,6 +90,22 @@ fn eval_public(f: Public, (x, y): (Scalar, Scalar)) -> G1Affine {
     G1Affine::from(res)
 }
 
+/*
+Partially evaluate a secret polynomial at a particular point `x`.
+`eval_secret_x(f, x) ≅ f(x)` where `≅` is isomorphism.
+*/
+fn eval_secret_x(f: Secret, x: Scalar) -> Share {
+    let mut xi = Scalar::one(); // x^i
+    let mut res = vec![Scalar::zero(); f.len()];
+    for f_i in f.iter() {
+        for (j, f_i_j) in f_i.iter().enumerate() {
+            res[j] += f_i_j * xi;
+        }
+        xi *= x;
+    }
+    res
+}
+
 // Evaluate a secret polynomial at a particular point.
 fn eval_secret(f: Secret, (x, y): (Scalar, Scalar)) -> Scalar {
     let mut xi = Scalar::one(); // x^i
@@ -118,4 +144,28 @@ fn public(f: Secret) -> Public {
                 .collect()
         })
         .collect()
+}
+
+// Generate the `j`th secret share
+fn share(f: Secret, j: u32) -> Share {
+    let j = Scalar::from(u64::from(j));
+    eval_secret_x(f, j)
+}
+
+// Verify that the given share with index `i` is consistent with the public polynomial.
+fn verify_share(p: Public, s: Share, i: u32) -> bool {
+    let i = Scalar::from(u64::from(i));
+    let mut res = true;
+    // ∀ l ∈ [0, t]. 1_{G1} * s_l = ∑_{j=0}^t (p_j_l * i * j)
+    for (l, s_l) in s.iter().enumerate() {
+        let lhs = G1Affine::generator() * s_l;
+        let mut rhs = G1Projective::identity();
+        let mut j = Scalar::zero();
+        for p_j in p.iter() {
+            rhs += p_j[l] * i * j;
+            j += Scalar::one()
+        }
+        res &= lhs == rhs
+    }
+    res
 }
