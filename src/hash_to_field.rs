@@ -62,10 +62,10 @@ pub trait FromRO {
 
 /// BaseFromRO is a FromRO impl for a field with extension degree 1.
 impl<T: BaseFromRO> FromRO for T {
-    type Length = <T as BaseFromRO>::BaseLength;
+    type Length = <Self as BaseFromRO>::BaseLength;
 
-    fn from_ro(okm: &GenericArray<u8, <Self as FromRO>::Length>) -> T {
-        T::from_okm(okm)
+    fn from_ro(okm: &GenericArray<u8, <Self as FromRO>::Length>) -> Self {
+        Self::from_okm(okm)
     }
 }
 
