@@ -11,7 +11,7 @@ pub struct G1Affine(bls12_381::G1Affine);
 pub struct G1Projective(bls12_381::G1Projective);
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub struct Scalar(bls12_381::Scalar);
+pub struct Scalar(pub bls12_381::Scalar);
 
 impl From<bls12_381::G1Affine> for G1Affine {
     fn from(x: bls12_381::G1Affine) -> G1Affine {

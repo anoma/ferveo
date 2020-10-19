@@ -155,7 +155,7 @@ fn poly_prod(x: DVector<Scalar>, y: DVector<Scalar>) -> DVector<Scalar> {
     let mut res = DVector::from_element(x.len() + y.len() - 1, Scalar::zero());
     for (i, xi) in x.iter().enumerate() {
         for (j, yj) in y.iter().enumerate() {
-            res[(0, i + j)] += *xi * *yj
+            res[(i + j, 0)] += *xi * *yj
         }
     }
     res
@@ -175,7 +175,7 @@ fn lagrange_basis(j: usize, xs: &DVector<Scalar>) -> DVector<Scalar> {
     num.map(|v| v * den)
 }
 
-fn lagrange_interpolate(points: DVector<(Scalar, Scalar)>) -> DVector<Scalar> {
+pub fn lagrange_interpolate(points: DVector<(Scalar, Scalar)>) -> DVector<Scalar> {
     let xs = points.map(|(x, _)| x);
     let ys = points.map(|(_, y)| y);
     let mut res = DVector::from_vec(Vec::new());
