@@ -8,3 +8,7 @@ lint:
   script:
     - rustfmt --check src/*.rs
     - cargo clippy -- -D clippy::all
+
+build:
+  script:
+    - cargo build
