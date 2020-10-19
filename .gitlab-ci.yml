@@ -1,14 +1,35 @@
+
+
 default:
   image: rust:1.43.0
-  before_script:
-    - rustup component add rustfmt
-    - rustup component add clippy
 
-lint:
+stages:
+  - lint
+  - build
+
+##
+## Stage: lint
+##
+
+clippy:
+  stage: lint
+  before_script:
+    - rustup component add clippy
   script:
-    - rustfmt --check src/*.rs
     - cargo clippy -- -D clippy::all
 
+rustfmt:
+  stage: lint
+  before_script:
+    - rustup component add rustfmt
+  script:
+    - cargo fmt -- --check
+
+##
+## Stage: build
+##
+
 build:
+  stage: build
   script:
     - cargo build
