@@ -2,7 +2,9 @@ default:
   image: rust:1.43.0
   before_script:
     - rustup component add rustfmt
+    - rustup component add clippy
 
 lint:
   script:
     - rustfmt --check src/*.rs
+    - cargo clippy -- -D clippy::all

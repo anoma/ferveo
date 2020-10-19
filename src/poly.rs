@@ -3,8 +3,6 @@ Operations involving polynomials.
 */
 
 use bls12_381::{G1Affine, G1Projective, Scalar};
-use ff;
-use rand;
 
 /*
 A Public polynomial, used during the setup phase.
@@ -151,7 +149,7 @@ fn public(f: Secret) -> Public {
         .map(|f_i| {
             f_i.iter()
                 .map(|v| G1Affine::generator() * v)
-                .map(|v| G1Affine::from(v))
+                .map(G1Affine::from)
                 .collect()
         })
         .collect()
@@ -226,7 +224,7 @@ fn poly_prod(x: Vec<Scalar>, y: Vec<Scalar>) -> Vec<Scalar> {
 }
 
 // lagrange basis polynomial L_n_j(x)
-fn lagrange_basis(j: usize, xs: &Vec<Scalar>) -> Vec<Scalar> {
+fn lagrange_basis(j: usize, xs: &[Scalar]) -> Vec<Scalar> {
     let mut num = vec![Scalar::one()]; // numerator
     let mut den = Scalar::one();
     for (k, xk) in xs.iter().enumerate() {
