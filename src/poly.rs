@@ -39,7 +39,7 @@ type Share = DVector<Scalar>;
 // Powers of `x` from 0 to `n`.
 fn powers(x: Scalar, n: usize) -> Vec<Scalar> {
     let mut res = Vec::new();
-    let mut xi = Scalar::zero(); // x^i
+    let mut xi = Scalar::one(); // x^i
     for _ in 0..n {
         res.push(xi);
         xi *= x

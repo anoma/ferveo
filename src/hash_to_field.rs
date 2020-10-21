@@ -124,7 +124,7 @@ where
         let b_0 = HashT::new()
             .chain(GenericArray::<u8, <HashT as BlockInput>::BlockSize>::default())
             .chain(msg)
-            .chain([(len_in_bytes >> 8) as u8, len_in_bytes as u8, 0u8])
+            .chain([(len_in_bytes >> 8) as u8, len_in_bytes as u8, 0_u8])
             .chain(dst)
             .chain([dst.len() as u8])
             .finalize();
@@ -134,7 +134,7 @@ where
         b_vals.extend_from_slice(
             HashT::new()
                 .chain(&b_0[..])
-                .chain([1u8])
+                .chain([1_u8])
                 .chain(dst)
                 .chain([dst.len() as u8])
                 .finalize()

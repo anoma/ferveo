@@ -1,16 +1,21 @@
 [package]
 name = "ferveo"
 version = "0.1.0"
-authors = ["Metastate AG <hello@metastate.dev>"]
 edition = "2018"
+license = "AGPL-3.0"
+repository = "https://gitlab.com/metastatedev/ferveo"
+readme = "README.md"
+description = "An implementation of a DKG protocol for front-running protection on public blockchains."
+keywords = ["DKG"]
+categories = ["cryptography"]
+authors = ["Metastate AG <hello@metastate.dev>"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 bls12_381 = "0.3.1"
 ff = "0.8.0"
-nalgebra = "0.22.0"
-num-traits = "0.2.12"
+nalgebra = "0.22.1"
 rand = "0.7.3"
 
 [dependencies.digest]
