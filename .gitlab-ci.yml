@@ -6,6 +6,7 @@ default:
 stages:
   - lint
   - build
+  - test
 
 ##
 ## Stage: lint
@@ -33,3 +34,12 @@ build:
   stage: build
   script:
     - cargo build
+
+##
+## Stage: test
+##
+
+test:
+  stage: test
+  script:
+    - cargo test

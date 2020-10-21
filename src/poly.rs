@@ -40,7 +40,7 @@ type Share = DVector<Scalar>;
 fn powers(x: Scalar, n: usize) -> Vec<Scalar> {
     let mut res = Vec::new();
     let mut xi = Scalar::one(); // x^i
-    for _ in 0..n {
+    for _ in 0..=n {
         res.push(xi);
         xi *= x
     }
@@ -61,7 +61,7 @@ fn eval_public(f: Public, (x, y): (Scalar, Scalar)) -> G1Affine {
 Partially evaluate a secret polynomial at a particular point `x`.
 `eval_secret_x(f, x) ≅ f(x)` where `≅` is isomorphism.
 */
-fn eval_secret_x(f: Secret, x: Scalar) -> Share {
+fn eval_secret_x(f: &Secret, x: Scalar) -> Share {
     let xi = powers(x, f.ncols() - 1); // x^i from 0 to ncols - 1
     let mut res = DVector::from_element(f.nrows(), Scalar::zero());
     for (j, fj) in f.row_iter().enumerate() {
@@ -73,8 +73,8 @@ fn eval_secret_x(f: Secret, x: Scalar) -> Share {
 }
 
 // Evaluate a share at a particular point.
-fn eval_share(f: Share, x: Scalar) -> Scalar {
-    let xi = powers(x, f.ncols() - 1); // x^i from 0 to ncols - 1
+fn eval_share(f: &Share, x: Scalar) -> Scalar {
+    let xi = powers(x, f.len() - 1); // x^i from 0 to ncols - 1
     let mut res = Scalar::zero();
     for (i, fi) in f.iter().enumerate() {
         res += fi * xi[i]
@@ -96,7 +96,7 @@ fn eval_secret(f: Secret, (x, y): (Scalar, Scalar)) -> Scalar {
 }
 
 // Generate a random secret polynomial of order `threshold`.
-fn random_secret<R: rand::Rng + Sized>(threshold: i32, mut rng: R) -> Secret {
+fn random_secret<R: rand::Rng + Sized>(threshold: u32, mut rng: R) -> Secret {
     let threshold = threshold as usize;
     DMatrix::from_fn(threshold, threshold, |_, _| {
         <Scalar as ff::Field>::random(&mut rng)
@@ -104,42 +104,44 @@ fn random_secret<R: rand::Rng + Sized>(threshold: i32, mut rng: R) -> Secret {
 }
 
 // Generate the public polynomial for a given secret polynomial.
-fn public(f: Secret) -> Public {
+fn public(f: &Secret) -> Public {
     f.map(|fij| (G1Projective::generator() * fij).into())
 }
 
 // Generate the `j`th secret share
-fn share(f: Secret, j: u32) -> Share {
+fn share(f: &Secret, j: u32) -> Share {
     eval_secret_x(f, (j as u64).into())
 }
 
+// Scalar exponentiation by u64. `exp(x, y) = x^y`
+fn scalar_exp_u64(x: Scalar, y: u64) -> Scalar {
+    x.pow(&[u64::to_le(y), 0, 0, 0])
+}
+
 // Verify that the given share with index `i` is consistent with the public polynomial.
-fn verify_share(p: Public, s: Share, i: u32) -> bool {
+fn verify_share(p: &Public, s: Share, i: u32) -> bool {
     // ∀ l ∈ [0, t]. 1_{G1} * s_l = ∑_{j=0}^t (p_j_l * i * j)
     s.iter().enumerate().all(|(l, sl)| {
         let lhs = G1Projective::generator() * *sl;
         let mut rhs = G1Projective::identity();
         for (j, pj) in p.column_iter().enumerate() {
-            rhs += pj[l] * Scalar::from(i as u64) * Scalar::from(j as u64)
+            rhs += pj[l] * scalar_exp_u64((i as u64).into(), j as u64)
         }
         lhs == rhs
     })
 }
 
 // Verify that a given point from node `m` with index `i` is consistent with the public polynomial.
-fn verify_point(p: Public, i: u32, m: u32, x: Scalar) -> bool {
-    // Scalar exponentiation by u64. `exp(x, y) = x^y`
-    fn exp(x: Scalar, y: u64) -> Scalar {
-        x.pow(&[u64::to_le(y), 0, 0, 0])
-    }
-
+fn verify_point(p: &Public, i: u32, m: u32, x: Scalar) -> bool {
     let i = Scalar::from(i as u64);
     let m = Scalar::from(m as u64);
 
     // 1_{G1} * x = ∑_{j,l=0}^t (p_j_l * m^j * i^l)
     let lhs = G1Projective::generator() * x;
     let rhs = p
-        .map_with_location(|l, j, pjl| pjl * exp(m, j as u64) * exp(i, l as u64))
+        .map_with_location(|l, j, pjl| {
+            pjl * scalar_exp_u64(m, j as u64) * scalar_exp_u64(i, l as u64)
+        })
         .iter()
         .sum();
     lhs == rhs
@@ -186,4 +188,33 @@ pub fn lagrange_interpolate(points: DVector<(Scalar, Scalar)>) -> DVector<Scalar
         res = poly_sum(res, lagrange_basis(j, &xs).map(|v| v * *yj))
     }
     res
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn share_verification() {
+        let threshold = 10;
+        let secret = random_secret(threshold, rand::thread_rng());
+        let public = public(&secret);
+        for i in 0..threshold {
+            assert!(verify_share(&public, share(&secret, i), i))
+        }
+    }
+
+    #[test]
+    fn point_verification() {
+        let threshold = 7;
+        let secret = random_secret(threshold, rand::thread_rng());
+        let public = public(&secret);
+        for i in 0..threshold {
+            let share = share(&secret, i);
+            for j in 0..threshold {
+                let point = eval_share(&share, (j as u64).into());
+                assert!(verify_point(&public, j, i, point))
+            }
+        }
+    }
 }
