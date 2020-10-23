@@ -98,9 +98,17 @@ fn eval_secret(f: Secret, (x, y): (Scalar, Scalar)) -> Scalar {
 // Generate a random secret polynomial of order `threshold`.
 fn random_secret<R: rand::Rng + Sized>(threshold: u32, mut rng: R) -> Secret {
     let threshold = threshold as usize;
-    DMatrix::from_fn(threshold, threshold, |_, _| {
-        <Scalar as ff::Field>::random(&mut rng)
-    })
+    let mut res = unsafe { DMatrix::new_uninitialized(threshold + 1, threshold + 1) };
+    // secret polynomials are bivariate, so res[i][j] = res[j][i]
+    for i in 0..=threshold {
+        for j in 0..=i {
+            res[(j, i)] = <Scalar as ff::Field>::random(&mut rng);
+            if i != j {
+                res[(i, j)] = res[(j, i)]
+            }
+        }
+    }
+    res
 }
 
 // Generate the public polynomial for a given secret polynomial.
@@ -120,7 +128,7 @@ fn scalar_exp_u64(x: Scalar, y: u64) -> Scalar {
 
 // Verify that the given share with index `i` is consistent with the public polynomial.
 fn verify_share(p: &Public, s: Share, i: u32) -> bool {
-    // ∀ l ∈ [0, t]. 1_{G1} * s_l = ∑_{j=0}^t (p_j_l * i * j)
+    // ∀ l ∈ [0, t]. 1_{G1} * s_l = ∑_{j=0}^t (p_j_l * i^j)
     s.iter().enumerate().all(|(l, sl)| {
         let lhs = G1Projective::generator() * *sl;
         let mut rhs = G1Projective::identity();
@@ -195,11 +203,22 @@ mod tests {
     use super::*;
 
     #[test]
+    fn random_secret_is_symmetric() {
+        let threshold = 40;
+        let secret = random_secret(threshold, rand::thread_rng());
+        for i in 0..(threshold as usize) {
+            for j in 0..i {
+                assert!(secret[(i, j)] == secret[(j, i)])
+            }
+        }
+    }
+
+    #[test]
     fn share_verification() {
         let threshold = 10;
         let secret = random_secret(threshold, rand::thread_rng());
         let public = public(&secret);
-        for i in 0..threshold {
+        for i in 0..(threshold * 2) {
             assert!(verify_share(&public, share(&secret, i), i))
         }
     }
