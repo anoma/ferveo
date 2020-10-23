@@ -29,7 +29,8 @@ DEALINGS IN THE SOFTWARE.
  for use with BLS signatures.
 */
 
-use digest::generic_array::{typenum::Unsigned, ArrayLength, GenericArray};
+use bls12_381::Scalar;
+use digest::generic_array::{typenum::Unsigned, typenum::U48, ArrayLength, GenericArray};
 use digest::{BlockInput, Digest, ExtendableOutput, Update};
 use std::marker::PhantomData;
 
@@ -161,5 +162,31 @@ where
 
         b_vals.truncate(len_in_bytes);
         b_vals
+    }
+}
+
+impl BaseFromRO for Scalar {
+    type BaseLength = U48;
+
+    fn from_okm(okm: &GenericArray<u8, U48>) -> Scalar {
+        const F_2_192: Scalar = Scalar::from_raw([
+            0x5947_6ebc_41b4_528f_u64,
+            0xc5a3_0cb2_43fc_c152_u64,
+            0x2b34_e639_40cc_bd72_u64,
+            0x1e17_9025_ca24_7088_u64,
+        ]);
+
+        // unwraps are safe here: we only use 24 bytes at a time, which is strictly less than p
+        let mut le_bytes = [0_u8; 32];
+        for (i, b) in okm[..24].iter().rev().enumerate() {
+            le_bytes[i] = *b
+        }
+
+        let mut res = Scalar::from_bytes(&le_bytes).unwrap() * F_2_192;
+
+        for (i, b) in okm[24..].iter().rev().enumerate() {
+            le_bytes[i] = *b
+        }
+        res + Scalar::from_bytes(&le_bytes).unwrap()
     }
 }
