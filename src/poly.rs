@@ -98,7 +98,8 @@ fn eval_secret(f: Secret, (x, y): (Scalar, Scalar)) -> Scalar {
 // Generate a random secret polynomial of order `threshold`.
 fn random_secret<R: rand::Rng + Sized>(threshold: u32, mut rng: R) -> Secret {
     let threshold = threshold as usize;
-    let mut res = unsafe { DMatrix::new_uninitialized(threshold + 1, threshold + 1) };
+    let mut res =
+        unsafe { DMatrix::new_uninitialized(threshold + 1, threshold + 1) };
     // secret polynomials are bivariate, so res[i][j] = res[j][i]
     for i in 0..=threshold {
         for j in 0..=i {
@@ -180,7 +181,8 @@ fn lagrange_basis(j: usize, xs: &DVector<Scalar>) -> DVector<Scalar> {
     let mut den = Scalar::one(); // denominator
     for (k, xk) in xs.iter().enumerate() {
         if k != j {
-            num = poly_prod(num, DVector::from_vec(vec![-(*xk), Scalar::one()]));
+            num =
+                poly_prod(num, DVector::from_vec(vec![-(*xk), Scalar::one()]));
             den *= xs[j] - *xk
         }
     }
@@ -188,7 +190,9 @@ fn lagrange_basis(j: usize, xs: &DVector<Scalar>) -> DVector<Scalar> {
     num.map(|v| v * den)
 }
 
-pub fn lagrange_interpolate(points: DVector<(Scalar, Scalar)>) -> DVector<Scalar> {
+pub fn lagrange_interpolate(
+    points: DVector<(Scalar, Scalar)>,
+) -> DVector<Scalar> {
     let xs = points.map(|(x, _)| x);
     let ys = points.map(|(_, y)| y);
     let mut res = DVector::from_vec(Vec::new());

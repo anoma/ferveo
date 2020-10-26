@@ -30,7 +30,9 @@ DEALINGS IN THE SOFTWARE.
 */
 
 use bls12_381::Scalar;
-use digest::generic_array::{typenum::Unsigned, typenum::U48, ArrayLength, GenericArray};
+use digest::generic_array::{
+    typenum::Unsigned, typenum::U48, ArrayLength, GenericArray,
+};
 use digest::{BlockInput, Digest, ExtendableOutput, Update};
 use std::marker::PhantomData;
 
@@ -46,8 +48,11 @@ where
 
     let mut ret = Vec::<T>::with_capacity(count);
     for idx in 0..count {
-        let bytes_to_convert = &pseudo_random_bytes[idx * len_per_elm..(idx + 1) * len_per_elm];
-        let bytes_arr = GenericArray::<u8, <T as FromRO>::Length>::from_slice(bytes_to_convert);
+        let bytes_to_convert =
+            &pseudo_random_bytes[idx * len_per_elm..(idx + 1) * len_per_elm];
+        let bytes_arr = GenericArray::<u8, <T as FromRO>::Length>::from_slice(
+            bytes_to_convert,
+        );
         ret.push(T::from_ro(bytes_arr));
     }
 
@@ -75,7 +80,9 @@ impl<T: BaseFromRO> FromRO for T {
 pub trait BaseFromRO {
     type BaseLength: ArrayLength<u8>;
 
-    fn from_okm(okm: &GenericArray<u8, <Self as BaseFromRO>::BaseLength>) -> Self;
+    fn from_okm(
+        okm: &GenericArray<u8, <Self as BaseFromRO>::BaseLength>,
+    ) -> Self;
 }
 
 /// Trait for types implementing expand_message interface for hash_to_field
@@ -123,7 +130,9 @@ where
             panic!("ell was too big in expand_message_xmd");
         }
         let b_0 = HashT::new()
-            .chain(GenericArray::<u8, <HashT as BlockInput>::BlockSize>::default())
+            .chain(
+                GenericArray::<u8, <HashT as BlockInput>::BlockSize>::default(),
+            )
             .chain(msg)
             .chain([(len_in_bytes >> 8) as u8, len_in_bytes as u8, 0_u8])
             .chain(dst)
@@ -144,7 +153,8 @@ where
 
         for idx in 1..ell {
             // b_0 XOR b_(idx - 1)
-            let mut tmp = GenericArray::<u8, <HashT as Digest>::OutputSize>::default();
+            let mut tmp =
+                GenericArray::<u8, <HashT as Digest>::OutputSize>::default();
             b_0.iter()
                 .zip(&b_vals[(idx - 1) * b_in_bytes..idx * b_in_bytes])
                 .enumerate()

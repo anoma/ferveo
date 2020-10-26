@@ -16,7 +16,8 @@ fn dst() -> Vec<u8> {
 // coefficients for a set of public keys
 fn coeffs(pubkeys: &[G1Affine]) -> Vec<Scalar> {
     // compressed public keys
-    let cpks: Vec<[u8; 48]> = pubkeys.iter().map(G1Affine::to_compressed).collect();
+    let cpks: Vec<[u8; 48]> =
+        pubkeys.iter().map(G1Affine::to_compressed).collect();
 
     cpks.iter()
         .cloned()
