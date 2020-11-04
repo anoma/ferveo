@@ -23,7 +23,7 @@ fn coeffs(pubkeys: &[G1Affine]) -> Vec<Scalar> {
         .cloned()
         .map(|cpk| {
             let mut bs = cpk.to_vec();
-            for cpk in cpks.iter() {
+            for cpk in &cpks {
                 for b in cpk.iter() {
                     bs.push(*b)
                 }

@@ -48,7 +48,7 @@ fn powers(x: Scalar, n: usize) -> Vec<Scalar> {
 }
 
 // Evaluate a public polynomial at a particular point.
-fn eval_public(f: Public, (x, y): (Scalar, Scalar)) -> G1Affine {
+fn eval_public(f: &Public, (x, y): (Scalar, Scalar)) -> G1Affine {
     let xi = powers(x, f.ncols() - 1); // x^i from 0 to ncols - 1
     let yj = powers(y, f.nrows() - 1); // y^j from 0 to nrows - 1
     f.map_with_location(|j, i, fij| fij * xi[i] * yj[j])
@@ -83,7 +83,7 @@ fn eval_share(f: &Share, x: Scalar) -> Scalar {
 }
 
 // Evaluate a secret polynomial at a particular point.
-fn eval_secret(f: Secret, (x, y): (Scalar, Scalar)) -> Scalar {
+fn eval_secret(f: &Secret, (x, y): (Scalar, Scalar)) -> Scalar {
     let xi = powers(x, f.ncols() - 1); // x^i from 0 to ncols - 1
     let yj = powers(y, f.nrows() - 1); // y^j from 0 to nrows - 1
     let mut res = Scalar::zero();
@@ -96,7 +96,10 @@ fn eval_secret(f: Secret, (x, y): (Scalar, Scalar)) -> Scalar {
 }
 
 // Generate a random secret polynomial of order `threshold`.
-fn random_secret<R: rand::Rng + Sized>(threshold: u32, mut rng: R) -> Secret {
+pub fn random_secret<R: rand::Rng + Sized>(
+    threshold: u32,
+    mut rng: R,
+) -> Secret {
     let threshold = threshold as usize;
     let mut res =
         unsafe { DMatrix::new_uninitialized(threshold + 1, threshold + 1) };
@@ -113,13 +116,13 @@ fn random_secret<R: rand::Rng + Sized>(threshold: u32, mut rng: R) -> Secret {
 }
 
 // Generate the public polynomial for a given secret polynomial.
-fn public(f: &Secret) -> Public {
+pub fn public(f: &Secret) -> Public {
     f.map(|fij| (G1Projective::generator() * fij).into())
 }
 
 // Generate the `j`th secret share
 fn share(f: &Secret, j: u32) -> Share {
-    eval_secret_x(f, (j as u64).into())
+    eval_secret_x(f, u64::from(j).into())
 }
 
 // Scalar exponentiation by u64. `exp(x, y) = x^y`
@@ -128,13 +131,13 @@ fn scalar_exp_u64(x: Scalar, y: u64) -> Scalar {
 }
 
 // Verify that the given share with index `i` is consistent with the public polynomial.
-fn verify_share(p: &Public, s: Share, i: u32) -> bool {
+fn verify_share(p: &Public, s: &Share, i: u32) -> bool {
     // ∀ l ∈ [0, t]. 1_{G1} * s_l = ∑_{j=0}^t (p_j_l * i^j)
     s.iter().enumerate().all(|(l, sl)| {
         let lhs = G1Projective::generator() * *sl;
         let mut rhs = G1Projective::identity();
         for (j, pj) in p.column_iter().enumerate() {
-            rhs += pj[l] * scalar_exp_u64((i as u64).into(), j as u64)
+            rhs += pj[l] * scalar_exp_u64(u64::from(i).into(), j as u64)
         }
         lhs == rhs
     })
@@ -142,8 +145,8 @@ fn verify_share(p: &Public, s: Share, i: u32) -> bool {
 
 // Verify that a given point from node `m` with index `i` is consistent with the public polynomial.
 fn verify_point(p: &Public, i: u32, m: u32, x: Scalar) -> bool {
-    let i = Scalar::from(i as u64);
-    let m = Scalar::from(m as u64);
+    let i = Scalar::from(u64::from(i));
+    let m = Scalar::from(u64::from(m));
 
     // 1_{G1} * x = ∑_{j,l=0}^t (p_j_l * m^j * i^l)
     let lhs = G1Projective::generator() * x;
@@ -165,7 +168,7 @@ fn poly_sum(x: DVector<Scalar>, y: DVector<Scalar>) -> DVector<Scalar> {
 }
 
 // Polynomial product
-fn poly_prod(x: DVector<Scalar>, y: DVector<Scalar>) -> DVector<Scalar> {
+fn poly_prod(x: &DVector<Scalar>, y: &DVector<Scalar>) -> DVector<Scalar> {
     let mut res = DVector::from_element(x.len() + y.len() - 1, Scalar::zero());
     for (i, xi) in x.iter().enumerate() {
         for (j, yj) in y.iter().enumerate() {
@@ -181,8 +184,10 @@ fn lagrange_basis(j: usize, xs: &DVector<Scalar>) -> DVector<Scalar> {
     let mut den = Scalar::one(); // denominator
     for (k, xk) in xs.iter().enumerate() {
         if k != j {
-            num =
-                poly_prod(num, DVector::from_vec(vec![-(*xk), Scalar::one()]));
+            num = poly_prod(
+                &num,
+                &DVector::from_vec(vec![-(*xk), Scalar::one()]),
+            );
             den *= xs[j] - *xk
         }
     }
@@ -191,7 +196,7 @@ fn lagrange_basis(j: usize, xs: &DVector<Scalar>) -> DVector<Scalar> {
 }
 
 pub fn lagrange_interpolate(
-    points: DVector<(Scalar, Scalar)>,
+    points: &DVector<(Scalar, Scalar)>,
 ) -> DVector<Scalar> {
     let xs = points.map(|(x, _)| x);
     let ys = points.map(|(_, y)| y);
@@ -223,7 +228,7 @@ mod tests {
         let secret = random_secret(threshold, rand::thread_rng());
         let public = public(&secret);
         for i in 0..(threshold * 2) {
-            assert!(verify_share(&public, share(&secret, i), i))
+            assert!(verify_share(&public, &share(&secret, i), i))
         }
     }
 
