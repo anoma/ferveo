@@ -98,7 +98,7 @@ fn eval_secret(f: &Secret, (x, y): (Scalar, Scalar)) -> Scalar {
 // Generate a random secret polynomial of order `threshold`.
 pub fn random_secret<R: rand::Rng + Sized>(
     threshold: u32,
-    mut rng: R,
+    rng: &mut R,
 ) -> Secret {
     let threshold = threshold as usize;
     let mut res =
@@ -106,7 +106,7 @@ pub fn random_secret<R: rand::Rng + Sized>(
     // secret polynomials are bivariate, so res[i][j] = res[j][i]
     for i in 0..=threshold {
         for j in 0..=i {
-            res[(j, i)] = <Scalar as ff::Field>::random(&mut rng);
+            res[(j, i)] = <Scalar as ff::Field>::random(&mut *rng);
             if i != j {
                 res[(i, j)] = res[(j, i)]
             }
@@ -214,7 +214,7 @@ mod tests {
     #[test]
     fn random_secret_is_symmetric() {
         let threshold = 40;
-        let secret = random_secret(threshold, rand::thread_rng());
+        let secret = random_secret(threshold, &mut rand::thread_rng());
         for i in 0..(threshold as usize) {
             for j in 0..i {
                 assert!(secret[(i, j)] == secret[(j, i)])
@@ -225,7 +225,7 @@ mod tests {
     #[test]
     fn share_verification() {
         let threshold = 10;
-        let secret = random_secret(threshold, rand::thread_rng());
+        let secret = random_secret(threshold, &mut rand::thread_rng());
         let public = public(&secret);
         for i in 0..(threshold * 2) {
             assert!(verify_share(&public, &share(&secret, i), i))
@@ -235,7 +235,7 @@ mod tests {
     #[test]
     fn point_verification() {
         let threshold = 7;
-        let secret = random_secret(threshold, rand::thread_rng());
+        let secret = random_secret(threshold, &mut rand::thread_rng());
         let public = public(&secret);
         for i in 0..threshold {
             let share = share(&secret, i);

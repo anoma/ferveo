@@ -3,10 +3,14 @@ use ferveo::poly;
 
 // generating public polynomials
 pub fn bench_public(c: &mut Criterion) {
-    fn gen_public(threshold: u32) {
-        let secret = poly::random_secret(threshold, rand::thread_rng());
+    // use a fixed seed for reproducability
+    use rand::SeedableRng;
+    let mut rng = rand::rngs::StdRng::seed_from_u64(0);
+
+    let mut gen_public = |threshold: u32| {
+        let secret = poly::random_secret(threshold, &mut rng);
         let _public = poly::public(&secret);
-    }
+    };
 
     let mut group = c.benchmark_group("generate public polynomials");
     group.sample_size(10);
