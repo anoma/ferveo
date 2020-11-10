@@ -197,6 +197,7 @@ impl BaseFromRO for Scalar {
         for (i, b) in okm[24..].iter().rev().enumerate() {
             le_bytes[i] = *b
         }
-        res + Scalar::from_bytes(&le_bytes).unwrap()
+        res += Scalar::from_bytes(&le_bytes).unwrap();
+        res
     }
 }
