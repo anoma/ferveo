@@ -31,3 +31,7 @@ criterion = "0.3.3"
 [[bench]]
 name = "benchmarks"
 harness = false
+
+# Optimizations are needed such that the tests run in a reasonable timeframe
+[profile.test]
+opt-level = 3
