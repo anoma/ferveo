@@ -14,6 +14,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "anyhow"
+version = "1.0.40"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "28b2cd92db5cbd74e8e5028f7e27dd7aa3090e89e4f2a197cc7c8dfb69c7063b"
+
+[[package]]
 name = "ark-bls12-381"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -27,8 +33,7 @@ dependencies = [
 [[package]]
 name = "ark-ec"
 version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c56006994f509d76fbce6f6ffe3108f7191b4f3754ecd00bbae7cac20ec05020"
+source = "git+https://github.com/arkworks-rs/algebra.git#e504bdafdbeb97fab86cc5726ee413b1d7236662"
 dependencies = [
  "ark-ff",
  "ark-serialize",
@@ -41,8 +46,7 @@ dependencies = [
 [[package]]
 name = "ark-ff"
 version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a4d8802d40fce9212c5c09be08f75c4b3becc0c488e87f60fff787b01250ce33"
+source = "git+https://github.com/arkworks-rs/algebra.git#e504bdafdbeb97fab86cc5726ee413b1d7236662"
 dependencies = [
  "ark-ff-asm",
  "ark-ff-macros",
@@ -57,8 +61,7 @@ dependencies = [
 [[package]]
 name = "ark-ff-asm"
 version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3e8cb28c2137af1ef058aa59616db3f7df67dbb70bf2be4ee6920008cc30d98c"
+source = "git+https://github.com/arkworks-rs/algebra.git#e504bdafdbeb97fab86cc5726ee413b1d7236662"
 dependencies = [
  "quote",
  "syn",
@@ -67,8 +70,7 @@ dependencies = [
 [[package]]
 name = "ark-ff-macros"
 version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0b9c256a93a10ed9708c16a517d6dcfaba3d215c0d7fab44d29a9affefb5eeb8"
+source = "git+https://github.com/arkworks-rs/algebra.git#e504bdafdbeb97fab86cc5726ee413b1d7236662"
 dependencies = [
  "num-bigint 0.4.0",
  "num-traits",
@@ -92,8 +94,7 @@ dependencies = [
 [[package]]
 name = "ark-serialize"
 version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3e9b59329dc9b92086b3dc619f31cef4a0c802f10829b575a3666d48a48387d"
+source = "git+https://github.com/arkworks-rs/algebra.git#e504bdafdbeb97fab86cc5726ee413b1d7236662"
 dependencies = [
  "ark-serialize-derive",
  "ark-std",
@@ -102,8 +103,7 @@ dependencies = [
 [[package]]
 name = "ark-serialize-derive"
 version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5ac3d78c750b01f5df5b2e76d106ed31487a93b3868f14a7f0eb3a74f45e1d8a"
+source = "git+https://github.com/arkworks-rs/algebra.git#e504bdafdbeb97fab86cc5726ee413b1d7236662"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -356,6 +356,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "dusk-bls12_381"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a508bb2fece7b19a8cd95cca4d1ec7465aa2f5784286bbdb006ec853918b80f9"
+dependencies = [
+ "byteorder",
+ "rand_core",
+ "rayon",
+ "serde",
+ "subtle",
+]
+
+[[package]]
 name = "either"
 version = "1.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -365,6 +378,7 @@ checksum = "e78d4f1cc4ae33bbfc157ed5d5a5ef3bc29227303d595861deb238fcec4e9457"
 name = "ferveo"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "ark-bls12-381",
  "ark-ec",
  "ark-ff",
@@ -374,14 +388,19 @@ dependencies = [
  "bls12_381",
  "criterion",
  "digest",
+ "dusk-bls12_381",
  "either",
  "ff",
+ "group",
  "hex",
- "itertools 0.10.0",
  "miracl_core",
+ "ndarray",
  "num",
  "rand",
+ "rand_chacha",
+ "rayon",
  "sha2",
+ "thiserror",
 ]
 
 [[package]]
@@ -530,6 +549,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "matrixmultiply"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "916806ba0031cd542105d916a97c8572e1fa6dd79c9c51e7eb43a09ec2dd84c1"
+dependencies = [
+ "rawpointer",
+]
+
+[[package]]
 name = "memchr"
 version = "2.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -549,6 +577,19 @@ name = "miracl_core"
 version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94c7128ba23c81f6471141b90f17654f89ef44a56e14b8a4dd0fddfccd655277"
+
+[[package]]
+name = "ndarray"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c0d5c9540a691d153064dc47a4db2504587a75eae07bf1d73f7a596ebc73c04"
+dependencies = [
+ "matrixmultiply",
+ "num-complex",
+ "num-integer",
+ "num-traits",
+ "rawpointer",
+]
 
 [[package]]
 name = "num"
@@ -793,6 +834,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "rawpointer"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "60a357793950651c4ed0f3f52338f53b2f809f32d83a07f72909fa13e4c6c1e3"
+
+[[package]]
 name = "rayon"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1000,6 +1047,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d326610f408c7a4eb6f51c37c330e496b08506c9457c9d34287ecc38809fb060"
 dependencies = [
  "unicode-width",
+]
+
+[[package]]
+name = "thiserror"
+version = "1.0.24"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e0f4a65597094d4483ddaed134f409b2cb7c1beccf25201a9f73c719254fa98e"
+dependencies = [
+ "thiserror-impl",
+]
+
+[[package]]
+name = "thiserror-impl"
+version = "1.0.24"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7765189610d8241a44529806d6fd1f2e0a08734313a35d5b3a556f92b381f3c0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

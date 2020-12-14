@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 pub mod bls;
 pub mod fft;
 pub mod hash_to_curve;
