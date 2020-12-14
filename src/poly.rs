@@ -4,6 +4,7 @@ Operations involving polynomials.
 
 use bls12_381::{G1Affine, G1Projective, Scalar};
 use nalgebra::base::{DMatrix, DVector};
+use crate::fft;
 
 /*
 A Public polynomial, used during the setup phase.
@@ -120,9 +121,46 @@ pub fn public(f: &Secret) -> Public {
     f.map(|fij| (G1Projective::generator() * fij).into())
 }
 
+pub fn public_wnaf(f: &Secret) -> DMatrix<G1Projective> {
+    let mut wnaf = group::Wnaf::new();
+    let mut wnaf_generator = wnaf.base(G1Projective::generator(), f.ncols()*f.nrows());
+    f.map(|fij| (wnaf_generator.scalar(&fij)))
+}
+
 // Generate the `j`th secret share
-fn share(f: &Secret, j: u32) -> Share {
+pub fn share(f: &Secret, j: u32) -> Share {
     eval_secret_x(f, u64::from(j).into())
+}
+
+/// Generate `participants` many secret shares 
+pub fn multi_share(f: &Secret, participants: usize) -> Vec<Share> {
+    let (omega, log_n) = fft::domain(participants)
+        .expect("field is not smooth enough to construct domain");
+
+    let num_eval_pts = usize::max(participants.into(), f.ncols()).next_power_of_two();
+
+    let mut evals = Vec::with_capacity(f.nrows());
+    for c in f.column_iter() {
+        let mut row = Vec::with_capacity(num_eval_pts);
+        row.extend(c.iter());
+        row.resize(num_eval_pts, Scalar::zero());
+        fft::fft(&mut row, omega, log_n);
+        evals.push(row);
+    }
+    let mut shares = Vec::with_capacity(f.nrows());
+    let mut evals_iters : Vec<_>= evals.iter_mut().map(|e| e.iter()).collect();
+    
+    for _ in 0..f.nrows() {
+        let mut share = Vec::with_capacity(num_eval_pts);
+        for i in &mut evals_iters {
+            match i.next() {
+                Some(v) => share.push(v.clone()),
+                None => (),
+            };
+        }
+        shares.push(Share::from_vec(share));
+    }
+    shares
 }
 
 // Scalar exponentiation by u64. `exp(x, y) = x^y`
@@ -138,6 +176,21 @@ fn verify_share(p: &Public, s: &Share, i: u32) -> bool {
         let mut rhs = G1Projective::identity();
         for (j, pj) in p.column_iter().enumerate() {
             rhs += pj[l] * scalar_exp_u64(u64::from(i).into(), j as u64)
+        }
+        lhs == rhs
+    })
+}
+
+// Verify that the given share with x coordinate `x` is consistent with the public polynomial.
+fn verify_share_fft(p: &Public, s: &Share, x: Scalar) -> bool {
+    // ∀ l ∈ [0, t]. 1_{G1} * s_l = ∑_{j=0}^t (p_j_l * i^j)
+    s.iter().enumerate().all(|(l, sl)| {
+        let lhs = G1Projective::generator() * *sl;
+        let mut rhs = G1Projective::identity();
+        let mut X = Scalar::one();
+        for pj in p.column_iter() {
+            rhs += pj[l] * X;
+            X *= x; 
         }
         lhs == rhs
     })
@@ -243,6 +296,29 @@ mod tests {
                 let point = eval_share(&share, (j as u64).into());
                 assert!(verify_point(&public, j, i, point))
             }
+        }
+    }
+
+    #[test]
+    fn test_multi_share() {
+        let participants = 100u32;
+        let threshold = 50u32;
+
+        use rand::SeedableRng;
+        let mut rng = rand::rngs::StdRng::seed_from_u64(1u64);
+
+        let secret = random_secret(threshold, &mut rng);
+        let shares = multi_share(&secret, participants as usize);
+        let (omega,_) = fft::domain(participants as usize).unwrap();
+
+        let mut x = Scalar::one();
+        for share in shares.iter()
+        {
+            let actual = eval_secret_x(&secret, x);
+            for (coeff,actual_coeff) in share.iter().zip(actual.iter()) {
+                assert_eq!(coeff, actual_coeff);
+            }
+            x *= omega;
         }
     }
 }

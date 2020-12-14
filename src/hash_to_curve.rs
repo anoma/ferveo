@@ -2,7 +2,6 @@
 Hacky implementation of hash-to-curve using miracl_core.
 */
 
-
 #![allow(non_snake_case)]
 #![allow(clippy::many_single_char_names)]
 #![allow(clippy::zero_prefixed_literal)]
