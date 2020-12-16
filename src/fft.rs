@@ -1,5 +1,4 @@
-
-use bls12_381::{Scalar};
+use bls12_381::Scalar;
 
 /*pub fn dusk_to_scalar(s : dusk_bls12_381::BlsScalar) -> Scalar {
     Scalar::from_bytes(&s.to_bytes()).unwrap()

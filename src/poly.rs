@@ -2,9 +2,9 @@
 Operations involving polynomials.
 */
 
+use crate::fft;
 use bls12_381::{G1Affine, G1Projective, Scalar};
 use nalgebra::base::{DMatrix, DVector};
-use crate::fft;
 
 /*
 A Public polynomial, used during the setup phase.
@@ -123,7 +123,8 @@ pub fn public(f: &Secret) -> Public {
 
 pub fn public_wnaf(f: &Secret) -> DMatrix<G1Projective> {
     let mut wnaf = group::Wnaf::new();
-    let mut wnaf_generator = wnaf.base(G1Projective::generator(), f.ncols()*f.nrows());
+    let mut wnaf_generator =
+        wnaf.base(G1Projective::generator(), f.ncols() * f.nrows());
     f.map(|fij| (wnaf_generator.scalar(&fij)))
 }
 
@@ -132,12 +133,12 @@ pub fn share(f: &Secret, j: u32) -> Share {
     eval_secret_x(f, u64::from(j).into())
 }
 
-/// Generate `participants` many secret shares 
+/// Generate `participants` many secret shares
 pub fn multi_share(f: &Secret, participants: usize) -> Vec<Share> {
     let (omega, log_n) = fft::domain(participants)
         .expect("field is not smooth enough to construct domain");
 
-    let num_eval_pts = usize::max(participants.into(), f.ncols()).next_power_of_two();
+    let num_eval_pts = usize::max(participants, f.ncols()).next_power_of_two();
 
     let mut evals = Vec::with_capacity(f.nrows());
     for c in f.column_iter() {
@@ -148,15 +149,14 @@ pub fn multi_share(f: &Secret, participants: usize) -> Vec<Share> {
         evals.push(row);
     }
     let mut shares = Vec::with_capacity(f.nrows());
-    let mut evals_iters : Vec<_>= evals.iter_mut().map(|e| e.iter()).collect();
-    
+    let mut evals_iters: Vec<_> = evals.iter_mut().map(|e| e.iter()).collect();
+
     for _ in 0..f.nrows() {
         let mut share = Vec::with_capacity(num_eval_pts);
         for i in &mut evals_iters {
-            match i.next() {
-                Some(v) => share.push(v.clone()),
-                None => (),
-            };
+            if let Some(v) = i.next() {
+                share.push(*v);
+            }
         }
         shares.push(Share::from_vec(share));
     }
@@ -187,10 +187,10 @@ fn verify_share_fft(p: &Public, s: &Share, x: Scalar) -> bool {
     s.iter().enumerate().all(|(l, sl)| {
         let lhs = G1Projective::generator() * *sl;
         let mut rhs = G1Projective::identity();
-        let mut X = Scalar::one();
+        let mut var = Scalar::one();
         for pj in p.column_iter() {
-            rhs += pj[l] * X;
-            X *= x; 
+            rhs += pj[l] * var;
+            var *= x;
         }
         lhs == rhs
     })
@@ -309,13 +309,12 @@ mod tests {
 
         let secret = random_secret(threshold, &mut rng);
         let shares = multi_share(&secret, participants as usize);
-        let (omega,_) = fft::domain(participants as usize).unwrap();
+        let (omega, _) = fft::domain(participants as usize).unwrap();
 
         let mut x = Scalar::one();
-        for share in shares.iter()
-        {
+        for share in shares.iter() {
             let actual = eval_secret_x(&secret, x);
-            for (coeff,actual_coeff) in share.iter().zip(actual.iter()) {
+            for (coeff, actual_coeff) in share.iter().zip(actual.iter()) {
                 assert_eq!(coeff, actual_coeff);
             }
             x *= omega;
