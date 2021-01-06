@@ -13,7 +13,7 @@ For example, the polynomial
 is encoded as
 `vec![vec![c_0_0, ..., c_0_{t-1}], ..., vec![c_{t-1}_0, ..., c_{t-1}_{t-1}]]`.
 */
-type Public = DMatrix<G1Affine>;
+pub type Public = DMatrix<G1Affine>;
 
 /*
 A secret polynomial, used during the setup phase.
@@ -24,7 +24,7 @@ is encoded as
 `vec![vec![c_0_0, ..., c_0_{t-1}], ..., vec![c_{t-1}_0, ..., c_{t-1}_{t-1}]]`.
 */
 
-type Secret = DMatrix<Scalar>;
+pub type Secret = DMatrix<Scalar>;
 
 /*
 A secret share, used during the setup phase.
@@ -34,7 +34,7 @@ For example, the polynomial
 is encoded as
 `vec![c_0, ..., c_{t-1}]`.
 */
-type Share = DVector<Scalar>;
+pub type Share = DVector<Scalar>;
 
 // Powers of `x` from 0 to `n`.
 fn powers(x: Scalar, n: usize) -> Vec<Scalar> {
@@ -73,7 +73,7 @@ fn eval_secret_x(f: &Secret, x: Scalar) -> Share {
 }
 
 // Evaluate a share at a particular point.
-fn eval_share(f: &Share, x: Scalar) -> Scalar {
+pub fn eval_share(f: &Share, x: Scalar) -> Scalar {
     let xi = powers(x, f.len() - 1); // x^i from 0 to ncols - 1
     let mut res = Scalar::zero();
     for (i, fi) in f.iter().enumerate() {
@@ -121,7 +121,7 @@ pub fn public(f: &Secret) -> Public {
 }
 
 // Generate the `j`th secret share
-fn share(f: &Secret, j: u32) -> Share {
+pub fn share(f: &Secret, j: u32) -> Share {
     eval_secret_x(f, u64::from(j).into())
 }
 
@@ -131,7 +131,7 @@ fn scalar_exp_u64(x: Scalar, y: u64) -> Scalar {
 }
 
 // Verify that the given share with index `i` is consistent with the public polynomial.
-fn verify_share(p: &Public, s: &Share, i: u32) -> bool {
+pub fn verify_share(p: &Public, s: &Share, i: u32) -> bool {
     // ∀ l ∈ [0, t]. 1_{G1} * s_l = ∑_{j=0}^t (p_j_l * i^j)
     s.iter().enumerate().all(|(l, sl)| {
         let lhs = G1Projective::generator() * *sl;
@@ -144,7 +144,7 @@ fn verify_share(p: &Public, s: &Share, i: u32) -> bool {
 }
 
 // Verify that a given point from node `m` with index `i` is consistent with the public polynomial.
-fn verify_point(p: &Public, i: u32, m: u32, x: Scalar) -> bool {
+pub fn verify_point(p: &Public, i: u32, m: u32, x: Scalar) -> bool {
     let i = Scalar::from(u64::from(i));
     let m = Scalar::from(u64::from(m));
 

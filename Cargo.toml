@@ -18,6 +18,7 @@ ff = "0.8.0"
 hex = "0.4.2"
 miracl_core = "2.3.0"
 nalgebra = "0.22.1"
+num = "0.3.1"
 rand = "0.7.3"
 sha2 = "0.9.1"
 
@@ -27,6 +28,10 @@ features = ["alloc"]
 
 [dev-dependencies]
 criterion = "0.3.3"
+
+# local override for bls12-381
+[patch.crates-io]
+bls12_381 = { git = 'https://github.com/A-Manning/bls12_381.git', branch = "ash/scalar-traits" }
 
 [[bench]]
 name = "benchmarks"
