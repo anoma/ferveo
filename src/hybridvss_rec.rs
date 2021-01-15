@@ -101,22 +101,16 @@ impl Context {
     ) -> Option<Scalar> {
         let lhs = G1Projective::generator() * sigma;
         let rhs = (0..=self.t)
-            .map(|j| {
-                self.C[(j as usize, 0)] * scalar_exp_u64(u64::from(m).into(), j)
-            })
+            .map(|j| self.C[(j as usize, 0)] * scalar_exp_u64(m.into(), j))
             .sum();
         if lhs == rhs {
             self.S.insert((m, sigma));
             self.c += 1;
             if self.c == self.t + 1 {
                 // the points to use for lagrange interpolation
-                let points = self
-                    .S
-                    .iter()
-                    .map(|(m, s)| (u64::from(*m).into(), *s))
-                    .collect();
-                let points = DVector::from_vec(points);
-                let z = poly::lagrange_interpolate(&points);
+                let points =
+                    self.S.iter().map(|(m, s)| (u64::from(*m).into(), *s));
+                let z = poly::lagrange_interpolate(points);
                 let z_i = poly::eval_share(&z, Scalar::zero());
                 Some(z_i)
             } else {

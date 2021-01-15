@@ -179,7 +179,7 @@ fn poly_prod(x: &DVector<Scalar>, y: &DVector<Scalar>) -> DVector<Scalar> {
 }
 
 // lagrange basis polynomial L_n_j(x)
-fn lagrange_basis(j: usize, xs: &DVector<Scalar>) -> DVector<Scalar> {
+fn lagrange_basis(j: usize, xs: &Vec<Scalar>) -> DVector<Scalar> {
     let mut num = DVector::from_element(1, Scalar::one()); // numerator
     let mut den = Scalar::one(); // denominator
     for (k, xk) in xs.iter().enumerate() {
@@ -195,11 +195,11 @@ fn lagrange_basis(j: usize, xs: &DVector<Scalar>) -> DVector<Scalar> {
     num.map(|v| v * den)
 }
 
-pub fn lagrange_interpolate(
-    points: &DVector<(Scalar, Scalar)>,
-) -> DVector<Scalar> {
-    let xs = points.map(|(x, _)| x);
-    let ys = points.map(|(_, y)| y);
+pub fn lagrange_interpolate<I>(points: I) -> DVector<Scalar>
+where
+    I: IntoIterator<Item = (Scalar, Scalar)>,
+{
+    let (xs, ys): (Vec<Scalar>, Vec<Scalar>) = points.into_iter().unzip();
     let mut res = DVector::from_vec(Vec::new());
     for (j, yj) in ys.iter().enumerate() {
         res = poly_sum(res, lagrange_basis(j, &xs).map(|v| v * *yj))

@@ -4,8 +4,11 @@
 use crate::poly;
 
 use bls12_381::Scalar;
+use either::Either;
 use nalgebra::base::DVector;
+use num::integer::div_ceil;
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 
 pub struct Context {
     /* Map keyed by sha2-256 hashes of commitments.
@@ -28,34 +31,22 @@ pub struct Context {
 
 /* An "echo" message */
 pub struct Echo {
-    C: poly::Public,
+    C: Rc<poly::Public>,
     alpha: Scalar,
-}
-
-/* The response data for a "echo" message.
-Can be converted into a distinct `Ready` for each node. */
-pub struct EchoResponse {
-    C: poly::Public,
-    alpha: Vec<Scalar>,
 }
 
 /* A "ready" message */
 pub struct Ready {
-    C: poly::Public,
+    C: Rc<poly::Public>,
     alpha: Scalar,
 }
 
+type ReadyResponse = Either<Vec<Ready>, Shared>;
+
 /* A "send" message */
 pub struct Send {
-    C: poly::Public,
+    C: Rc<poly::Public>,
     a: poly::Share,
-}
-
-/* The response data for a "send" message.
-Can be converted into a distinct `Echo` for each node. */
-pub struct SendResponse {
-    C: poly::Public,
-    alpha: Vec<Scalar>,
 }
 
 /* A "share" message */
@@ -63,23 +54,10 @@ pub struct Share {
     s: Scalar,
 }
 
-/* The response data for a "share" message.
-Can be converted into a distinct `Send` for each node. */
-pub struct ShareResponse {
-    C: poly::Public,
-    a: Vec<poly::Share>,
-}
-
 /* A "shared" message */
 pub struct Shared {
-    C: poly::Public,
+    C: Rc<poly::Public>,
     s: Scalar,
-}
-
-/* The response data for a "ready" message */
-pub enum ReadyResponse {
-    Ready { C: poly::Public, alpha: Vec<Scalar> },
-    Shared(Shared),
 }
 
 // compute the sha2-256 hash of a public polynomial
@@ -201,22 +179,29 @@ impl Context {
         &self,
         rng: &mut R,
         Share { s }: Share,
-    ) -> ShareResponse {
+    ) -> Vec<Send> {
         let mut phi = poly::random_secret(self.t, rng);
         phi[(0, 0)] = s;
-        let C = poly::public(&phi);
-        let a = (0..self.n).map(|j| poly::share(&phi, j)).collect();
-        ShareResponse { a, C }
+        let C = Rc::new(poly::public(&phi));
+        (0..self.n)
+            .map(|j| Send {
+                C: C.clone(),
+                a: poly::share(&phi, j),
+            })
+            .collect()
     }
 
     /* Respond to a "send" message.
     Should only be accepted from the dealer. */
-    pub fn send(&self, Send { C, a }: Send) -> Option<SendResponse> {
+    pub fn send(&self, Send { C, a }: Send) -> Option<Vec<Echo>> {
         if poly::verify_share(&C, &a, self.i) {
-            let alpha = (0..self.n)
-                .map(|j| poly::eval_share(&a, u64::from(j).into()))
-                .collect();
-            Some(SendResponse { C, alpha })
+            (0..self.n)
+                .map(|j| Echo {
+                    C: C.clone(),
+                    alpha: poly::eval_share(&a, j.into()),
+                })
+                .collect::<Vec<Echo>>()
+                .into()
         } else {
             None
         }
@@ -227,7 +212,7 @@ impl Context {
         &mut self,
         m: u32,
         Echo { C, alpha }: Echo,
-    ) -> Option<EchoResponse> {
+    ) -> Option<Vec<Ready>> {
         if poly::verify_point(&C, self.i, m, alpha) {
             let C_hash = hash_public_poly(&C);
             insert_if_none(C_hash, HashSet::new(), &mut self.A);
@@ -237,21 +222,19 @@ impl Context {
             let e_C = *self.e.get(&C_hash).unwrap();
             let r_C = *self.r.get(&C_hash).unwrap_or(&0);
 
-            if e_C == num::integer::div_ceil(self.n + self.t + 1, 2)
-                && r_C < self.t + 1
-            {
+            if e_C == div_ceil(self.n + self.t + 1, 2) && r_C < self.t + 1 {
                 let A_C = self.A.get(&C_hash).unwrap();
                 // the points to use for lagrange interpolation
-                let points = A_C
-                    .iter()
-                    .map(|(m, a)| (u64::from(*m).into(), *a))
-                    .collect();
-                let points = DVector::from_vec(points);
-                let a_bar = poly::lagrange_interpolate(&points);
-                let alpha = (0..self.n)
-                    .map(|j| poly::eval_share(&a_bar, u64::from(j).into()))
-                    .collect::<Vec<Scalar>>();
-                Some(EchoResponse { C, alpha })
+                let points =
+                    A_C.iter().map(|(m, a)| (u64::from(*m).into(), *a));
+                let a_bar = poly::lagrange_interpolate(points);
+                (0..self.n)
+                    .map(|j| Ready {
+                        C: C.clone(),
+                        alpha: poly::eval_share(&a_bar, j.into()),
+                    })
+                    .collect::<Vec<Ready>>()
+                    .into()
             } else {
                 None
             }
@@ -276,23 +259,20 @@ impl Context {
 
             let A_C = self.A.get(&C_hash).unwrap();
             // the points to use for lagrange interpolation
-            let points = A_C
-                .iter()
-                .map(|(m, a)| (u64::from(*m).into(), *a))
-                .collect();
-            let points = DVector::from_vec(points);
-            let a_bar = poly::lagrange_interpolate(&points);
+            let points = A_C.iter().map(|(m, a)| (u64::from(*m).into(), *a));
+            let a_bar = poly::lagrange_interpolate(points);
 
-            if e_C < num::integer::div_ceil(self.n + self.t + 1, 2)
-                && r_C == self.t + 1
-            {
-                let alpha = (0..self.n)
-                    .map(|j| poly::eval_share(&a_bar, u64::from(j).into()))
-                    .collect::<Vec<Scalar>>();
-                Some(ReadyResponse::Ready { C, alpha })
+            if e_C < div_ceil(self.n + self.t + 1, 2) && r_C == self.t + 1 {
+                let ready_messages = (0..self.n)
+                    .map(|j| Ready {
+                        C: C.clone(),
+                        alpha: poly::eval_share(&a_bar, j.into()),
+                    })
+                    .collect();
+                Some(Either::Left(ready_messages))
             } else if r_C == self.n - self.t - self.f {
                 let s = poly::eval_share(&a_bar, Scalar::zero());
-                Some(ReadyResponse::Shared(Shared { C, s }))
+                Some(Either::Right(Shared { C, s }))
             } else {
                 None
             }

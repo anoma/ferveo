@@ -259,6 +259,7 @@ dependencies = [
  "bls12_381",
  "criterion",
  "digest",
+ "either",
  "ff",
  "hex",
  "miracl_core",
