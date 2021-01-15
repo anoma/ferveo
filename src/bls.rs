@@ -41,7 +41,7 @@ fn compressed_bytevec(g1: &G1Affine) -> Vec<u8> {
 }
 
 // sign a message with signature in G2
-fn sign_g2(secret: Scalar, msg: &[u8]) -> G2Affine {
+pub fn sign_g2(secret: Scalar, msg: &[u8]) -> G2Affine {
     (hash_to_g2(msg) * secret).into()
 }
 

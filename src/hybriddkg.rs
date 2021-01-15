@@ -140,7 +140,7 @@ fn ready(
 }
 
 /* Finalize after receiving shared-output messages */
-fn finalize(
+pub fn finalize(
     q: HashSet<Scalar>,
     shares: HashMap<Scalar, Scalar>, // map of P_d to s_(i, d)
 ) -> Scalar {
@@ -161,7 +161,7 @@ pub enum LeadChAction {
     Delay,
 }
 
-fn lead_ch(
+pub fn lead_ch(
     t: u32,         // threshold
     f: u32,         // the failure threshold
     l: &mut Scalar, // the leader
