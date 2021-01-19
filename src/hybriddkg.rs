@@ -1,105 +1,25 @@
 #![allow(clippy::many_single_char_names)]
+#![allow(non_snake_case)]
 
+use crate::bls;
 use crate::poly;
 
-use bls12_381::{G1Projective, Scalar};
+use bls12_381::{G1Projective, G2Affine, Scalar};
+use num::integer::div_ceil;
 use std::collections::hash_map::DefaultHasher;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::rc::Rc;
 
-pub struct Send {
-    lead: Scalar,
-    q: HashSet<Scalar>,
-    r_slash_m: HashSet<Scalar>,
-}
-
-pub enum SharedAction {
-    Delay,
-    Send(Send),
-}
-
-/* Respond to a "shared" message. */
-pub fn shared(
-    lead: Scalar, // public key for the leader
-    p_i: Scalar,  // public key for this node
-    t: u32,       // threshold
-    q_hat: &mut HashSet<Scalar>,
-    r_hat: &mut HashSet<Scalar>,
-    q_bar: &mut HashSet<Scalar>,
-    p_d: Scalar, // public key for the dealer
-    r_d: Scalar,
-) -> Option<SharedAction> {
-    q_hat.insert(p_d);
-    r_hat.insert(r_d);
-    if q_hat.len() == (t as usize) + 1 && q_bar.is_empty() {
-        if p_i == lead {
-            SharedAction::Send(Send {
-                lead,
-                q: q_hat.clone(),
-                r_slash_m: r_hat.clone(),
-            })
-            .into()
-        } else {
-            Some(SharedAction::Delay)
-        }
-    } else {
-        None
-    }
-}
-
-// FIXME: What is this supposed to do???
-fn verify_signature(q: &HashSet<Scalar>, _r_slash_m: &HashSet<Scalar>) -> bool {
-    true
-}
-
+/* An "echo" message */
 pub struct Echo {
-    lead: Scalar,
-    q: HashSet<Scalar>,
+    q: BTreeSet<u32>, // a set of node indexes
+                      // FIXME: add r/m
 }
 
-/* Respond to a "send" message. */
-pub fn send(
-    q_bar: &HashSet<Scalar>,
-    Send { lead, q, r_slash_m }: Send,
-) -> Option<Echo> {
-    if verify_signature(&q, &r_slash_m) && (q_bar.is_empty() || *q_bar == q) {
-        Some(Echo { lead, q })
-    } else {
-        None
-    }
-}
-
+/* A "ready" message */
 pub struct Ready {
-    lead: Scalar,
-    q: HashSet<Scalar>,
-}
-
-/* Respond to an "echo" message. */
-fn echo(
-    n: u32,                                         // number of nodes
-    t: u32,                                         // threshold
-    echo_counts: &mut HashMap<(Scalar, u64), u32>, // FIXME: is 64 bits appropriate?
-    ready_counts: &mut HashMap<(Scalar, u64), u32>, // FIXME: is 64 bits appropriate?
-    q_bar: &mut HashSet<Scalar>,
-    Echo { lead, q }: Echo,
-) -> Option<Ready> {
-    use std::hash::{Hash, Hasher};
-    let mut hasher = DefaultHasher::new();
-    q.iter().for_each(|pk| pk.hash(&mut hasher));
-    let q_hash = hasher.finish();
-    let echo_count = echo_counts
-        .get(&(lead, q_hash))
-        .map(|count| count + 1)
-        .unwrap_or(1);
-    echo_counts.insert((lead, q_hash), echo_count);
-    let ready_count = *ready_counts.get(&(lead, q_hash)).unwrap_or(&0);
-    if echo_count == num::integer::div_ceil(n + t + 1, 2) && ready_count < t + 1
-    {
-        *q_bar = q_bar.union(&q).cloned().collect();
-        // FIXME: What should happen to M-bar?
-        Some(Ready { lead, q })
-    } else {
-        None
-    }
+    q: BTreeSet<u32>, // a set of node indexes
+                      // FIXME: add r/m
 }
 
 pub enum ReadyAction {
@@ -107,136 +27,259 @@ pub enum ReadyAction {
     Complete,
 }
 
-/* Respond to a "ready" message. */
-fn ready(
-    n: u32,                                         // number of nodes
-    t: u32,                                         // threshold
-    f: u32,                                         // the failure threshold
-    echo_counts: &mut HashMap<(Scalar, u64), u32>, // FIXME: is 64 bits appropriate?
-    ready_counts: &mut HashMap<(Scalar, u64), u32>, // FIXME: is 64 bits appropriate?
-    q_bar: &mut HashSet<Scalar>,
-    Ready { lead, q }: Ready,
-) -> Option<ReadyAction> {
-    use std::hash::{Hash, Hasher};
-    let mut hasher = DefaultHasher::new();
-    q.iter().for_each(|pk| pk.hash(&mut hasher));
-    let q_hash = hasher.finish();
-    let ready_count = ready_counts
-        .get(&(lead, q_hash))
-        .map(|count| count + 1)
-        .unwrap_or(1);
-    ready_counts.insert((lead, q_hash), ready_count);
-    let echo_count = *echo_counts.get(&(lead, q_hash)).unwrap_or(&0);
-    if ready_count == t + 1 && echo_count < num::integer::div_ceil(n + t + 1, 2)
-    {
-        *q_bar = q_bar.union(&q).cloned().collect();
-        // FIXME: What should happen to M-bar?
-        ReadyAction::Ready(Ready { lead, q }).into()
-    } else if ready_count == n - t - f {
-        ReadyAction::Complete.into()
-    } else {
-        None
+/* A "send" message */
+pub struct Send {
+    q: BTreeSet<u32>, // a set of node indexes
+                      // FIXME: add r/m
+}
+
+/* A "shared" message */
+pub struct Shared {
+    C: poly::Public, // a dealer commitment
+    d: u32,          // the dealer index
+    s_id: Scalar,    // the share for node i from the dealer
+                     // FIXME: add R_d
+}
+
+pub enum SharedAction {
+    Delay,
+    Send(Send),
+}
+
+pub struct Context {
+    /* Counters for `echo` messages.
+    The keys of the map are sha2-256 hashes of q sets. */
+    e: HashMap<[u8; 32], u32>,
+    f: u32,      // failure threshold
+    i: u32,      // index of this node's public key in `p`
+    l: u32,      // index of the leader's public key in `p`
+    l_next: u32, // index of the next leader's public key in `p`
+    /* Counters for `lead-ch` messages.
+    The index of the map is the leader index. */
+    lc: HashMap<u8, u32>,
+    lc_flag: bool, // leader count flag
+    // FIXME: m_bar
+    n: u32,               // number of nodes in the setup
+    p: Vec<Scalar>,       // sorted public keys for all participant nodes
+    q_bar: BTreeSet<u32>, // set of node indexes
+    q_hat: BTreeSet<u32>, // set of node indexes
+    /* Counters for `ready` messages.
+    The keys of the map are sha2-256 hashes of (l, q) pairs. */
+    r: HashMap<[u8; 32], u32>,
+    // FIXME: r_hat
+    t: u32,   // threshold
+    tau: u32, // session identifier
+}
+
+/* Inserts the provided value if the key is not present in the map. */
+fn insert_if_none<K, V>(k: K, v: V, m: &mut HashMap<K, V>)
+where
+    K: std::cmp::Eq + std::hash::Hash,
+{
+    if !m.contains_key(&k) {
+        m.insert(k, v);
     }
 }
 
-/* Finalize after receiving shared-output messages */
-pub fn finalize(
-    q: HashSet<Scalar>,
-    shares: HashMap<Scalar, Scalar>, // map of P_d to s_(i, d)
-) -> Scalar {
-    let s = q.iter().filter_map(|p_d| shares.get(p_d)).product();
-    // FIXME: What is supposed to happen with C?
-    s
+/* If the key exists in the map,
+returns a reference to the value at that key.
+Otherwise, inserts the provided value,
+and returns a reference to it. */
+fn get_or_insert<K, V>(k: K, v: V, m: &mut HashMap<K, V>) -> &V
+where
+    K: Copy + std::cmp::Eq + std::hash::Hash,
+{
+    insert_if_none(k, v, m);
+    m.get(&k).unwrap()
 }
 
-pub struct LeadCh {
-    l_bar: Scalar,
-    q: HashSet<Scalar>,
-    r_slash_m: HashSet<Scalar>,
+/* If the key exists in the map,
+returns a mutable reference to the value at that key.
+Otherwise, inserts the provided value,
+and returns a mutable reference to it. */
+fn get_mut_or_insert<K, V>(k: K, v: V, m: &mut HashMap<K, V>) -> &mut V
+where
+    K: Copy + std::cmp::Eq + std::hash::Hash,
+{
+    insert_if_none(k, v, m);
+    m.get_mut(&k).unwrap()
 }
 
-pub enum LeadChAction {
-    LeadCh(LeadCh),
-    Send(Send),
-    Delay,
+// Hash an (L, Q) pair
+fn hash_LQ(L: u32, Q: &BTreeSet<u32>) -> [u8; 32] {
+    use digest::Digest;
+    let mut hasher = sha2::Sha256::new();
+    hasher.update(L.to_le_bytes());
+    Q.iter().for_each(|j| hasher.update(j.to_le_bytes()));
+    hasher.finalize().into()
 }
 
-pub fn lead_ch(
-    t: u32,         // threshold
-    f: u32,         // the failure threshold
-    l: &mut Scalar, // the leader
-    l_next: &mut Scalar,
-    lc_flag: bool,
-    lead_ch_counts: &mut HashMap<Scalar, u32>,
-    m: HashSet<Scalar>,
-    m_bar: &mut HashSet<Scalar>,
-    p_i: Scalar, // public key for this node
-    q_bar: &mut HashSet<Scalar>,
-    q_hat: &mut HashSet<Scalar>,
-    r: HashSet<Scalar>,
-    r_hat: &mut HashSet<Scalar>,
-    LeadCh {
-        l_bar,
-        q,
-        r_slash_m,
-    }: LeadCh,
-) -> Option<LeadChAction> {
-    if !(l_bar > *l && verify_signature(&q, &r_slash_m)) {
-        None
-    } else {
-        let lc_l_bar = lead_ch_counts
-            .get(&l_bar)
-            .map(|count| count + 1)
-            .unwrap_or(1);
-        lead_ch_counts.insert(l_bar, lc_l_bar);
-        *l_next = std::cmp::min(*l_next, l_bar);
-        if r_slash_m == r {
-            *q_hat = q_hat.union(&q).cloned().collect();
-            *r_hat = r_hat.union(&r).cloned().collect();
-        } else {
-            *q_bar = q_bar.union(&q).cloned().collect();
-            *m_bar = m_bar.union(&m).cloned().collect();
+impl Context {
+    /* Initialize node with
+    failure threshold `f`,
+    node index `i`,
+    leader index `l`,
+    participant node public keys `p`,
+    threshold `t`,
+    and session identifier `tau`. */
+    pub fn init(
+        f: u32,       // failure threshold
+        i: u32,       // index of this node's public key in `p`
+        l: u32,       // index of the leader's public key in `p`
+        p: &[Scalar], // sorted public keys for all participant nodes
+        /* signatures on a lead-ch message for the current leader */
+        // FIXME: do these all use the same values for q/rm?
+        //sigs: &[u32, G2Affine],
+        t: u32,   // threshold
+        tau: u32, // session identifier
+    ) -> Self {
+        use std::convert::TryInto;
+        let n: u32 = p.len().try_into().unwrap();
+        if n <= i {
+            panic!(
+                "Cannot initialize node with index `{}` with fewer than \
+                   `{}` participant node public keys.",
+                i,
+                i + 1
+            )
         }
-        let lc_l = *lead_ch_counts.get(&l).unwrap_or(&0);
-        if lc_l == t + f + 1 && lc_flag == false {
-            if q_bar.is_empty() {
-                Some(LeadChAction::LeadCh(LeadCh {
-                    l_bar: *l_next,
-                    q: q_hat.clone(),
-                    r_slash_m: r_hat.clone(),
+        if n <= l {
+            panic!(
+                "Cannot set leader index to `{}` with fewer than \
+                   `{}` participant node public keys.",
+                l,
+                l + 1
+            )
+        }
+        if n < t {
+            panic!(
+                "Cannot set threshold to `{t}` with fewer than \
+                   `{t}` participant node public keys.",
+                t = t,
+            )
+        }
+        if n < t + f {
+            panic!(
+                "Sum of threshold (`{t}`) and failure threshold (`{f}`) \
+                    must be less than or equal to the number of participant \
+                    nodes (`{n}`)",
+                t = t,
+                f = f,
+                n = n,
+            )
+        }
+        let p = p.to_vec();
+        // TODO: use is_sorted once this is stable
+        let mut p_sorted = p.clone();
+        p_sorted.sort_unstable();
+        if p != p_sorted {
+            panic!("Participant node public keys must be sorted.")
+        }
+
+        let e = HashMap::new();
+        let l_next = (l + n - 1) % n; //FIXME: is this correct?
+        let lc = HashMap::new();
+        let lc_flag = false;
+        let q_bar = BTreeSet::new();
+        let q_hat = BTreeSet::new();
+        let r = HashMap::new();
+
+        Context {
+            e,
+            f,
+            i,
+            l,
+            l_next,
+            lc,
+            lc_flag,
+            n,
+            p,
+            q_bar,
+            q_hat,
+            r,
+            t,
+            tau,
+        }
+    }
+
+    /* Respond to a "shared" message. */
+    pub fn shared(
+        &mut self,
+        Shared { C, d, s_id }: Shared,
+    ) -> Option<SharedAction> {
+        self.q_hat.insert(d);
+        if self.q_hat.len() == (self.t as usize) + 1 && self.q_bar.is_empty() {
+            if self.i == self.l {
+                Some(SharedAction::Send(Send {
+                    q: self.q_hat.clone(),
+                    // FIXME: add r/m
                 }))
             } else {
-                Some(LeadChAction::LeadCh(LeadCh {
-                    l_bar: *l_next,
-                    q: q_bar.clone(),
-                    r_slash_m: m_bar.clone(),
-                }))
-            }
-        } else if true {
-            // FIXME: what happens to m_bar and r_hat here?
-            *l = l_bar;
-            // FIXME: take predecessor l_next = pred l
-            lead_ch_counts.remove(l);
-            // FIXME: what should happen to lc_flag???
-            if p_i == *l {
-                if q_bar.is_empty() {
-                    Some(LeadChAction::Send(Send {
-                        lead: *l,
-                        q: q_hat.clone(),
-                        r_slash_m: r_hat.clone(),
-                    }))
-                } else {
-                    Some(LeadChAction::Send(Send {
-                        lead: *l,
-                        q: q_bar.clone(),
-                        r_slash_m: m_bar.clone(),
-                    }))
-                }
-            } else {
-                Some(LeadChAction::Delay)
+                Some(SharedAction::Delay)
             }
         } else {
             None
         }
     }
+
+    /* Respond to a "send" message */
+    pub fn send(&self, Send { q }: Send) -> Option<Echo> {
+        // FIXME: verify-signatures
+        if self.q_bar.is_empty() || self.q_bar == q {
+            Some(Echo { q })
+        } else {
+            None
+        }
+    }
+
+    /* Respond to an "echo" message */
+    pub fn echo(&mut self, Echo { q }: Echo) -> Option<Ready> {
+        let lq_hash = hash_LQ(self.l, &q);
+        let mut e_LQ = get_mut_or_insert(lq_hash, 0, &mut self.e);
+        *e_LQ += 1;
+        let r_LQ = *get_or_insert(lq_hash, 0, &mut self.r);
+        if *e_LQ == div_ceil(self.n + self.t + 1, 2) && r_LQ < self.t + 1 {
+            self.q_bar = self.q_bar.union(&q).cloned().collect();
+            // FIXME: What should happen to M-bar?
+            Some(Ready { q })
+        } else {
+            None
+        }
+    }
+
+    /* Respond to a "ready" message */
+    pub fn ready(&mut self, Ready { q }: Ready) -> Option<ReadyAction> {
+        let lq_hash = hash_LQ(self.l, &q);
+        let mut r_LQ = get_mut_or_insert(lq_hash, 0, &mut self.r);
+        *r_LQ += 1;
+        let e_LQ = *get_or_insert(lq_hash, 0, &mut self.e);
+        if *r_LQ == self.t + 1 && e_LQ < div_ceil(self.n + self.t + 1, 2) {
+            self.q_bar = self.q_bar.union(&q).cloned().collect();
+            // FIXME: What should happen to M-bar?
+            Some(ReadyAction::Ready(Ready { q }))
+        } else if *r_LQ == self.n - self.t - self.f {
+            Some(ReadyAction::Complete)
+        } else {
+            None
+        }
+    }
+}
+
+// add two public polynomial commitments
+fn add_public(xs: poly::Public, ys: poly::Public) -> poly::Public {
+    xs.zip_map(&ys, |x, y| {
+        let y: G1Projective = y.into();
+        (x + y).into()
+    })
+}
+
+/* Finalize after receiving shared-output messages */
+pub fn finalize(shares: &[Shared]) -> (poly::Public, Scalar) {
+    let s_i: Scalar = shares.iter().map(|s| s.s_id).sum();
+    let C = shares
+        .iter()
+        .map(|s| s.C.clone())
+        .fold_first(add_public)
+        .unwrap();
+    (C, s_i)
 }

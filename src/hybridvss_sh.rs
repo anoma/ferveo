@@ -3,9 +3,8 @@
 
 use crate::poly;
 
-use bls12_381::Scalar;
+use bls12_381::{G1Affine, Scalar};
 use either::Either;
-use nalgebra::base::DVector;
 use num::integer::div_ceil;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
@@ -18,10 +17,10 @@ pub struct Context {
     /* Counters for `echo` messages.
     The keys of the map are sha2-256 hashes. */
     e: HashMap<[u8; 32], u32>,
-    f: u32,         // failure threshold
-    i: u32,         // index of this node's public key in `p`
-    n: u32,         // number of nodes in the setup
-    p: Vec<Scalar>, // sorted public keys for all participant nodes
+    f: u32,           // failure threshold
+    i: u32,           // index of this node's public key in `p`
+    n: u32,           // number of nodes in the setup
+    p: Vec<G1Affine>, // sorted public keys for all participant nodes
     /* Counters for `ready` messages.
     The keys of the map are sha2-256 hashes. */
     r: HashMap<[u8; 32], u32>,
@@ -51,7 +50,7 @@ pub struct Send {
 
 /* A "share" message */
 pub struct Share {
-    s: Scalar,
+    pub s: Scalar,
 }
 
 /* A "shared" message */
@@ -109,12 +108,12 @@ impl Context {
     threshold `t`,
     and session identifier `tau`. */
     pub fn init(
-        d: u32,       // index of the dealer's public key in `p`
-        f: u32,       // failure threshold
-        i: u32,       // index of this node's public key in `p`
-        p: &[Scalar], // sorted public keys for all participant nodes
-        t: u32,       // threshold
-        tau: u32,     // session identifier
+        d: u32,         // index of the dealer's public key in `p`
+        f: u32,         // failure threshold
+        i: u32,         // index of this node's public key in `p`
+        p: &[G1Affine], // sorted public keys for all participant nodes
+        t: u32,         // threshold
+        tau: u32,       // session identifier
     ) -> Self {
         use std::convert::TryInto;
         let n: u32 = p.len().try_into().unwrap();
@@ -137,21 +136,22 @@ impl Context {
         if n < t {
             panic!(
                 "Cannot set threshold to `{t}` with fewer than \
-                   `{t}` participant node public keys."
+                   `{t}` participant node public keys.",
+                t = t
             )
         }
         if n < t + f {
             panic!(
                 "Sum of threshold (`{t}`) and failure threshold (`{f}`) \
                     must be less than or equal to the number of participant \
-                    nodes (`{n}`)"
+                    nodes (`{n}`)",
+                t = t,
+                f = f,
+                n = n
             )
         }
         let p = p.to_vec();
-        // TODO: use is_sorted once this is stable
-        let mut p_sorted = p.clone();
-        p_sorted.sort_unstable();
-        if p != p_sorted {
+        if !p.iter().is_sorted_by_key(|pk| pk.to_compressed()) {
             panic!("Participant node public keys must be sorted.")
         }
 

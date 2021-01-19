@@ -62,7 +62,8 @@ impl Context {
         if n < t {
             panic!(
                 "Cannot set threshold to `{t}` with fewer than \
-                   `{t}` participant node public keys."
+                   `{t}` participant node public keys.",
+                t = t
             )
         }
         let p = p.to_vec();
