@@ -3,7 +3,7 @@
 
 use crate::poly;
 
-use bls12_381::{G1Projective, Scalar};
+use bls12_381::{G1Affine, G1Projective, Scalar};
 use nalgebra::base::DVector;
 use std::collections::HashSet;
 
@@ -13,7 +13,7 @@ pub struct Context {
     d: u32,                    // index of the dealer's public key in `p`
     i: u32,                    // index of this node's public key in `p`
     n: u32,                    // number of nodes in the setup
-    p: Vec<Scalar>,            // sorted public keys for all participant nodes
+    p: Vec<G1Affine>,          // sorted public keys for all participant nodes
     S: HashSet<(u32, Scalar)>, // set of node-index - share pairs.
     s: Scalar,                 // the share for this node
     t: u32,                    // threshold
@@ -36,7 +36,7 @@ impl Context {
         C: poly::Public, // the public polynomial
         d: u32,          // index of the dealer's public key in `p`
         i: u32,          // index of this node's public key in `p`
-        p: &[Scalar],    // sorted public keys for all participant nodes
+        p: &[G1Affine],    // sorted public keys for all participant nodes
         s: Scalar,       // the share for this node
         t: u32,          // threshold
         tau: u32,        // session identifier
@@ -67,10 +67,7 @@ impl Context {
             )
         }
         let p = p.to_vec();
-        // TODO: use is_sorted once this is stable
-        let mut p_sorted = p.clone();
-        p_sorted.sort_unstable();
-        if p != p_sorted {
+        if !p.iter().is_sorted_by_key(|pk| pk.to_compressed()) {
             panic!("Participant node public keys must be sorted.")
         }
 

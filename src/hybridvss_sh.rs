@@ -28,12 +28,14 @@ pub struct Context {
     tau: u32, // session identifier
 }
 
+#[derive(Clone)]
 /* An "echo" message */
 pub struct Echo {
     C: Rc<poly::Public>,
     alpha: Scalar,
 }
 
+#[derive(Clone, Debug)]
 /* A "ready" message */
 pub struct Ready {
     C: Rc<poly::Public>,
@@ -55,8 +57,8 @@ pub struct Share {
 
 /* A "shared" message */
 pub struct Shared {
-    C: Rc<poly::Public>,
-    s: Scalar,
+    pub C: Rc<poly::Public>,
+    pub s: Scalar,
 }
 
 // compute the sha2-256 hash of a public polynomial
