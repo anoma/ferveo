@@ -3,7 +3,7 @@
 
 use crate::poly;
 
-use bls12_381::{G1Affine, G1Projective, Scalar};
+use bls12_381::{G1Projective, Scalar};
 use nalgebra::base::DVector;
 use std::collections::HashSet;
 
@@ -13,7 +13,6 @@ pub struct Context {
     d: u32,                    // index of the dealer's public key in `p`
     i: u32,                    // index of this node's public key in `p`
     n: u32,                    // number of nodes in the setup
-    p: Vec<G1Affine>,          // sorted public keys for all participant nodes
     S: HashSet<(u32, Scalar)>, // set of node-index - share pairs.
     s: Scalar,                 // the share for this node
     t: u32,                    // threshold
@@ -36,13 +35,11 @@ impl Context {
         C: poly::Public, // the public polynomial
         d: u32,          // index of the dealer's public key in `p`
         i: u32,          // index of this node's public key in `p`
-        p: &[G1Affine],    // sorted public keys for all participant nodes
+        n: u32,
         s: Scalar,       // the share for this node
         t: u32,          // threshold
         tau: u32,        // session identifier
     ) -> Self {
-        use std::convert::TryInto;
-        let n: u32 = p.len().try_into().unwrap();
         if n <= i {
             panic!(
                 "Cannot initialize node with index `{}` with fewer than \
@@ -66,10 +63,6 @@ impl Context {
                 t = t
             )
         }
-        let p = p.to_vec();
-        if !p.iter().is_sorted_by_key(|pk| pk.to_compressed()) {
-            panic!("Participant node public keys must be sorted.")
-        }
 
         let c = 0;
         let S = HashSet::new();
@@ -80,7 +73,6 @@ impl Context {
             d,
             i,
             n,
-            p,
             S,
             s,
             t,

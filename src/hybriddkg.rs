@@ -4,19 +4,21 @@
 use crate::bls;
 use crate::poly;
 
-use bls12_381::{G1Projective, G2Affine, Scalar};
+use bls12_381::{G1Affine, G1Projective, Scalar};
 use num::integer::div_ceil;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::rc::Rc;
 
 /* An "echo" message */
+#[derive(Clone)]
 pub struct Echo {
     q: BTreeSet<u32>, // a set of node indexes
                       // FIXME: add r/m
 }
 
 /* A "ready" message */
+#[derive(Clone)]
 pub struct Ready {
     q: BTreeSet<u32>, // a set of node indexes
                       // FIXME: add r/m
@@ -28,19 +30,22 @@ pub enum ReadyAction {
 }
 
 /* A "send" message */
+#[derive(Clone)]
 pub struct Send {
     q: BTreeSet<u32>, // a set of node indexes
                       // FIXME: add r/m
 }
 
 /* A "shared" message */
+#[derive(Clone)]
 pub struct Shared {
-    C: poly::Public, // a dealer commitment
-    d: u32,          // the dealer index
-    s_id: Scalar,    // the share for node i from the dealer
+    pub C: Rc<poly::Public>, // a dealer commitment
+    pub d: u32,          // the dealer index
+    pub s_id: Scalar,    // the share for node i from the dealer
                      // FIXME: add R_d
 }
 
+#[derive(Clone)]
 pub enum SharedAction {
     Delay,
     Send(Send),
@@ -60,7 +65,7 @@ pub struct Context {
     lc_flag: bool, // leader count flag
     // FIXME: m_bar
     n: u32,               // number of nodes in the setup
-    p: Vec<Scalar>,       // sorted public keys for all participant nodes
+    p: Vec<G1Affine>,       // sorted public keys for all participant nodes
     q_bar: BTreeSet<u32>, // set of node indexes
     q_hat: BTreeSet<u32>, // set of node indexes
     /* Counters for `ready` messages.
@@ -126,7 +131,7 @@ impl Context {
         f: u32,       // failure threshold
         i: u32,       // index of this node's public key in `p`
         l: u32,       // index of the leader's public key in `p`
-        p: &[Scalar], // sorted public keys for all participant nodes
+        p: &[G1Affine], // sorted public keys for all participant nodes
         /* signatures on a lead-ch message for the current leader */
         // FIXME: do these all use the same values for q/rm?
         //sigs: &[u32, G2Affine],
@@ -169,10 +174,7 @@ impl Context {
             )
         }
         let p = p.to_vec();
-        // TODO: use is_sorted once this is stable
-        let mut p_sorted = p.clone();
-        p_sorted.sort_unstable();
-        if p != p_sorted {
+        if !p.iter().is_sorted_by_key(|pk| pk.to_compressed()) {
             panic!("Participant node public keys must be sorted.")
         }
 
@@ -205,9 +207,9 @@ impl Context {
     /* Respond to a "shared" message. */
     pub fn shared(
         &mut self,
-        Shared { C, d, s_id }: Shared,
+        Shared { C, d, s_id }: &Shared,
     ) -> Option<SharedAction> {
-        self.q_hat.insert(d);
+        self.q_hat.insert(*d);
         if self.q_hat.len() == (self.t as usize) + 1 && self.q_bar.is_empty() {
             if self.i == self.l {
                 Some(SharedAction::Send(Send {
@@ -266,7 +268,7 @@ impl Context {
 }
 
 // add two public polynomial commitments
-fn add_public(xs: poly::Public, ys: poly::Public) -> poly::Public {
+fn add_public(xs: &poly::Public, ys: &poly::Public) -> poly::Public {
     xs.zip_map(&ys, |x, y| {
         let y: G1Projective = y.into();
         (x + y).into()
@@ -279,7 +281,8 @@ pub fn finalize(shares: &[Shared]) -> (poly::Public, Scalar) {
     let C = shares
         .iter()
         .map(|s| s.C.clone())
-        .fold_first(add_public)
+        .fold_first(|x, y| add_public(&x, &y).into())
         .unwrap();
+    let C = Rc::try_unwrap(C).unwrap();
     (C, s_i)
 }

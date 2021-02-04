@@ -3,7 +3,7 @@
 
 use crate::poly;
 
-use bls12_381::{G1Affine, Scalar};
+use bls12_381::Scalar;
 use either::Either;
 use num::integer::div_ceil;
 use std::collections::{HashMap, HashSet};
@@ -13,14 +13,13 @@ pub struct Context {
     /* Map keyed by sha2-256 hashes of commitments.
     The values of the map are pairs of node indexes and scalars */
     A: HashMap<[u8; 32], HashSet<(u32, Scalar)>>,
-    d: u32, // index of the dealer's public key in `p`
+    d: u32, // index of the dealer's public key in the setup
     /* Counters for `echo` messages.
     The keys of the map are sha2-256 hashes. */
     e: HashMap<[u8; 32], u32>,
     f: u32,           // failure threshold
-    i: u32,           // index of this node's public key in `p`
+    i: u32,           // index of this node in the setup
     n: u32,           // number of nodes in the setup
-    p: Vec<G1Affine>, // sorted public keys for all participant nodes
     /* Counters for `ready` messages.
     The keys of the map are sha2-256 hashes. */
     r: HashMap<[u8; 32], u32>,
@@ -42,7 +41,9 @@ pub struct Ready {
     alpha: Scalar,
 }
 
-type ReadyResponse = Either<Vec<Ready>, Shared>;
+pub type EchoResponse = Option<Vec<Ready>>;
+
+pub type ReadyResponse = Option<Either<Vec<Ready>, Shared>>;
 
 /* A "send" message */
 pub struct Send {
@@ -50,10 +51,14 @@ pub struct Send {
     a: poly::Share,
 }
 
+pub type SendResponse = Option<Vec<Echo>>;
+
 /* A "share" message */
 pub struct Share {
     pub s: Scalar,
 }
+
+pub type ShareResponse = Vec<Send>;
 
 /* A "shared" message */
 pub struct Shared {
@@ -106,20 +111,18 @@ impl Context {
     dealer index `d`,
     failure threshold `f`,
     node index `i`,
-    participant node public keys `p`,
+    node count `n`,
     threshold `t`,
     and session identifier `tau`. */
     pub fn init(
-        d: u32,         // index of the dealer's public key in `p`
+        d: u32,         // index of the dealer's public key in the setup
         f: u32,         // failure threshold
-        i: u32,         // index of this node's public key in `p`
-        p: &[G1Affine], // sorted public keys for all participant nodes
+        i: u32,         // index of this node's public key in the setup
+        n: u32,         // the number of nodes in the setup
         t: u32,         // threshold
         tau: u32,       // session identifier
     ) -> Self {
-        use std::convert::TryInto;
-        let n: u32 = p.len().try_into().unwrap();
-        if n <= i {
+        if i >= n {
             panic!(
                 "Cannot initialize node with index `{}` with fewer than \
                    `{}` participant node public keys.",
@@ -127,7 +130,7 @@ impl Context {
                 i + 1
             )
         }
-        if n <= d {
+        if d >= n {
             panic!(
                 "Cannot set dealer index to `{}` with fewer than \
                    `{}` participant node public keys.",
@@ -135,14 +138,14 @@ impl Context {
                 d + 1
             )
         }
-        if n < t {
+        if t > n {
             panic!(
                 "Cannot set threshold to `{t}` with fewer than \
                    `{t}` participant node public keys.",
                 t = t
             )
         }
-        if n < t + f {
+        if t + f > n {
             panic!(
                 "Sum of threshold (`{t}`) and failure threshold (`{f}`) \
                     must be less than or equal to the number of participant \
@@ -151,10 +154,6 @@ impl Context {
                 f = f,
                 n = n
             )
-        }
-        let p = p.to_vec();
-        if !p.iter().is_sorted_by_key(|pk| pk.to_compressed()) {
-            panic!("Participant node public keys must be sorted.")
         }
 
         let A = HashMap::new();
@@ -168,7 +167,6 @@ impl Context {
             f,
             i,
             n,
-            p,
             r,
             t,
             tau,
@@ -181,7 +179,7 @@ impl Context {
         &self,
         rng: &mut R,
         Share { s }: Share,
-    ) -> Vec<Send> {
+    ) -> ShareResponse {
         let mut phi = poly::random_secret(self.t, rng);
         phi[(0, 0)] = s;
         let C = Rc::new(poly::public(&phi));
@@ -195,7 +193,7 @@ impl Context {
 
     /* Respond to a "send" message.
     Should only be accepted from the dealer. */
-    pub fn send(&self, Send { C, a }: Send) -> Option<Vec<Echo>> {
+    pub fn send(&self, Send { C, a }: Send) -> SendResponse {
         if poly::verify_share(&C, &a, self.i) {
             (0..self.n)
                 .map(|j| Echo {
@@ -213,12 +211,12 @@ impl Context {
     pub fn echo(
         &mut self,
         m: u32,
-        Echo { C, alpha }: Echo,
-    ) -> Option<Vec<Ready>> {
-        if poly::verify_point(&C, self.i, m, alpha) {
+        Echo { C, alpha }: &Echo,
+    ) -> EchoResponse {
+        if poly::verify_point(&C, self.i, m, *alpha) {
             let C_hash = hash_public_poly(&C);
             insert_if_none(C_hash, HashSet::new(), &mut self.A);
-            self.A.get_mut(&C_hash).unwrap().insert((m, alpha));
+            self.A.get_mut(&C_hash).unwrap().insert((m, *alpha));
             incr(C_hash, &mut self.e);
 
             let e_C = *self.e.get(&C_hash).unwrap();
@@ -248,12 +246,12 @@ impl Context {
     pub fn ready(
         &mut self,
         m: u32,
-        Ready { C, alpha }: Ready,
-    ) -> Option<ReadyResponse> {
-        if poly::verify_point(&C, self.i, m, alpha) {
+        Ready { C, alpha }: &Ready,
+    ) -> ReadyResponse {
+        if poly::verify_point(&C, self.i, m, *alpha) {
             let C_hash = hash_public_poly(&C);
             insert_if_none(C_hash, HashSet::new(), &mut self.A);
-            self.A.get_mut(&C_hash).unwrap().insert((m, alpha));
+            self.A.get_mut(&C_hash).unwrap().insert((m, *alpha));
             incr(C_hash, &mut self.r);
 
             let e_C = *self.e.get(&C_hash).unwrap();
@@ -274,7 +272,7 @@ impl Context {
                 Some(Either::Left(ready_messages))
             } else if r_C == self.n - self.t - self.f {
                 let s = poly::eval_share(&a_bar, Scalar::zero());
-                Some(Either::Right(Shared { C, s }))
+                Some(Either::Right(Shared { C:C.clone(), s }))
             } else {
                 None
             }
