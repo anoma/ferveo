@@ -17,9 +17,9 @@ pub struct Context {
     /* Counters for `echo` messages.
     The keys of the map are sha2-256 hashes. */
     e: HashMap<[u8; 32], u32>,
-    f: u32,           // failure threshold
-    i: u32,           // index of this node in the setup
-    n: u32,           // number of nodes in the setup
+    f: u32, // failure threshold
+    i: u32, // index of this node in the setup
+    n: u32, // number of nodes in the setup
     /* Counters for `ready` messages.
     The keys of the map are sha2-256 hashes. */
     r: HashMap<[u8; 32], u32>,
@@ -115,12 +115,12 @@ impl Context {
     threshold `t`,
     and session identifier `tau`. */
     pub fn init(
-        d: u32,         // index of the dealer's public key in the setup
-        f: u32,         // failure threshold
-        i: u32,         // index of this node's public key in the setup
-        n: u32,         // the number of nodes in the setup
-        t: u32,         // threshold
-        tau: u32,       // session identifier
+        d: u32,   // index of the dealer's public key in the setup
+        f: u32,   // failure threshold
+        i: u32,   // index of this node's public key in the setup
+        n: u32,   // the number of nodes in the setup
+        t: u32,   // threshold
+        tau: u32, // session identifier
     ) -> Self {
         if i >= n {
             panic!(
@@ -208,11 +208,7 @@ impl Context {
     }
 
     /* Respond to an "echo" message. */
-    pub fn echo(
-        &mut self,
-        m: u32,
-        Echo { C, alpha }: &Echo,
-    ) -> EchoResponse {
+    pub fn echo(&mut self, m: u32, Echo { C, alpha }: &Echo) -> EchoResponse {
         if poly::verify_point(&C, self.i, m, *alpha) {
             let C_hash = hash_public_poly(&C);
             insert_if_none(C_hash, HashSet::new(), &mut self.A);
@@ -272,7 +268,7 @@ impl Context {
                 Some(Either::Left(ready_messages))
             } else if r_C == self.n - self.t - self.f {
                 let s = poly::eval_share(&a_bar, Scalar::zero());
-                Some(Either::Right(Shared { C:C.clone(), s }))
+                Some(Either::Right(Shared { C: C.clone(), s }))
             } else {
                 None
             }

@@ -2,8 +2,6 @@
 #![allow(non_snake_case)]
 #![feature(bindings_after_at)]
 
-
-
 use bls12_381::{G1Affine, Scalar};
 use either::Either;
 use ferveo::bls::Keypair;
@@ -11,9 +9,9 @@ use ferveo::hybriddkg::*;
 use ferveo::hybridvss_sh;
 use ferveo::poly;
 mod hybridvss;
+use rand::rngs::StdRng;
 use rand::Rng;
 use rand::SeedableRng;
-use rand::rngs::StdRng;
 use std::rc::Rc;
 
 // Fixed seed for reproducability
@@ -32,8 +30,8 @@ struct Scheme {
     n: u32, // the number of participant nodes
     nodes: Vec<Context>,
     p: Vec<G1Affine>, // public keys
-    t: u32, // threshold
-    tau: u32, // session identifier
+    t: u32,           // threshold
+    tau: u32,         // session identifier
 }
 
 impl Scheme {
@@ -52,7 +50,15 @@ impl Scheme {
         let nodes = (0..n)
             .map(|i| Context::init(f, i, L, &pubkeys, t, tau))
             .collect();
-        Scheme { f, L, n, nodes, p:pubkeys, t, tau }
+        Scheme {
+            f,
+            L,
+            n,
+            nodes,
+            p: pubkeys,
+            t,
+            tau,
+        }
     }
 
     // run hybridvss_sh protocol for dealer `d`
@@ -62,7 +68,7 @@ impl Scheme {
         let n = self.n;
         let t = self.t;
         let tau = self.tau;
-        let params = hybridvss::Params {d, f, n, t, tau};
+        let params = hybridvss::Params { d, f, n, t, tau };
         let mut scheme = hybridvss::Scheme::new(params);
 
         let share = hybridvss_sh::Share {
@@ -70,37 +76,45 @@ impl Scheme {
         };
         let sends = scheme.dealer_share(share, &mut rng);
         let echos = scheme.send_valid_each(sends);
-        let ready_messages = scheme.echo_threshold_each(echos, &mut rng).into_iter().map(|echo_response|echo_response.unwrap()).collect();
+        let ready_messages = scheme
+            .echo_threshold_each(echos, &mut rng)
+            .into_iter()
+            .map(|echo_response| echo_response.unwrap())
+            .collect();
 
-        scheme.ready_threshold_each(ready_messages, &mut rng)
-              .into_iter()
-              .map(|ready_response| {
-                  match ready_response {
-                      Some(Either::Right(hybridvss_sh::Shared{C, s})) =>
-                        Shared {C, d, s_id:s},
-                      _ => panic!()
-                  }
-              }).collect()
+        scheme
+            .ready_threshold_each(ready_messages, &mut rng)
+            .into_iter()
+            .map(|ready_response| match ready_response {
+                Some(Either::Right(hybridvss_sh::Shared { C, s })) => {
+                    Shared { C, d, s_id: s }
+                }
+                _ => panic!(),
+            })
+            .collect()
     }
 
     // run hybridvss_sh protocol for each dealer
     fn run_hybridvss_sh(&self) -> Vec<Vec<Shared>> {
-
         // shared messages for each dealer
-        let shared_messages: Vec<_> = (0..self.n).map(|d| self.hybridvss_sh(d)).collect();
+        let shared_messages: Vec<_> =
+            (0..self.n).map(|d| self.hybridvss_sh(d)).collect();
 
         // shared messages from each node
-        (0..self.n).map(|i| {
-            shared_messages.iter()
-                           .map(|shared_d| shared_d[i as usize].clone())
-                           .collect()
-        }).collect()
+        (0..self.n)
+            .map(|i| {
+                shared_messages
+                    .iter()
+                    .map(|shared_d| shared_d[i as usize].clone())
+                    .collect()
+            })
+            .collect()
     }
 }
 
 #[test]
 /* test that the leader sends after enough valid shares,
-    and the other nodes delay */
+and the other nodes delay */
 fn shared_send_valid() {
     let mut rng = rng();
     let n = 6;
@@ -110,22 +124,33 @@ fn shared_send_valid() {
     let L = scheme.L;
 
     // Commitments for each dealer
-    let Cs: Vec<_> = (0..n).map(|_| {
-        let secret = poly::random_secret(t, &mut rng);
-        Rc::new(poly::public(&secret))
-    }).collect();
+    let Cs: Vec<_> = (0..n)
+        .map(|_| {
+            let secret = poly::random_secret(t, &mut rng);
+            Rc::new(poly::public(&secret))
+        })
+        .collect();
 
     for (i, node) in nodes.iter_mut().enumerate() {
         /* generate a shared message for each other node.
-           the individual shares are expected to be invalid. */
+        the individual shares are expected to be invalid. */
         use rand::seq::IteratorRandom;
         // pairs of node indexes d and commitments
-        let shared_messages: Vec<Shared> =
-            Cs.iter().cloned().enumerate().map(|(d, C)|
-                Shared {C, d:(d as u32), s_id: random_scalar(&mut rng)}).collect();
+        let shared_messages: Vec<Shared> = Cs
+            .iter()
+            .cloned()
+            .enumerate()
+            .map(|(d, C)| Shared {
+                C,
+                d: (d as u32),
+                s_id: random_scalar(&mut rng),
+            })
+            .collect();
 
         // accept shared messages from t + 1 nodes, in random order
-        shared_messages.into_iter().choose_multiple(&mut rng, (t + 1) as usize)
+        shared_messages
+            .into_iter()
+            .choose_multiple(&mut rng, (t + 1) as usize)
             .into_iter()
             .enumerate()
             .for_each(|(count, shared_message)| {
@@ -134,7 +159,7 @@ fn shared_send_valid() {
                     assert!(shared_response.is_some());
                     match shared_response.unwrap() {
                         SharedAction::Delay => assert!(L != (i as u32)),
-                        SharedAction::Send(_) => assert!(L == (i as u32))
+                        SharedAction::Send(_) => assert!(L == (i as u32)),
                     }
                 } else {
                     assert!(shared_response.is_none())
@@ -156,26 +181,37 @@ fn send_echo_valid() {
     let L = scheme.L;
 
     // Commitments for each dealer
-    let Cs: Vec<_> = (0..n).map(|_| {
-        let secret = poly::random_secret(t, &mut rng);
-        Rc::new(poly::public(&secret))
-    }).collect();
+    let Cs: Vec<_> = (0..n)
+        .map(|_| {
+            let secret = poly::random_secret(t, &mut rng);
+            Rc::new(poly::public(&secret))
+        })
+        .collect();
 
     /* generate a shared message for each other node.
-       the individual shares are expected to be invalid. */
-    let shared_messages: Vec<Shared> =
-        Cs.iter().cloned().enumerate().map(|(d, C)|
-            Shared {C, d:(d as u32), s_id: random_scalar(&mut rng)}).collect();
+    the individual shares are expected to be invalid. */
+    let shared_messages: Vec<Shared> = Cs
+        .iter()
+        .cloned()
+        .enumerate()
+        .map(|(d, C)| Shared {
+            C,
+            d: (d as u32),
+            s_id: random_scalar(&mut rng),
+        })
+        .collect();
 
     // leader accepts shared messages from t + 1 nodes, in random order
     let mut send = None;
-    shared_messages.into_iter().choose_multiple(&mut rng, (t + 1) as usize)
+    shared_messages
+        .into_iter()
+        .choose_multiple(&mut rng, (t + 1) as usize)
         .into_iter()
         .for_each(|shared_message| {
             let shared_response = nodes[L as usize].shared(&shared_message);
             match shared_response {
                 Some(SharedAction::Send(s)) => send = Some(s),
-                _ => ()
+                _ => (),
             }
         });
 
@@ -199,33 +235,45 @@ fn echo_ready_valid() {
     let L = scheme.L;
 
     // Commitments for each dealer
-    let Cs: Vec<_> = (0..n).map(|_| {
-        let secret = poly::random_secret(t, &mut rng);
-        Rc::new(poly::public(&secret))
-    }).collect();
+    let Cs: Vec<_> = (0..n)
+        .map(|_| {
+            let secret = poly::random_secret(t, &mut rng);
+            Rc::new(poly::public(&secret))
+        })
+        .collect();
 
     /* generate a shared message for each other node.
-       the individual shares are expected to be invalid. */
-    let shared_messages: Vec<Shared> =
-        Cs.iter().cloned().enumerate().map(|(d, C)|
-            Shared {C, d:(d as u32), s_id: random_scalar(&mut rng)}).collect();
+    the individual shares are expected to be invalid. */
+    let shared_messages: Vec<Shared> = Cs
+        .iter()
+        .cloned()
+        .enumerate()
+        .map(|(d, C)| Shared {
+            C,
+            d: (d as u32),
+            s_id: random_scalar(&mut rng),
+        })
+        .collect();
 
     // leader accepts shared messages from t + 1 nodes, in random order
     let mut send = None;
-    shared_messages.into_iter().choose_multiple(&mut rng, (t + 1) as usize)
+    shared_messages
+        .into_iter()
+        .choose_multiple(&mut rng, (t + 1) as usize)
         .into_iter()
         .for_each(|shared_message| {
             let shared_response = nodes[L as usize].shared(&shared_message);
             match shared_response {
                 Some(SharedAction::Send(s)) => send = Some(s),
-                _ => ()
+                _ => (),
             }
         });
 
     let send = send.unwrap().clone();
 
-    let echos: Vec<Echo> =
-        nodes.iter_mut().map(|node|node.send(send.clone()).unwrap())
+    let echos: Vec<Echo> = nodes
+        .iter_mut()
+        .map(|node| node.send(send.clone()).unwrap())
         .collect();
 
     for node in nodes.iter_mut() {
@@ -260,33 +308,45 @@ fn ready_complete_valid() {
     let L = scheme.L;
 
     // Commitments for each dealer
-    let Cs: Vec<_> = (0..n).map(|_| {
-        let secret = poly::random_secret(t, &mut rng);
-        Rc::new(poly::public(&secret))
-    }).collect();
+    let Cs: Vec<_> = (0..n)
+        .map(|_| {
+            let secret = poly::random_secret(t, &mut rng);
+            Rc::new(poly::public(&secret))
+        })
+        .collect();
 
     /* generate a shared message for each other node.
-       the individual shares are expected to be invalid. */
-    let shared_messages: Vec<Shared> =
-        Cs.iter().cloned().enumerate().map(|(d, C)|
-            Shared {C, d:(d as u32), s_id: random_scalar(&mut rng)}).collect();
+    the individual shares are expected to be invalid. */
+    let shared_messages: Vec<Shared> = Cs
+        .iter()
+        .cloned()
+        .enumerate()
+        .map(|(d, C)| Shared {
+            C,
+            d: (d as u32),
+            s_id: random_scalar(&mut rng),
+        })
+        .collect();
 
     // leader accepts shared messages from t + 1 nodes, in random order
     let mut send = None;
-    shared_messages.into_iter().choose_multiple(&mut rng, (t + 1) as usize)
+    shared_messages
+        .into_iter()
+        .choose_multiple(&mut rng, (t + 1) as usize)
         .into_iter()
         .for_each(|shared_message| {
             let shared_response = nodes[L as usize].shared(&shared_message);
             match shared_response {
                 Some(SharedAction::Send(s)) => send = Some(s),
-                _ => ()
+                _ => (),
             }
         });
 
     let send = send.unwrap().clone();
 
-    let echos: Vec<Echo> =
-        nodes.iter_mut().map(|node|node.send(send.clone()).unwrap())
+    let echos: Vec<Echo> = nodes
+        .iter_mut()
+        .map(|node| node.send(send.clone()).unwrap())
         .collect();
 
     let mut ready_messages: Vec<Option<Ready>> = vec![None; n as usize];
@@ -300,8 +360,10 @@ fn ready_complete_valid() {
         }
     }
     assert!(ready_messages.iter().all(|ready| ready.is_some()));
-    let ready_messages: Vec<Ready> =
-        ready_messages.into_iter().map(|ready| ready.unwrap()).collect();
+    let ready_messages: Vec<Ready> = ready_messages
+        .into_iter()
+        .map(|ready| ready.unwrap())
+        .collect();
 
     for node in nodes.iter_mut() {
         /* shuffle the ready_messages */
@@ -313,7 +375,7 @@ fn ready_complete_valid() {
             if count == (n - t - f - 1) as usize {
                 match response {
                     Some(ReadyAction::Complete) => (),
-                    _ => assert!(false)
+                    _ => assert!(false),
                 }
             } else {
                 assert!(response.is_none())
@@ -338,22 +400,26 @@ fn shared_output_finalize_valid() {
 
     /* leader accepts shared messages for t + 1 dealers in random order */
     let mut send = None;
-    shared_messages[L as usize].iter()
+    shared_messages[L as usize]
+        .iter()
         .choose_multiple(&mut rng, (t + 1) as usize)
         .into_iter()
         .cloned()
         .for_each(|shared_message| {
-            let shared_response = scheme.nodes[L as usize].shared(&shared_message);
+            let shared_response =
+                scheme.nodes[L as usize].shared(&shared_message);
             match shared_response {
                 Some(SharedAction::Send(s)) => send = Some(s),
-                _ => ()
+                _ => (),
             }
         });
 
     let send = send.unwrap().clone();
 
-    let echos: Vec<Echo> =
-        scheme.nodes.iter_mut().map(|node|node.send(send.clone()).unwrap())
+    let echos: Vec<Echo> = scheme
+        .nodes
+        .iter_mut()
+        .map(|node| node.send(send.clone()).unwrap())
         .collect();
 
     let mut ready_messages: Vec<Option<Ready>> = vec![None; n as usize];
@@ -367,8 +433,10 @@ fn shared_output_finalize_valid() {
         }
     }
     assert!(ready_messages.iter().all(|ready| ready.is_some()));
-    let ready_messages: Vec<Ready> =
-        ready_messages.into_iter().map(|ready| ready.unwrap()).collect();
+    let ready_messages: Vec<Ready> = ready_messages
+        .into_iter()
+        .map(|ready| ready.unwrap())
+        .collect();
 
     for node in scheme.nodes.iter_mut() {
         let threshold = (n - t - f - 1) as usize;
@@ -381,7 +449,7 @@ fn shared_output_finalize_valid() {
             if count == threshold {
                 match response {
                     Some(ReadyAction::Complete) => (),
-                    _ => assert!(false)
+                    _ => assert!(false),
                 }
             } else {
                 assert!(response.is_none())
@@ -389,8 +457,10 @@ fn shared_output_finalize_valid() {
         }
     }
 
-    // finalize
-    for i in 0..n {
-        let (_C, _s_i) = finalize(&shared_messages[i as usize]);
-    }
+    // finalize and check that commitments match
+    let outputs: Vec<_> = (0..n)
+        .map(|i| finalize(&shared_messages[i as usize]))
+        .collect();
+    let (C_0, _) = &outputs[0];
+    assert!(outputs.iter().all(|(C, _)| C == C_0));
 }

@@ -36,9 +36,9 @@ impl Context {
         d: u32,          // index of the dealer's public key in `p`
         i: u32,          // index of this node's public key in `p`
         n: u32,
-        s: Scalar,       // the share for this node
-        t: u32,          // threshold
-        tau: u32,        // session identifier
+        s: Scalar, // the share for this node
+        t: u32,    // threshold
+        tau: u32,  // session identifier
     ) -> Self {
         if n <= i {
             panic!(

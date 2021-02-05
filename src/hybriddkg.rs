@@ -40,9 +40,9 @@ pub struct Send {
 #[derive(Clone)]
 pub struct Shared {
     pub C: Rc<poly::Public>, // a dealer commitment
-    pub d: u32,          // the dealer index
-    pub s_id: Scalar,    // the share for node i from the dealer
-                     // FIXME: add R_d
+    pub d: u32,              // the dealer index
+    pub s_id: Scalar,        // the share for node i from the dealer
+                             // FIXME: add R_d
 }
 
 #[derive(Clone)]
@@ -65,7 +65,7 @@ pub struct Context {
     lc_flag: bool, // leader count flag
     // FIXME: m_bar
     n: u32,               // number of nodes in the setup
-    p: Vec<G1Affine>,       // sorted public keys for all participant nodes
+    p: Vec<G1Affine>,     // sorted public keys for all participant nodes
     q_bar: BTreeSet<u32>, // set of node indexes
     q_hat: BTreeSet<u32>, // set of node indexes
     /* Counters for `ready` messages.
@@ -128,9 +128,9 @@ impl Context {
     threshold `t`,
     and session identifier `tau`. */
     pub fn init(
-        f: u32,       // failure threshold
-        i: u32,       // index of this node's public key in `p`
-        l: u32,       // index of the leader's public key in `p`
+        f: u32,         // failure threshold
+        i: u32,         // index of this node's public key in `p`
+        l: u32,         // index of the leader's public key in `p`
         p: &[G1Affine], // sorted public keys for all participant nodes
         /* signatures on a lead-ch message for the current leader */
         // FIXME: do these all use the same values for q/rm?

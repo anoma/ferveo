@@ -3,13 +3,12 @@
 #![feature(bindings_after_at)]
 
 use bls12_381::Scalar;
-use ferveo::hybridvss_sh::*;
 use ferveo::hybridvss_rec;
-use rand::Rng;
-use rand::SeedableRng;
+use ferveo::hybridvss_sh::*;
 use rand::rngs::StdRng;
 use rand::seq::IteratorRandom;
-
+use rand::Rng;
+use rand::SeedableRng;
 
 /*
 // Fixed seed for reproducability
@@ -24,22 +23,20 @@ fn random_scalar<R: Rng>(rng: &mut R) -> Scalar {
 
 // HybridVss_sh scheme parameters
 pub struct Params {
-    pub d: u32, // dealer index
-    pub f: u32, // failure threshold
-    pub n: u32, // number of participants
-    pub t: u32, // threshold
+    pub d: u32,   // dealer index
+    pub f: u32,   // failure threshold
+    pub n: u32,   // number of participants
+    pub t: u32,   // threshold
     pub tau: u32, // session identifier
 }
 
 impl Params {
-
     // initialize with random values for `d` and `tau`
     fn random_d_tau<R: Rng>(f: u32, n: u32, t: u32, rng: &mut R) -> Self {
         let d = rng.gen_range(0, n);
         let tau = rng.gen();
-        Params {d, f, n, t, tau}
+        Params { d, f, n, t, tau }
     }
-
 }
 
 // A HybridVss_sh scheme
@@ -52,10 +49,8 @@ impl Scheme {
     /* Generate a fresh setup with `n` participants,
     failure threshold `f`,
     threshold `t` */
-    pub fn new(params@Params { d, f, n, t, tau }: Params) -> Self {
-        let nodes = (0..n)
-            .map(|i| Context::init(d, f, i, n, t, tau))
-            .collect();
+    pub fn new(params @ Params { d, f, n, t, tau }: Params) -> Self {
+        let nodes = (0..n).map(|i| Context::init(d, f, i, n, t, tau)).collect();
         Scheme { nodes, params }
     }
 
@@ -70,8 +65,11 @@ impl Scheme {
     }
 
     // dealer responds to a share message
-    pub fn dealer_share<R: Rng>(&mut self, share: Share, rng: &mut R)
-    -> ShareResponse {
+    pub fn dealer_share<R: Rng>(
+        &mut self,
+        share: Share,
+        rng: &mut R,
+    ) -> ShareResponse {
         self.dealer_mut().share(rng, share)
     }
 
@@ -87,13 +85,19 @@ impl Scheme {
 
     // respond to a vector of sends, one for each node
     fn send_each(&mut self, sends: Vec<Send>) -> Vec<SendResponse> {
-        sends.into_iter().enumerate()
-            .map(|(i, send)| self.send(i as u32, send)).collect()
+        sends
+            .into_iter()
+            .enumerate()
+            .map(|(i, send)| self.send(i as u32, send))
+            .collect()
     }
 
     // respond to a vector of valid sends, one for each node
     pub fn send_valid_each(&mut self, sends: Vec<Send>) -> Vec<Vec<Echo>> {
-        self.send_each(sends).into_iter().map(|echo| echo.unwrap()).collect()
+        self.send_each(sends)
+            .into_iter()
+            .map(|echo| echo.unwrap())
+            .collect()
     }
 
     // node i responds to an echo message from m
@@ -106,7 +110,7 @@ impl Scheme {
         &mut self,
         i: u32,
         echos: Vec<&Echo>,
-        rng: &mut R
+        rng: &mut R,
     ) -> EchoResponse {
         let Params { n, t, .. } = self.params;
         let threshold = num::integer::div_ceil(n + t + 1, 2) as usize;
@@ -114,7 +118,7 @@ impl Scheme {
         let mut response = None;
         for (m, echo) in echos {
             response = self.echo(i, m as u32, echo);
-        };
+        }
         response
     }
 
@@ -124,12 +128,14 @@ impl Scheme {
         echos: Vec<Vec<Echo>>,
         rng: &mut R,
     ) -> Vec<EchoResponse> {
-        (0..self.params.n).map(|i| {
-            let echos: Vec<&Echo> = echos.iter().map(|echos_m| &echos_m[i as usize]).collect();
-            self.echo_threshold(i, echos, rng)
-        }).collect()
+        (0..self.params.n)
+            .map(|i| {
+                let echos: Vec<&Echo> =
+                    echos.iter().map(|echos_m| &echos_m[i as usize]).collect();
+                self.echo_threshold(i, echos, rng)
+            })
+            .collect()
     }
-
 
     // node i responds to a ready message from m
     fn ready(&mut self, i: u32, m: u32, ready: &Ready) -> ReadyResponse {
@@ -141,15 +147,18 @@ impl Scheme {
         &mut self,
         i: u32,
         ready_messages: Vec<&Ready>,
-        rng: &mut R
+        rng: &mut R,
     ) -> ReadyResponse {
         let Params { n, t, f, .. } = self.params;
         let threshold = (n - t - f) as usize;
-        let ready_messages = ready_messages.iter().enumerate().choose_multiple(rng, threshold);
+        let ready_messages = ready_messages
+            .iter()
+            .enumerate()
+            .choose_multiple(rng, threshold);
         let mut response = None;
         for (m, ready) in ready_messages {
             response = self.ready(i, m as u32, ready);
-        };
+        }
         response
     }
 
@@ -159,12 +168,16 @@ impl Scheme {
         ready_messages: Vec<Vec<Ready>>,
         rng: &mut R,
     ) -> Vec<ReadyResponse> {
-        (0..self.params.n).map(|i| {
-            let ready_messages: Vec<&Ready> = ready_messages.iter().map(|ready_messages_m| &ready_messages_m[i as usize]).collect();
-            self.ready_threshold(i, ready_messages, rng)
-        }).collect()
+        (0..self.params.n)
+            .map(|i| {
+                let ready_messages: Vec<&Ready> = ready_messages
+                    .iter()
+                    .map(|ready_messages_m| &ready_messages_m[i as usize])
+                    .collect();
+                self.ready_threshold(i, ready_messages, rng)
+            })
+            .collect()
     }
-
 }
 
 #[test]
@@ -176,13 +189,13 @@ fn send_echo_valid() {
     let t = 4;
     let d = rng.gen_range(0, n);
     let tau = rng.gen();
-    let mut scheme = Scheme::new(Params {d, f, n, t, tau});
+    let mut scheme = Scheme::new(Params { d, f, n, t, tau });
     let share = Share {
         s: random_scalar(&mut rng),
     };
     let sends = scheme.dealer_share(share, &mut rng);
     let responses = scheme.send_each(sends);
-    assert!(responses.iter().all(|resp|resp.is_some()))
+    assert!(responses.iter().all(|resp| resp.is_some()))
 }
 
 #[test]
@@ -194,17 +207,17 @@ fn send_echo_invalid() {
     let t = 4;
     let d = rng.gen_range(0, n);
     let tau = rng.gen();
-    let mut scheme = Scheme::new(Params {d, f, n, t, tau});
+    let mut scheme = Scheme::new(Params { d, f, n, t, tau });
     let share = Share {
         s: random_scalar(&mut rng),
     };
 
     let sends = scheme.dealer_share(share, &mut rng);
     /* Reverse the sends to make them all invalid.
-       nb. this only works for an even, positive number of sends */
+    nb. this only works for an even, positive number of sends */
     let reversed_sends = sends.into_iter().rev().collect();
     let responses = scheme.send_each(reversed_sends);
-    assert!(responses.iter().all(|resp|resp.is_none()))
+    assert!(responses.iter().all(|resp| resp.is_none()))
 }
 
 #[test]
@@ -216,7 +229,7 @@ fn echo_ready_threshold() {
     let t = 5;
     let d = rng.gen_range(0, n);
     let tau = rng.gen();
-    let mut scheme = Scheme::new(Params {d, f, n, t, tau});
+    let mut scheme = Scheme::new(Params { d, f, n, t, tau });
     let share = Share {
         s: random_scalar(&mut rng),
     };
@@ -225,13 +238,14 @@ fn echo_ready_threshold() {
     let echos = scheme.send_valid_each(sends);
     for i in 0..n {
         // accept echos from all nodes, in random order
-        echos.iter()
-             .enumerate()
-             .choose_multiple(&mut rng, n as usize)
-             .into_iter()
-             .map(|(m, echos_m)| (m, echos_m[i as usize].clone()))
-             .enumerate()
-             .for_each(|(count, (m, echo))| {
+        echos
+            .iter()
+            .enumerate()
+            .choose_multiple(&mut rng, n as usize)
+            .into_iter()
+            .map(|(m, echos_m)| (m, echos_m[i as usize].clone()))
+            .enumerate()
+            .for_each(|(count, (m, echo))| {
                 let echo_response = scheme.echo(i, m as u32, &echo);
                 if count == 7 - 1 {
                     assert!(echo_response.is_some())
@@ -251,7 +265,7 @@ fn ready_shared_threshold() {
     let t = 5;
     let d = rng.gen_range(0, n);
     let tau = rng.gen();
-    let scheme = Scheme::new(Params {d, f, n, t, tau});
+    let scheme = Scheme::new(Params { d, f, n, t, tau });
     let share = Share {
         s: random_scalar(&mut rng),
     };
@@ -264,25 +278,30 @@ fn ready_shared_threshold() {
         .map(|(node, send)| node.send(send).unwrap())
         .collect();
     // generate ready messages based on a random selection of echos
-    let ready_messages: Vec<_> =
-        nodes.iter_mut().enumerate().map(|(i, node)| {
+    let ready_messages: Vec<_> = nodes
+        .iter_mut()
+        .enumerate()
+        .map(|(i, node)| {
             use rand::seq::IteratorRandom;
             let mut res = None;
-            echos.iter()
+            echos
+                .iter()
                 .map(|es| es[i].clone())
                 .enumerate()
                 .choose_multiple(&mut rng, 7)
                 .into_iter()
                 .for_each(|(m, echo)| res = node.echo(m as u32, &echo));
             res.expect("Unexpected failure to generate ready message")
-        }).collect();
+        })
+        .collect();
     nodes.iter_mut().enumerate().for_each(|(i, node)| {
         use rand::seq::IteratorRandom;
         let mut res = None;
-        ready_messages.iter()
+        ready_messages
+            .iter()
             .map(|rs| rs[i].clone())
             .enumerate()
-            .choose_multiple(&mut rng, (n-t-f) as usize)
+            .choose_multiple(&mut rng, (n - t - f) as usize)
             .into_iter()
             .for_each(|(m, ready)| {
                 assert!(res.is_none());
@@ -302,7 +321,7 @@ fn reconstruct_share() {
     let t = 5;
     let d = rng.gen_range(0, n);
     let tau = rng.gen();
-    let scheme = Scheme::new(Params {d, f, n, t, tau});
+    let scheme = Scheme::new(Params { d, f, n, t, tau });
     let s = random_scalar(&mut rng);
     let mut nodes = scheme.nodes;
     let sends = nodes[scheme.params.d as usize].share(&mut rng, Share { s });
@@ -312,34 +331,43 @@ fn reconstruct_share() {
         .map(|(node, send)| node.send(send).unwrap())
         .collect();
     // generate ready messages based on a random selection of echos
-    let ready_messages: Vec<_> =
-        nodes.iter_mut().enumerate().map(|(i, node)| {
+    let ready_messages: Vec<_> = nodes
+        .iter_mut()
+        .enumerate()
+        .map(|(i, node)| {
             use rand::seq::IteratorRandom;
             let mut res = None;
-            echos.iter()
+            echos
+                .iter()
                 .map(|es| es[i].clone())
                 .enumerate()
                 .choose_multiple(&mut rng, 7)
                 .into_iter()
                 .for_each(|(m, echo)| res = node.echo(m as u32, &echo));
             res.expect("Unexpected failure to generate ready message")
-        }).collect();
+        })
+        .collect();
     // generate shared messages based on a random selection of ready messages
-    let shared_messages: Vec<_> =
-        nodes.iter_mut().enumerate().map(|(i, node)| {
+    let shared_messages: Vec<_> = nodes
+        .iter_mut()
+        .enumerate()
+        .map(|(i, node)| {
             let mut res = None;
-            ready_messages.iter().enumerate()
-                .choose_multiple(&mut rng, (n-t-f) as usize)
+            ready_messages
+                .iter()
+                .enumerate()
+                .choose_multiple(&mut rng, (n - t - f) as usize)
                 .into_iter()
-                .map(|(m, ready_messages_m) | (m, ready_messages_m[i].clone()))
+                .map(|(m, ready_messages_m)| (m, ready_messages_m[i].clone()))
                 .into_iter()
                 .for_each(|(m, ready_message)| {
                     assert!(res.is_none());
                     res = node.ready(m as u32, &ready_message);
                 });
             res.expect("Unexpected failure to generate shared message")
-               .expect_right("Unexpected failure to generate shared message")
-        }).collect();
+                .expect_right("Unexpected failure to generate shared message")
+        })
+        .collect();
     // Initialize a rec protocol node
     let i = rng.gen_range(0, 8);
     let mut rec_node = {
@@ -350,8 +378,10 @@ fn reconstruct_share() {
     };
     // accept T + 1 shares
     let mut z_i = None;
-    shared_messages.into_iter().enumerate()
-        .choose_multiple(&mut rng, (t+1) as usize)
+    shared_messages
+        .into_iter()
+        .enumerate()
+        .choose_multiple(&mut rng, (t + 1) as usize)
         .into_iter()
         .for_each(|(j, shared_message)| {
             assert!(z_i.is_none());
