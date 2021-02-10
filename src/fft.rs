@@ -1,5 +1,5 @@
-use bls12_381::Scalar;
 use crate::poly;
+use bls12_381::Scalar;
 
 /// From dusk_bls12-381
 pub fn domain(num_coeffs: usize) -> Option<(Scalar, u32, u64)> {
@@ -66,7 +66,10 @@ pub fn bitreverse(mut n: u32, l: u32) -> u32 {
     r
 }
 
-pub fn multi_evaluate(a: &poly::Share, domain: (Scalar, u32, u64)) -> Vec<Scalar> {
+pub fn multi_evaluate(
+    a: &poly::Share,
+    domain: (Scalar, u32, u64),
+) -> Vec<Scalar> {
     use std::convert::TryInto;
     let mut shares = Vec::with_capacity(domain.2.try_into().unwrap());
     shares.extend(a.iter());

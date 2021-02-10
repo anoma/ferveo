@@ -1,15 +1,15 @@
 #![allow(clippy::many_single_char_names)]
 #![allow(non_snake_case)]
 
-use crate::{poly, fft};
+use crate::{fft, poly};
 
 use bls12_381::Scalar;
 use either::Either;
 use itertools;
 use num::integer::div_ceil;
 use std::collections::{HashMap, HashSet};
-use std::rc::Rc;
 use std::convert::TryInto;
+use std::rc::Rc;
 
 pub struct Context {
     /* Map keyed by sha2-256 hashes of commitments.
@@ -224,13 +224,13 @@ impl Context {
             poly::scalar_exp_u64(self.domain.0, self.i.into()),
         ) {
             /*let shares = (0..self.N)
-                .map(|j| {
-                    poly::eval_share(
-                        &a,
-                        poly::scalar_exp_u64(self.domain.0, j.into()),
-                    )
-                })
-                .collect::<Vec<Scalar>>();*/
+            .map(|j| {
+                poly::eval_share(
+                    &a,
+                    poly::scalar_exp_u64(self.domain.0, j.into()),
+                )
+            })
+            .collect::<Vec<Scalar>>();*/
             let shares = fft::multi_evaluate(&a, self.domain);
 
             (0usize..self.n as usize)
@@ -276,13 +276,13 @@ impl Context {
                 let points = A_C.iter().map(|(m, a)| (*m, *a));
                 let a_bar = poly::lagrange_interpolate(points);
                 /*let shares = (0..self.N)
-                    .map(|j| {
-                        poly::eval_share(
-                            &a_bar,
-                            poly::scalar_exp_u64(self.domain.0, j.into()),
-                        )
-                    })
-                    .collect::<Vec<Scalar>>();*/
+                .map(|j| {
+                    poly::eval_share(
+                        &a_bar,
+                        poly::scalar_exp_u64(self.domain.0, j.into()),
+                    )
+                })
+                .collect::<Vec<Scalar>>();*/
                 let shares = fft::multi_evaluate(&a_bar, self.domain);
                 (0usize..self.n as usize)
                     .map(|j| Ready {
@@ -334,13 +334,13 @@ impl Context {
 
             if e_C < div_ceil(self.N + self.t + 1, 2) && r_C >= self.t + 1 {
                 /*let shares = (0..self.N)
-                    .map(|j| {
-                        poly::eval_share(
-                            &a_bar,
-                            poly::scalar_exp_u64(self.domain.0, j.into()),
-                        )
-                    })
-                    .collect::<Vec<Scalar>>();*/
+                .map(|j| {
+                    poly::eval_share(
+                        &a_bar,
+                        poly::scalar_exp_u64(self.domain.0, j.into()),
+                    )
+                })
+                .collect::<Vec<Scalar>>();*/
                 let shares = fft::multi_evaluate(&a_bar, self.domain);
                 let ready_messages = (0usize..self.n as usize)
                     .map(|j| Ready {
