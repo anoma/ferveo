@@ -121,33 +121,30 @@ pub fn public(f: &Secret) -> Public {
 }
 
 // Generate the `j`th secret share
-pub fn share(f: &Secret, j: u32) -> Share {
-    eval_secret_x(f, u64::from(j).into())
+pub fn share(f: &Secret, j: Scalar) -> Share {
+    eval_secret_x(f, j)
 }
 
 // Scalar exponentiation by u64. `exp(x, y) = x^y`
-fn scalar_exp_u64(x: Scalar, y: u64) -> Scalar {
+pub fn scalar_exp_u64(x: Scalar, y: u64) -> Scalar {
     x.pow(&[u64::to_le(y), 0, 0, 0])
 }
 
 // Verify that the given share with index `i` is consistent with the public polynomial.
-pub fn verify_share(p: &Public, s: &Share, i: u32) -> bool {
+pub fn verify_share(p: &Public, s: &Share, i: Scalar) -> bool {
     // ∀ l ∈ [0, t]. 1_{G1} * s_l = ∑_{j=0}^t (p_j_l * i^j)
     s.iter().enumerate().all(|(l, sl)| {
         let lhs = G1Projective::generator() * *sl;
         let mut rhs = G1Projective::identity();
         for (j, pj) in p.column_iter().enumerate() {
-            rhs += pj[l] * scalar_exp_u64(u64::from(i).into(), j as u64)
+            rhs += pj[l] * scalar_exp_u64(i, j as u64)
         }
         lhs == rhs
     })
 }
 
 // Verify that a given point from node `m` with index `i` is consistent with the public polynomial.
-pub fn verify_point(p: &Public, i: u32, m: u32, x: Scalar) -> bool {
-    let i = Scalar::from(u64::from(i));
-    let m = Scalar::from(u64::from(m));
-
+pub fn verify_point(p: &Public, i: Scalar, m: Scalar, x: Scalar) -> bool {
     // 1_{G1} * x = ∑_{j,l=0}^t (p_j_l * m^j * i^l)
     let lhs = G1Projective::generator() * x;
     let rhs = p
