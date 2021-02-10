@@ -6,7 +6,7 @@ use crate::poly;
 use ark_bls12_381::{Fr, G1Projective};
 use ark_ec::ProjectiveCurve;
 use ark_ff::Field;
-use ark_poly::polynomial::Polynomial;
+use ark_poly::{Polynomial, Radix2EvaluationDomain};
 use num::Zero;
 use std::collections::HashSet;
 
@@ -15,11 +15,12 @@ use crate::hybridvss::params::Params;
 type Scalar = Fr;
 
 pub struct Context {
-    C: poly::Public, // the public polynomial
-    c: u32,          // counter for `reconstruct-share` messages
+    C: poly::Public,                    // the public polynomial
+    c: u32, // counter for `reconstruct-share` messages
+    domain: Radix2EvaluationDomain<Fr>, // FFT domain (group_gen, log_size_of_group, size)
     params: Params,
-    S: HashSet<(u32, Scalar)>, // set of node-index - share pairs.
-    s: Scalar,                 // the share for this node
+    S: HashSet<(Scalar, Scalar)>, // set of node-index - share pairs.
+    s: Scalar,                    // the share for this node
 }
 
 fn mul_g1proj(lhs: G1Projective, rhs: Scalar) -> G1Projective {
@@ -42,12 +43,19 @@ impl Context {
     pub fn init(
         params: Params,
         C: poly::Public, // the public polynomial
-        s: Scalar,       // the share for this node
+        domain: Radix2EvaluationDomain<Fr>,
+        s: Scalar, // the share for this node
     ) -> Self {
         let c = 0;
         let S = HashSet::new();
-
-        Context { C, c, params, S, s }
+        Context {
+            C,
+            c,
+            domain,
+            params,
+            S,
+            s,
+        }
     }
 
     pub fn reconstruct(&self) -> Scalar {
@@ -64,17 +72,17 @@ impl Context {
             .map(|j| {
                 mul_g1proj(
                     self.C[j as usize][0].into(),
-                    scalar_exp_u32(m.into(), j),
+                    scalar_exp_u32(self.domain.group_gen, m * j), // omega^((k + m) * j)
                 )
             })
             .sum::<G1Projective>();
         if lhs == rhs {
-            self.S.insert((m, sigma));
+            let wm = scalar_exp_u32(self.domain.group_gen, m); // omega^m
+            self.S.insert((wm, sigma));
             self.c += 1;
             if self.c == self.params.t + 1 {
                 // the points to use for lagrange interpolation
-                let points =
-                    self.S.iter().map(|(m, s)| (u64::from(*m).into(), *s));
+                let points = self.S.clone();
                 let z = poly::lagrange_interpolate(points);
                 let z_i = z.evaluate(&Scalar::zero());
                 Some(z_i)

@@ -5,6 +5,7 @@ use crate::poly;
 
 use ark_bls12_381::Fr;
 use num::integer::div_ceil;
+use rand::Rng;
 use std::collections::{BTreeSet, HashMap};
 use std::rc::Rc;
 
@@ -51,12 +52,38 @@ pub enum SharedAction {
     Send(Send),
 }
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct Params {
-    pub f: u32, // failure threshold
-    pub l: u32, // leader index
-    pub n: u32, // number of participants
-    pub t: u32, // threshold
+    pub f: u32,      // failure threshold
+    pub l: u32,      // leader index
+    pub t: u32,      // threshold
+    pub w: Vec<u32>, // weight of each participant
+}
+
+impl Params {
+    pub fn new(f: u32, l: u32, t: u32, w: Vec<u32>) -> Self {
+        Params { f, l, t, w }
+    }
+
+    // initialize with random values for `l`
+    pub fn random_leader<R: Rng>(
+        f: u32,
+        t: u32,
+        w: Vec<u32>,
+        rng: &mut R,
+    ) -> Self {
+        let l = rng.gen_range(0, w.len() as u32);
+        Self::new(f, l, t, w)
+    }
+
+    // return the number of participants in the setup
+    pub fn n(&self) -> u32 {
+        self.w.len() as u32
+    }
+
+    pub fn total_weight(&self) -> u32 {
+        self.w.iter().sum()
+    }
 }
 
 pub struct Context {
@@ -190,10 +217,12 @@ impl Context {
     /* determine if the threshold has been met,
     in order to broadcast a ready message */
     fn echo_ready_threshold(&mut self, lq_hash: [u8; 32]) -> bool {
-        let Params { n, t, .. } = self.params;
+        let t = self.params.t;
+        let W = self.params.total_weight();
         let e_LQ = *get_or_insert(lq_hash, 0, &mut self.e);
         let r_LQ = *get_or_insert(lq_hash, 0, &mut self.r);
-        e_LQ == div_ceil(n + t + 1, 2) && r_LQ < t + 1
+        // FIXME: should this be >= on e_LQ?
+        e_LQ == div_ceil(W + t + 1, 2) && r_LQ < t + 1
     }
 
     /* Respond to an "echo" message */
@@ -218,18 +247,22 @@ impl Context {
     /* determine if the threshold has been met,
     in order to broadcast a ready message */
     fn ready_ready_threshold(&mut self, lq_hash: [u8; 32]) -> bool {
-        let Params { n, t, .. } = self.params;
+        let t = self.params.t;
+        let W = self.params.total_weight();
         let e_LQ = *get_or_insert(lq_hash, 0, &mut self.e);
         let r_LQ = *get_or_insert(lq_hash, 0, &mut self.r);
-        r_LQ == t + 1 && e_LQ < div_ceil(n + t + 1, 2)
+        // FIXME: should this be >= on r_C?
+        r_LQ == t + 1 && e_LQ < div_ceil(W + t + 1, 2)
     }
 
     /* determine if the threshold has been met,
     in order to complete the dkg */
     fn ready_complete_threshold(&mut self, lq_hash: [u8; 32]) -> bool {
-        let Params { n, t, f, .. } = self.params;
+        let Params { t, f, .. } = self.params;
+        let W = self.params.total_weight();
         let r_LQ = *get_or_insert(lq_hash, 0, &mut self.r);
-        r_LQ == n - t - f
+        // FIXME: should this be >= on r_C?
+        r_LQ == W - t - f
     }
 
     /* Respond to a "ready" message */
