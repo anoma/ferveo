@@ -14,7 +14,7 @@ use std::convert::TryInto;
 pub struct Context {
     /* Map keyed by sha2-256 hashes of commitments.
     The values of the map are pairs of node indexes and scalars */
-    A: HashMap<[u8; 32], HashMap<Scalar, Scalar>>,
+    A: HashMap<[u8; 32], HashSet<(Scalar, Scalar)>>,
     d: u32, // index of the dealer's public key in the setup
     /* Counters for `echo` messages.
     The keys of the map are sha2-256 hashes. */
@@ -258,11 +258,11 @@ impl Context {
             )
         }) {
             let C_hash = hash_public_poly(&C);
-            insert_if_none(C_hash, HashMap::new(), &mut self.A);
+            insert_if_none(C_hash, HashSet::new(), &mut self.A);
             let mut h = self.A.get_mut(&C_hash).unwrap();
             let mut i = poly::scalar_exp_u64(self.domain.0, m.into());
             for s in alpha.iter() {
-                h.insert(i, *s);
+                h.insert((i, *s));
                 i *= self.domain.0;
             }
             incr(C_hash, &mut self.e, self.W[m as usize]);
@@ -315,11 +315,11 @@ impl Context {
             )
         }) {
             let C_hash = hash_public_poly(&C);
-            insert_if_none(C_hash, HashMap::new(), &mut self.A);
+            insert_if_none(C_hash, HashSet::new(), &mut self.A);
             let mut h = self.A.get_mut(&C_hash).unwrap();
             let mut i = poly::scalar_exp_u64(self.domain.0, m.into());
             for s in alpha.iter() {
-                h.insert(i, *s);
+                h.insert((i, *s));
                 i *= self.domain.0;
             }
             incr(C_hash, &mut self.r, self.W[m as usize]);
