@@ -1,7 +1,8 @@
 use bls12_381::Scalar;
+use crate::poly;
 
 /// From dusk_bls12-381
-pub fn domain(num_coeffs: usize) -> Option<(Scalar, u32)> {
+pub fn domain(num_coeffs: usize) -> Option<(Scalar, u32, u64)> {
     let size = num_coeffs.next_power_of_two() as u64;
     let log_size_of_group = size.trailing_zeros();
     const TWO_ADACITY: u32 = 32;
@@ -17,7 +18,7 @@ pub fn domain(num_coeffs: usize) -> Option<(Scalar, u32)> {
     for _ in log_size_of_group..TWO_ADACITY {
         group_gen = group_gen.square();
     }
-    Some((group_gen, log_size_of_group))
+    Some((group_gen, log_size_of_group, size))
 }
 
 /// From dusk_bls12-381
@@ -63,4 +64,13 @@ pub fn bitreverse(mut n: u32, l: u32) -> u32 {
         n >>= 1;
     }
     r
+}
+
+pub fn multi_evaluate(a: &poly::Share, domain: (Scalar, u32, u64)) -> Vec<Scalar> {
+    use std::convert::TryInto;
+    let mut shares = Vec::with_capacity(domain.2.try_into().unwrap());
+    shares.extend(a.iter());
+    shares.resize_with(domain.2.try_into().unwrap(), Default::default);
+    fft(&mut shares, domain.0, domain.1);
+    shares
 }
