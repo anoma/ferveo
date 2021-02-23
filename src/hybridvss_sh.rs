@@ -3,11 +3,17 @@
 
 use crate::poly;
 
-use bls12_381::Scalar;
+use ark_bls12_381::{Fr, G1Affine};
+use ark_poly::Polynomial;
+use ark_serialize::CanonicalSerialize;
+use ark_std::io::Write;
 use either::Either;
 use num::integer::div_ceil;
+use num::Zero;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
+
+type Scalar = Fr;
 
 pub struct Context {
     /* Map keyed by sha2-256 hashes of commitments.
@@ -70,11 +76,20 @@ pub struct Shared {
 fn hash_public_poly(C: &poly::Public) -> [u8; 32] {
     use digest::Digest;
     let mut hasher = sha2::Sha256::new();
-    C.iter().for_each(|coeff| {
-        let coeff_bytes = coeff.to_compressed().to_vec();
-        hasher.update(coeff_bytes)
+    C.iter().for_each(|coeffs| {
+        coeffs.iter().for_each(|coeff| {
+            let coeff_bytes = compress_G1Affine(coeff);
+            hasher.update(coeff_bytes)
+        })
     });
     hasher.finalize().into()
+}
+
+fn compress_G1Affine(p: &G1Affine) -> [u8; 48] {
+    use std::convert::TryInto;
+    let mut buf = Vec::new();
+    p.serialize(&mut buf).unwrap();
+    buf.try_into().unwrap()
 }
 
 /* Alters the value at the specified key.
@@ -180,8 +195,7 @@ impl Context {
         rng: &mut R,
         Share { s }: Share,
     ) -> ShareResponse {
-        let mut phi = poly::random_secret(self.t, rng);
-        phi[(0, 0)] = s;
+        let phi = poly::random_secret(self.t, s, rng);
         let C = Rc::new(poly::public(&phi));
         (0..self.n)
             .map(|j| Send {
@@ -198,7 +212,7 @@ impl Context {
             (0..self.n)
                 .map(|j| Echo {
                     C: C.clone(),
-                    alpha: poly::eval_share(&a, j.into()),
+                    alpha: a.evaluate(&j.into()),
                 })
                 .collect::<Vec<Echo>>()
                 .into()
@@ -227,7 +241,7 @@ impl Context {
                 (0..self.n)
                     .map(|j| Ready {
                         C: C.clone(),
-                        alpha: poly::eval_share(&a_bar, j.into()),
+                        alpha: a_bar.evaluate(&j.into()),
                     })
                     .collect::<Vec<Ready>>()
                     .into()
@@ -262,12 +276,12 @@ impl Context {
                 let ready_messages = (0..self.n)
                     .map(|j| Ready {
                         C: C.clone(),
-                        alpha: poly::eval_share(&a_bar, j.into()),
+                        alpha: a_bar.evaluate(&j.into()),
                     })
                     .collect();
                 Some(Either::Left(ready_messages))
             } else if r_C == self.n - self.t - self.f {
-                let s = poly::eval_share(&a_bar, Scalar::zero());
+                let s = a_bar.evaluate(&Scalar::zero());
                 Some(Either::Right(Shared { C: C.clone(), s }))
             } else {
                 None

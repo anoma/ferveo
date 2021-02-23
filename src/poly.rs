@@ -2,39 +2,15 @@
 Operations involving polynomials.
 */
 
-use bls12_381::{G1Affine, G1Projective, Scalar};
-use nalgebra::base::{DMatrix, DVector};
+use ark_bls12_381::{Fr, G1Affine, G1Projective};
+use ark_ec::ProjectiveCurve;
+use ark_ff::{Field, UniformRand};
+use ark_poly::polynomial::multivariate::{SparsePolynomial, SparseTerm, Term};
+use ark_poly::polynomial::univariate::DensePolynomial;
+use ark_poly::polynomial::{MVPolynomial, Polynomial, UVPolynomial};
+use num::{One, Zero};
 
-/*
-A Public polynomial, used during the setup phase.
-The element at (0, 0) is the free coefficient of the polynomial.
-For example, the polynomial
-`f(x, y) = c_0_0 + ... + c_i_j * x^i * j^i + ... + c_{t-1}_{t-1} * x^{t-1} * y^{t-1}`
-is encoded as
-`vec![vec![c_0_0, ..., c_0_{t-1}], ..., vec![c_{t-1}_0, ..., c_{t-1}_{t-1}]]`.
-*/
-pub type Public = DMatrix<G1Affine>;
-
-/*
-A secret polynomial, used during the setup phase.
-The element at (0, 0) is the free coefficient of the polynomial.
-For example, the polynomial
-`f(x, y) = c_0_0 + ... + c_i_j * x^i * j^i + ... + c_{t-1}_{t-1} * x^{t-1} * y^{t-1}`
-is encoded as
-`vec![vec![c_0_0, ..., c_0_{t-1}], ..., vec![c_{t-1}_0, ..., c_{t-1}_{t-1}]]`.
-*/
-
-pub type Secret = DMatrix<Scalar>;
-
-/*
-A secret share, used during the setup phase.
-The element at 0 is the free coefficient of the polynomial.
-For example, the polynomial
-`f(y) = c_0 + ... + c_i * y^i + ... + c_{t-1} * y^{t-1}`
-is encoded as
-`vec![c_0, ..., c_{t-1}]`.
-*/
-pub type Share = DVector<Scalar>;
+pub type Scalar = Fr;
 
 // Powers of `x` from 0 to `n`.
 fn powers(x: Scalar, n: usize) -> Vec<Scalar> {
@@ -47,97 +23,232 @@ fn powers(x: Scalar, n: usize) -> Vec<Scalar> {
     res
 }
 
-// Evaluate a public polynomial at a particular point.
-fn eval_public(f: &Public, (x, y): (Scalar, Scalar)) -> G1Affine {
-    let xi = powers(x, f.ncols() - 1); // x^i from 0 to ncols - 1
-    let yj = powers(y, f.nrows() - 1); // y^j from 0 to nrows - 1
-    f.map_with_location(|j, i, fij| fij * xi[i] * yj[j])
+// Univariate polynomial
+pub type Univar = DensePolynomial<Scalar>;
+
+// the exponent of the nth parameter in a term
+fn param_pow(term: &SparseTerm, i: usize) -> usize {
+    *term
         .iter()
-        .sum::<G1Projective>()
-        .into()
+        .find_map(|(par, deg)| if *par == i { Some(deg) } else { None })
+        .unwrap_or(&0)
+}
+
+// Bivariate polynomial
+pub struct Bivar(SparsePolynomial<Scalar, SparseTerm>);
+
+impl Bivar {
+    // get the degree of the first term
+    fn fst_degree(&self) -> usize {
+        self.0
+            .terms
+            .iter()
+            .map(|(_, term)| param_pow(term, 0))
+            .max()
+            .unwrap()
+    }
+
+    // get the degree of the second term
+    fn snd_degree(&self) -> usize {
+        self.0
+            .terms
+            .iter()
+            .map(|(_, term)| param_pow(term, 1))
+            .max()
+            .unwrap()
+    }
+
+    pub fn coeffs(&self) -> Vec<Vec<Scalar>> {
+        let fst_degree = self.fst_degree();
+        let snd_degree = self.snd_degree();
+
+        let mut res =
+            vec![vec![Scalar::zero(); snd_degree + 1]; fst_degree + 1];
+
+        self.0.terms.iter().for_each(|(coeff, term)| {
+            let pow_fst = param_pow(term, 0);
+            let pow_snd = param_pow(term, 1);
+            res[pow_fst][pow_snd] += coeff;
+        });
+
+        res
+    }
+
+    pub fn from_coeffs(coeffs: &Vec<Vec<Scalar>>) -> Self {
+        let mut coeffs_vec = Vec::new();
+
+        for i in 0..coeffs.len() {
+            for j in 0..coeffs[0].len() {
+                let term = SparseTerm::new(vec![(0, i), (1, j)]);
+                let coeff = (coeffs[i][j], term);
+                coeffs_vec.push(coeff)
+            }
+        }
+
+        Bivar(SparsePolynomial::from_coefficients_vec(2, coeffs_vec))
+    }
+
+    // evaluate at the first term
+    pub fn eval_fst(&self, fst: Scalar) -> Univar {
+        let coeffs = self.coeffs();
+        let pows_fst = powers(fst, self.fst_degree() + 1); // powers of fst
+
+        let mut res = vec![Scalar::zero(); self.snd_degree() + 1];
+
+        coeffs.into_iter().enumerate().for_each(|(i, coeffs_snds)| {
+            coeffs_snds
+                .into_iter()
+                .enumerate()
+                .for_each(|(j, coeff)| res[j] += coeff * pows_fst[i]);
+        });
+
+        Univar::from_coefficients_vec(res)
+    }
+
+    // Generate a random symmetric bivariate polynomial of order `threshold`.
+    pub fn random_symmetric_secret<R: rand::Rng + Sized>(
+        threshold: u32,
+        rng: &mut R,
+    ) -> Secret {
+        let threshold = threshold as usize;
+        let mut coeffs =
+            vec![vec![Scalar::zero(); threshold + 1]; threshold + 1];
+
+        // by symmetry, `res[i][j] = res[j][i]`
+        for i in 0..=threshold {
+            for j in 0..=i {
+                let coeff = Scalar::rand(rng);
+                coeffs[i][j] += coeff;
+                if i != j {
+                    coeffs[j][i] += coeff
+                }
+            }
+        }
+
+        Bivar::from_coeffs(&coeffs)
+    }
 }
 
 /*
-Partially evaluate a secret polynomial at a particular point `x`.
-`eval_secret_x(f, x) ≅ f(x)` where `≅` is isomorphism.
+A Public polynomial, used during the setup phase.
+The element at (0, 0) is the free coefficient of the polynomial.
+For example, the polynomial
+`f(x, y) = c_0_0 + ... + c_i_j * x^i * j^i + ... + c_{t-1}_{t-1} * x^{t-1} * y^{t-1}`
+is encoded as
+`vec![vec![c_0_0, ..., c_0_{t-1}], ..., vec![c_{t-1}_0, ..., c_{t-1}_{t-1}]]`.
 */
-fn eval_secret_x(f: &Secret, x: Scalar) -> Share {
-    let xi = powers(x, f.ncols() - 1); // x^i from 0 to ncols - 1
-    let mut res = DVector::from_element(f.nrows(), Scalar::zero());
-    for (j, fj) in f.row_iter().enumerate() {
-        for (i, fij) in fj.iter().enumerate() {
-            res[j] += fij * xi[i]
-        }
-    }
-    res
+pub type Public = Vec<Vec<G1Affine>>;
+
+// add two public polynomial commitments
+pub fn add_public(lhs: &Public, rhs: &Public) -> Public {
+    lhs.iter()
+        .enumerate()
+        .map(|(i, lhs_i)| {
+            lhs_i
+                .iter()
+                .enumerate()
+                .map(|(j, lhs_ij)| *lhs_ij + rhs[i][j])
+                .collect()
+        })
+        .collect()
 }
 
-// Evaluate a share at a particular point.
-pub fn eval_share(f: &Share, x: Scalar) -> Scalar {
-    let xi = powers(x, f.len() - 1); // x^i from 0 to ncols - 1
-    let mut res = Scalar::zero();
-    for (i, fi) in f.iter().enumerate() {
-        res += fi * xi[i]
-    }
-    res
-}
+/*
+A secret polynomial, used during the setup phase.
+The element at (0, 0) is the free coefficient of the polynomial.
+For example, the polynomial
+`f(x, y) = c_0_0 + ... + c_i_j * x^i * j^i + ... + c_{t-1}_{t-1} * x^{t-1} * y^{t-1}`
+is encoded as
+`vec![vec![c_0_0, ..., c_0_{t-1}], ..., vec![c_{t-1}_0, ..., c_{t-1}_{t-1}]]`.
+*/
+pub type Secret = Bivar;
 
-// Evaluate a secret polynomial at a particular point.
-fn eval_secret(f: &Secret, (x, y): (Scalar, Scalar)) -> Scalar {
-    let xi = powers(x, f.ncols() - 1); // x^i from 0 to ncols - 1
-    let yj = powers(y, f.nrows() - 1); // y^j from 0 to nrows - 1
-    let mut res = Scalar::zero();
-    for (i, fi) in f.column_iter().enumerate() {
-        for (j, fij) in fi.iter().enumerate() {
-            res += fij * xi[i] * yj[j]
-        }
-    }
-    res
-}
+/*
+A secret share, used during the setup phase.
+The element at 0 is the free coefficient of the polynomial.
+For example, the polynomial
+`f(y) = c_0 + ... + c_i * y^i + ... + c_{t-1} * y^{t-1}`
+is encoded as
+`vec![c_0, ..., c_{t-1}]`.
+*/
+pub type Share = Univar;
 
-// Generate a random secret polynomial of order `threshold`.
+// Generate a random secret polynomial of order `threshold` from secret `s`
 pub fn random_secret<R: rand::Rng + Sized>(
     threshold: u32,
+    s: Scalar,
     rng: &mut R,
 ) -> Secret {
     let threshold = threshold as usize;
-    let mut res =
-        unsafe { DMatrix::new_uninitialized(threshold + 1, threshold + 1) };
-    // secret polynomials are bivariate, so res[i][j] = res[j][i]
+    let mut coeffs = vec![vec![Scalar::zero(); threshold + 1]; threshold + 1];
+
+    // secret polynomials are symmetric, so res[i][j] = res[j][i]
     for i in 0..=threshold {
         for j in 0..=i {
-            res[(j, i)] = <Scalar as ff::Field>::random(&mut *rng);
+            let coeff = Scalar::rand(rng);
+            coeffs[i][j] += coeff;
             if i != j {
-                res[(i, j)] = res[(j, i)]
+                coeffs[j][i] += coeff
             }
         }
     }
-    res
+
+    coeffs[0][0] = s;
+
+    Bivar::from_coeffs(&coeffs)
+}
+
+fn mul_g1proj(lhs: G1Projective, rhs: Scalar) -> G1Projective {
+    let mut lhs = lhs;
+    lhs *= rhs;
+    lhs
 }
 
 // Generate the public polynomial for a given secret polynomial.
-pub fn public(f: &Secret) -> Public {
-    f.map(|fij| (G1Projective::generator() * fij).into())
+pub fn public(secret: &Secret) -> Public {
+    secret
+        .coeffs()
+        .into_iter()
+        .map(|coeffs| {
+            coeffs
+                .into_iter()
+                .map(|coeff| {
+                    mul_g1proj(G1Projective::prime_subgroup_generator(), coeff)
+                        .into_affine()
+                })
+                .collect()
+        })
+        .collect()
 }
 
 // Generate the `j`th secret share
-pub fn share(f: &Secret, j: u32) -> Share {
-    eval_secret_x(f, u64::from(j).into())
+pub fn share(secret: &Secret, j: u32) -> Share {
+    secret.eval_fst(j.into())
 }
 
 // Scalar exponentiation by u64. `exp(x, y) = x^y`
 fn scalar_exp_u64(x: Scalar, y: u64) -> Scalar {
-    x.pow(&[u64::to_le(y), 0, 0, 0])
+    x.pow([u64::to_le(y)])
+}
+
+// Scalar exponentiation by u32. `exp(x, y) = x^y`
+fn scalar_exp_u32(x: Scalar, y: u32) -> Scalar {
+    scalar_exp_u64(x, y.into())
+}
+
+// Scalar exponentiation by usize. `exp(x, y) = x^y`
+fn scalar_exp_usize(x: Scalar, y: usize) -> Scalar {
+    scalar_exp_u64(x, y as u64)
 }
 
 // Verify that the given share with index `i` is consistent with the public polynomial.
 pub fn verify_share(p: &Public, s: &Share, i: u32) -> bool {
     // ∀ l ∈ [0, t]. 1_{G1} * s_l = ∑_{j=0}^t (p_j_l * i^j)
-    s.iter().enumerate().all(|(l, sl)| {
-        let lhs = G1Projective::generator() * *sl;
-        let mut rhs = G1Projective::identity();
-        for (j, pj) in p.column_iter().enumerate() {
-            rhs += pj[l] * scalar_exp_u64(u64::from(i).into(), j as u64)
+    s.coeffs().iter().enumerate().all(|(l, s_l)| {
+        let lhs = mul_g1proj(G1Projective::prime_subgroup_generator(), *s_l);
+        let mut rhs = G1Projective::zero();
+        for (j, pj) in p.iter().enumerate() {
+            rhs += mul_g1proj(pj[l].into(), scalar_exp_usize(i.into(), j))
         }
         lhs == rhs
     })
@@ -145,64 +256,71 @@ pub fn verify_share(p: &Public, s: &Share, i: u32) -> bool {
 
 // Verify that a given point from node `m` with index `i` is consistent with the public polynomial.
 pub fn verify_point(p: &Public, i: u32, m: u32, x: Scalar) -> bool {
-    let i = Scalar::from(u64::from(i));
-    let m = Scalar::from(u64::from(m));
+    let i = Scalar::from(i);
+    let m = Scalar::from(m);
 
     // 1_{G1} * x = ∑_{j,l=0}^t (p_j_l * m^j * i^l)
-    let lhs = G1Projective::generator() * x;
-    let rhs = p
-        .map_with_location(|l, j, pjl| {
-            pjl * scalar_exp_u64(m, j as u64) * scalar_exp_u64(i, l as u64)
+    let lhs = mul_g1proj(G1Projective::prime_subgroup_generator(), x);
+    let rhs: G1Projective = p
+        .into_iter()
+        .enumerate()
+        .map(|(j, p_j)| {
+            p_j.into_iter()
+                .enumerate()
+                .map(|(l, p_jl)| {
+                    mul_g1proj(
+                        p_jl.clone().into(),
+                        scalar_exp_usize(m, j) * scalar_exp_usize(i, l),
+                    )
+                })
+                .sum::<G1Projective>()
         })
-        .iter()
         .sum();
     lhs == rhs
 }
 
-// Polynomial sum
-fn poly_sum(x: DVector<Scalar>, y: DVector<Scalar>) -> DVector<Scalar> {
-    let res_size = std::cmp::max(x.len(), y.len());
-    let x = x.resize_vertically(res_size, Scalar::zero());
-    let y = y.resize_vertically(res_size, Scalar::zero());
-    x + y
-}
-
-// Polynomial product
-fn poly_prod(x: &DVector<Scalar>, y: &DVector<Scalar>) -> DVector<Scalar> {
-    let mut res = DVector::from_element(x.len() + y.len() - 1, Scalar::zero());
-    for (i, xi) in x.iter().enumerate() {
-        for (j, yj) in y.iter().enumerate() {
-            res[(i + j, 0)] += *xi * *yj
+// Univariate polynomial product
+fn poly_prod(x: &Univar, y: &Univar) -> Univar {
+    let mut coeffs = vec![Scalar::zero(); x.degree() + y.degree() + 1];
+    for (i, xi) in x.coeffs().iter().enumerate() {
+        for (j, yj) in y.coeffs().iter().enumerate() {
+            coeffs[i + j] += *xi * *yj
         }
     }
-    res
+    Univar::from_coefficients_vec(coeffs)
 }
 
 // lagrange basis polynomial L_n_j(x)
-fn lagrange_basis(j: usize, xs: &Vec<Scalar>) -> DVector<Scalar> {
-    let mut num = DVector::from_element(1, Scalar::one()); // numerator
+fn lagrange_basis(j: usize, xs: &Vec<Scalar>) -> Vec<Scalar> {
+    // numerator
+    let mut num = Univar::from_coefficients_vec(vec![Scalar::one()]);
     let mut den = Scalar::one(); // denominator
     for (k, xk) in xs.iter().enumerate() {
         if k != j {
             num = poly_prod(
                 &num,
-                &DVector::from_vec(vec![-(*xk), Scalar::one()]),
+                &Univar::from_coefficients_vec(vec![-(*xk), Scalar::one()]),
             );
             den *= xs[j] - *xk
         }
     }
-    den = den.invert().unwrap();
-    num.map(|v| v * den)
+    den = den.inverse().unwrap();
+    num.coeffs().iter().map(|v| *v * den).collect()
 }
 
-pub fn lagrange_interpolate<I>(points: I) -> DVector<Scalar>
+pub fn lagrange_interpolate<I>(points: I) -> Univar
 where
     I: IntoIterator<Item = (Scalar, Scalar)>,
 {
     let (xs, ys): (Vec<Scalar>, Vec<Scalar>) = points.into_iter().unzip();
-    let mut res = DVector::from_vec(Vec::new());
+    let mut res = Univar::from_coefficients_vec(Vec::new());
     for (j, yj) in ys.iter().enumerate() {
-        res = poly_sum(res, lagrange_basis(j, &xs).map(|v| v * *yj))
+        res += &Univar::from_coefficients_vec(
+            lagrange_basis(j, &xs)
+                .into_iter()
+                .map(|v| v * *yj)
+                .collect(),
+        )
     }
     res
 }
@@ -213,19 +331,21 @@ mod tests {
 
     #[test]
     fn random_secret_is_symmetric() {
+        let mut rng = rand::thread_rng();
         let threshold = 40;
-        let secret = random_secret(threshold, &mut rand::thread_rng());
+        let secret = random_secret(threshold, Scalar::rand(&mut rng), &mut rng);
         for i in 0..(threshold as usize) {
             for j in 0..i {
-                assert!(secret[(i, j)] == secret[(j, i)])
+                assert!(secret.coeffs()[i][j] == secret.coeffs()[j][i])
             }
         }
     }
 
     #[test]
     fn share_verification() {
+        let mut rng = rand::thread_rng();
         let threshold = 10;
-        let secret = random_secret(threshold, &mut rand::thread_rng());
+        let secret = random_secret(threshold, Scalar::rand(&mut rng), &mut rng);
         let public = public(&secret);
         for i in 0..(threshold * 2) {
             assert!(verify_share(&public, &share(&secret, i), i))
@@ -234,13 +354,14 @@ mod tests {
 
     #[test]
     fn point_verification() {
+        let mut rng = rand::thread_rng();
         let threshold = 7;
-        let secret = random_secret(threshold, &mut rand::thread_rng());
+        let secret = random_secret(threshold, Scalar::rand(&mut rng), &mut rng);
         let public = public(&secret);
         for i in 0..threshold {
             let share = share(&secret, i);
             for j in 0..threshold {
-                let point = eval_share(&share, (j as u64).into());
+                let point = share.evaluate(&j.into());
                 assert!(verify_point(&public, j, i, point))
             }
         }

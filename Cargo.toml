@@ -13,6 +13,12 @@ authors = ["Metastate AG <hello@metastate.dev>"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+ark-std = { git = "https://github.com/arkworks-rs/utils" }
+ark-bls12-381 = { git = "https://github.com/arkworks-rs/curves" }
+ark-ec = { git = "https://github.com/arkworks-rs/algebra" }
+ark-ff = { git = "https://github.com/arkworks-rs/algebra" }
+ark-serialize = { git = "https://github.com/arkworks-rs/algebra" }
+ark-poly = { git = "https://github.com/arkworks-rs/algebra" }
 bls12_381 = "0.3.1"
 either = "1.6.1"
 ff = "0.8.0"

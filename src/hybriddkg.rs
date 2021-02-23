@@ -4,11 +4,13 @@
 use crate::bls;
 use crate::poly;
 
-use bls12_381::{G1Affine, G1Projective, Scalar};
+use ark_bls12_381::Fr;
 use num::integer::div_ceil;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::rc::Rc;
+
+type Scalar = Fr;
 
 /* An "echo" message */
 #[derive(Clone)]
@@ -65,7 +67,6 @@ pub struct Context {
     lc_flag: bool, // leader count flag
     // FIXME: m_bar
     n: u32,               // number of nodes in the setup
-    p: Vec<G1Affine>,     // sorted public keys for all participant nodes
     q_bar: BTreeSet<u32>, // set of node indexes
     q_hat: BTreeSet<u32>, // set of node indexes
     /* Counters for `ready` messages.
@@ -124,22 +125,20 @@ impl Context {
     failure threshold `f`,
     node index `i`,
     leader index `l`,
-    participant node public keys `p`,
+    total number of nodes `n`,
     threshold `t`,
     and session identifier `tau`. */
     pub fn init(
-        f: u32,         // failure threshold
-        i: u32,         // index of this node's public key in `p`
-        l: u32,         // index of the leader's public key in `p`
-        p: &[G1Affine], // sorted public keys for all participant nodes
+        f: u32, // failure threshold
+        i: u32, // index of this node's public key in `p`
+        l: u32, // index of the leader's public key in `p`
+        n: u32, // total number of nodes in the setup
         /* signatures on a lead-ch message for the current leader */
         // FIXME: do these all use the same values for q/rm?
         //sigs: &[u32, G2Affine],
         t: u32,   // threshold
         tau: u32, // session identifier
     ) -> Self {
-        use std::convert::TryInto;
-        let n: u32 = p.len().try_into().unwrap();
         if n <= i {
             panic!(
                 "Cannot initialize node with index `{}` with fewer than \
@@ -173,10 +172,6 @@ impl Context {
                 n = n,
             )
         }
-        let p = p.to_vec();
-        if !p.iter().is_sorted_by_key(|pk| pk.to_compressed()) {
-            panic!("Participant node public keys must be sorted.")
-        }
 
         let e = HashMap::new();
         let l_next = (l + n - 1) % n; //FIXME: is this correct?
@@ -195,7 +190,6 @@ impl Context {
             lc,
             lc_flag,
             n,
-            p,
             q_bar,
             q_hat,
             r,
@@ -267,21 +261,13 @@ impl Context {
     }
 }
 
-// add two public polynomial commitments
-fn add_public(xs: &poly::Public, ys: &poly::Public) -> poly::Public {
-    xs.zip_map(&ys, |x, y| {
-        let y: G1Projective = y.into();
-        (x + y).into()
-    })
-}
-
 /* Finalize after receiving shared-output messages */
 pub fn finalize(shares: &[Shared]) -> (poly::Public, Scalar) {
     let s_i: Scalar = shares.iter().map(|s| s.s_id).sum();
     let C = shares
         .iter()
         .map(|s| s.C.clone())
-        .fold_first(|x, y| add_public(&x, &y).into())
+        .fold_first(|x, y| poly::add_public(&x, &y).into())
         .unwrap();
     let C = Rc::try_unwrap(C).unwrap();
     (C, s_i)

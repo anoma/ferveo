@@ -2,7 +2,8 @@
 #![allow(non_snake_case)]
 #![feature(bindings_after_at)]
 
-use bls12_381::Scalar;
+use ark_bls12_381::Fr;
+use ark_ff::UniformRand;
 use ferveo::hybridvss_rec;
 use ferveo::hybridvss_sh::*;
 use rand::rngs::StdRng;
@@ -17,9 +18,7 @@ fn seed_zero<R: rand::SeedableRng>() -> R {
 }
 */
 
-fn random_scalar<R: Rng>(rng: &mut R) -> Scalar {
-    <Scalar as ff::Field>::random(rng)
-}
+type Scalar = Fr;
 
 // HybridVss_sh scheme parameters
 pub struct Params {
@@ -32,7 +31,7 @@ pub struct Params {
 
 impl Params {
     // initialize with random values for `d` and `tau`
-    fn random_d_tau<R: Rng>(f: u32, n: u32, t: u32, rng: &mut R) -> Self {
+    pub fn random_d_tau<R: Rng>(f: u32, n: u32, t: u32, rng: &mut R) -> Self {
         let d = rng.gen_range(0, n);
         let tau = rng.gen();
         Params { d, f, n, t, tau }
@@ -191,7 +190,7 @@ fn send_echo_valid() {
     let tau = rng.gen();
     let mut scheme = Scheme::new(Params { d, f, n, t, tau });
     let share = Share {
-        s: random_scalar(&mut rng),
+        s: Scalar::rand(&mut rng),
     };
     let sends = scheme.dealer_share(share, &mut rng);
     let responses = scheme.send_each(sends);
@@ -209,7 +208,7 @@ fn send_echo_invalid() {
     let tau = rng.gen();
     let mut scheme = Scheme::new(Params { d, f, n, t, tau });
     let share = Share {
-        s: random_scalar(&mut rng),
+        s: Scalar::rand(&mut rng),
     };
 
     let sends = scheme.dealer_share(share, &mut rng);
@@ -231,7 +230,7 @@ fn echo_ready_threshold() {
     let tau = rng.gen();
     let mut scheme = Scheme::new(Params { d, f, n, t, tau });
     let share = Share {
-        s: random_scalar(&mut rng),
+        s: Scalar::rand(&mut rng),
     };
 
     let sends = scheme.dealer_share(share, &mut rng);
@@ -267,7 +266,7 @@ fn ready_shared_threshold() {
     let tau = rng.gen();
     let scheme = Scheme::new(Params { d, f, n, t, tau });
     let share = Share {
-        s: random_scalar(&mut rng),
+        s: Scalar::rand(&mut rng),
     };
 
     let mut nodes = scheme.nodes;
@@ -322,7 +321,7 @@ fn reconstruct_share() {
     let d = rng.gen_range(0, n);
     let tau = rng.gen();
     let scheme = Scheme::new(Params { d, f, n, t, tau });
-    let s = random_scalar(&mut rng);
+    let s = Scalar::rand(&mut rng);
     let mut nodes = scheme.nodes;
     let sends = nodes[scheme.params.d as usize].share(&mut rng, Share { s });
     let echos: Vec<Vec<Echo>> = nodes

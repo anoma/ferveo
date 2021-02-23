@@ -2,7 +2,8 @@
 #![allow(non_snake_case)]
 #![feature(bindings_after_at)]
 
-use bls12_381::{G1Affine, Scalar};
+use ark_bls12_381::Fr;
+use ark_ff::UniformRand;
 use either::Either;
 use ferveo::bls::Keypair;
 use ferveo::hybriddkg::*;
@@ -14,13 +15,11 @@ use rand::Rng;
 use rand::SeedableRng;
 use std::rc::Rc;
 
+type Scalar = Fr;
+
 // Fixed seed for reproducability
 fn rng() -> StdRng {
     StdRng::seed_from_u64(0)
-}
-
-fn random_scalar<R: Rng>(rng: &mut R) -> Scalar {
-    <Scalar as ff::Field>::random(rng)
 }
 
 // A Hybriddkg scheme
@@ -29,9 +28,8 @@ struct Scheme {
     L: u32, // the leader index
     n: u32, // the number of participant nodes
     nodes: Vec<Context>,
-    p: Vec<G1Affine>, // public keys
-    t: u32,           // threshold
-    tau: u32,         // session identifier
+    t: u32,   // threshold
+    tau: u32, // session identifier
 }
 
 impl Scheme {
@@ -39,23 +37,14 @@ impl Scheme {
     failure threshold `f`,
     threshold `t` */
     fn init<R: Rng>(n: u32, f: u32, t: u32, rng: &mut R) -> Self {
-        let mut keypairs: Vec<Keypair> =
-            (0..n).map(|_| random_scalar(rng).into()).collect();
-        // sort keypairs by cpk
-        keypairs.sort();
-        let (secrets, pubkeys): (Vec<_>, Vec<_>) =
-            keypairs.iter().map(|kp| (kp.secret, kp.pubkey)).unzip();
         let L: u32 = rng.gen_range(0, n);
         let tau: u32 = rng.gen();
-        let nodes = (0..n)
-            .map(|i| Context::init(f, i, L, &pubkeys, t, tau))
-            .collect();
+        let nodes = (0..n).map(|i| Context::init(f, i, L, n, t, tau)).collect();
         Scheme {
             f,
             L,
             n,
             nodes,
-            p: pubkeys,
             t,
             tau,
         }
@@ -72,7 +61,7 @@ impl Scheme {
         let mut scheme = hybridvss::Scheme::new(params);
 
         let share = hybridvss_sh::Share {
-            s: random_scalar(&mut rng),
+            s: Scalar::rand(&mut rng),
         };
         let sends = scheme.dealer_share(share, &mut rng);
         let echos = scheme.send_valid_each(sends);
@@ -126,7 +115,8 @@ fn shared_send_valid() {
     // Commitments for each dealer
     let Cs: Vec<_> = (0..n)
         .map(|_| {
-            let secret = poly::random_secret(t, &mut rng);
+            let secret =
+                poly::random_secret(t, Scalar::rand(&mut rng), &mut rng);
             Rc::new(poly::public(&secret))
         })
         .collect();
@@ -143,7 +133,7 @@ fn shared_send_valid() {
             .map(|(d, C)| Shared {
                 C,
                 d: (d as u32),
-                s_id: random_scalar(&mut rng),
+                s_id: Scalar::rand(&mut rng),
             })
             .collect();
 
@@ -183,7 +173,8 @@ fn send_echo_valid() {
     // Commitments for each dealer
     let Cs: Vec<_> = (0..n)
         .map(|_| {
-            let secret = poly::random_secret(t, &mut rng);
+            let secret =
+                poly::random_secret(t, Scalar::rand(&mut rng), &mut rng);
             Rc::new(poly::public(&secret))
         })
         .collect();
@@ -197,7 +188,7 @@ fn send_echo_valid() {
         .map(|(d, C)| Shared {
             C,
             d: (d as u32),
-            s_id: random_scalar(&mut rng),
+            s_id: Scalar::rand(&mut rng),
         })
         .collect();
 
@@ -237,7 +228,8 @@ fn echo_ready_valid() {
     // Commitments for each dealer
     let Cs: Vec<_> = (0..n)
         .map(|_| {
-            let secret = poly::random_secret(t, &mut rng);
+            let secret =
+                poly::random_secret(t, Scalar::rand(&mut rng), &mut rng);
             Rc::new(poly::public(&secret))
         })
         .collect();
@@ -251,7 +243,7 @@ fn echo_ready_valid() {
         .map(|(d, C)| Shared {
             C,
             d: (d as u32),
-            s_id: random_scalar(&mut rng),
+            s_id: Scalar::rand(&mut rng),
         })
         .collect();
 
@@ -310,7 +302,8 @@ fn ready_complete_valid() {
     // Commitments for each dealer
     let Cs: Vec<_> = (0..n)
         .map(|_| {
-            let secret = poly::random_secret(t, &mut rng);
+            let secret =
+                poly::random_secret(t, Scalar::rand(&mut rng), &mut rng);
             Rc::new(poly::public(&secret))
         })
         .collect();
@@ -324,7 +317,7 @@ fn ready_complete_valid() {
         .map(|(d, C)| Shared {
             C,
             d: (d as u32),
-            s_id: random_scalar(&mut rng),
+            s_id: Scalar::rand(&mut rng),
         })
         .collect();
 

@@ -3,9 +3,14 @@
 
 use crate::poly;
 
-use bls12_381::{G1Projective, Scalar};
-use nalgebra::base::DVector;
+use ark_bls12_381::{Fr, G1Projective};
+use ark_ec::ProjectiveCurve;
+use ark_ff::Field;
+use ark_poly::polynomial::Polynomial;
+use num::Zero;
 use std::collections::HashSet;
+
+type Scalar = Fr;
 
 pub struct Context {
     C: poly::Public,           // the public polynomial
@@ -19,9 +24,20 @@ pub struct Context {
     tau: u32,                  // session identifier
 }
 
+fn mul_g1proj(lhs: G1Projective, rhs: Scalar) -> G1Projective {
+    let mut lhs = lhs;
+    lhs *= rhs;
+    lhs
+}
+
 // Scalar exponentiation by u64. `exp(x, y) = x^y`
-fn scalar_exp_u64<T: Into<u64>>(x: Scalar, y: T) -> Scalar {
-    x.pow(&[u64::to_le(y.into()), 0, 0, 0])
+fn scalar_exp_u64(x: Scalar, y: u64) -> Scalar {
+    x.pow([y])
+}
+
+// Scalar exponentiation by u32. `exp(x, y) = x^y`
+fn scalar_exp_u32(x: Scalar, y: u32) -> Scalar {
+    scalar_exp_u64(x, y.into())
 }
 
 impl Context {
@@ -89,10 +105,15 @@ impl Context {
         m: u32,
         sigma: Scalar,
     ) -> Option<Scalar> {
-        let lhs = G1Projective::generator() * sigma;
+        let lhs = mul_g1proj(G1Projective::prime_subgroup_generator(), sigma);
         let rhs = (0..=self.t)
-            .map(|j| self.C[(j as usize, 0)] * scalar_exp_u64(m.into(), j))
-            .sum();
+            .map(|j| {
+                mul_g1proj(
+                    self.C[j as usize][0].into(),
+                    scalar_exp_u32(m.into(), j),
+                )
+            })
+            .sum::<G1Projective>();
         if lhs == rhs {
             self.S.insert((m, sigma));
             self.c += 1;
@@ -101,7 +122,7 @@ impl Context {
                 let points =
                     self.S.iter().map(|(m, s)| (u64::from(*m).into(), *s));
                 let z = poly::lagrange_interpolate(points);
-                let z_i = poly::eval_share(&z, Scalar::zero());
+                let z_i = z.evaluate(&Scalar::zero());
                 Some(z_i)
             } else {
                 None
