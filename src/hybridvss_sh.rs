@@ -6,7 +6,6 @@ use crate::poly;
 use ark_bls12_381::{Fr, G1Affine};
 use ark_poly::Polynomial;
 use ark_serialize::CanonicalSerialize;
-use ark_std::io::Write;
 use either::Either;
 use num::integer::div_ceil;
 use num::Zero;
@@ -29,8 +28,7 @@ pub struct Context {
     /* Counters for `ready` messages.
     The keys of the map are sha2-256 hashes. */
     r: HashMap<[u8; 32], u32>,
-    t: u32,   // threshold
-    tau: u32, // session identifier
+    t: u32, // threshold
 }
 
 #[derive(Clone)]
@@ -127,15 +125,13 @@ impl Context {
     failure threshold `f`,
     node index `i`,
     node count `n`,
-    threshold `t`,
-    and session identifier `tau`. */
+    threshold `t`. */
     pub fn init(
-        d: u32,   // index of the dealer's public key in the setup
-        f: u32,   // failure threshold
-        i: u32,   // index of this node's public key in the setup
-        n: u32,   // the number of nodes in the setup
-        t: u32,   // threshold
-        tau: u32, // session identifier
+        d: u32, // index of the dealer's public key in the setup
+        f: u32, // failure threshold
+        i: u32, // index of this node's public key in the setup
+        n: u32, // the number of nodes in the setup
+        t: u32, // threshold
     ) -> Self {
         if i >= n {
             panic!(
@@ -184,7 +180,6 @@ impl Context {
             n,
             r,
             t,
-            tau,
         }
     }
 

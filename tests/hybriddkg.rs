@@ -5,7 +5,6 @@
 use ark_bls12_381::Fr;
 use ark_ff::UniformRand;
 use either::Either;
-use ferveo::bls::Keypair;
 use ferveo::hybriddkg::*;
 use ferveo::hybridvss_sh;
 use ferveo::poly;
@@ -28,8 +27,7 @@ struct Scheme {
     L: u32, // the leader index
     n: u32, // the number of participant nodes
     nodes: Vec<Context>,
-    t: u32,   // threshold
-    tau: u32, // session identifier
+    t: u32, // threshold
 }
 
 impl Scheme {
@@ -38,16 +36,8 @@ impl Scheme {
     threshold `t` */
     fn init<R: Rng>(n: u32, f: u32, t: u32, rng: &mut R) -> Self {
         let L: u32 = rng.gen_range(0, n);
-        let tau: u32 = rng.gen();
-        let nodes = (0..n).map(|i| Context::init(f, i, L, n, t, tau)).collect();
-        Scheme {
-            f,
-            L,
-            n,
-            nodes,
-            t,
-            tau,
-        }
+        let nodes = (0..n).map(|i| Context::init(f, i, L, n, t)).collect();
+        Scheme { f, L, n, nodes, t }
     }
 
     // run hybridvss_sh protocol for dealer `d`
@@ -56,8 +46,7 @@ impl Scheme {
         let f = self.f;
         let n = self.n;
         let t = self.t;
-        let tau = self.tau;
-        let params = hybridvss::Params { d, f, n, t, tau };
+        let params = hybridvss::Params { d, f, n, t };
         let mut scheme = hybridvss::Scheme::new(params);
 
         let share = hybridvss_sh::Share {

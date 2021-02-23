@@ -21,7 +21,6 @@ pub struct Context {
     S: HashSet<(u32, Scalar)>, // set of node-index - share pairs.
     s: Scalar,                 // the share for this node
     t: u32,                    // threshold
-    tau: u32,                  // session identifier
 }
 
 fn mul_g1proj(lhs: G1Projective, rhs: Scalar) -> G1Projective {
@@ -54,7 +53,6 @@ impl Context {
         n: u32,
         s: Scalar, // the share for this node
         t: u32,    // threshold
-        tau: u32,  // session identifier
     ) -> Self {
         if n <= i {
             panic!(
@@ -92,7 +90,6 @@ impl Context {
             S,
             s,
             t,
-            tau,
         }
     }
 

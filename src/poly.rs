@@ -231,11 +231,6 @@ fn scalar_exp_u64(x: Scalar, y: u64) -> Scalar {
     x.pow([u64::to_le(y)])
 }
 
-// Scalar exponentiation by u32. `exp(x, y) = x^y`
-fn scalar_exp_u32(x: Scalar, y: u32) -> Scalar {
-    scalar_exp_u64(x, y.into())
-}
-
 // Scalar exponentiation by usize. `exp(x, y) = x^y`
 fn scalar_exp_usize(x: Scalar, y: usize) -> Scalar {
     scalar_exp_u64(x, y as u64)

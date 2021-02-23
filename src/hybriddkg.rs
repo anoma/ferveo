@@ -1,13 +1,11 @@
 #![allow(clippy::many_single_char_names)]
 #![allow(non_snake_case)]
 
-use crate::bls;
 use crate::poly;
 
 use ark_bls12_381::Fr;
 use num::integer::div_ceil;
-use std::collections::hash_map::DefaultHasher;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap};
 use std::rc::Rc;
 
 type Scalar = Fr;
@@ -57,14 +55,9 @@ pub struct Context {
     /* Counters for `echo` messages.
     The keys of the map are sha2-256 hashes of q sets. */
     e: HashMap<[u8; 32], u32>,
-    f: u32,      // failure threshold
-    i: u32,      // index of this node's public key in `p`
-    l: u32,      // index of the leader's public key in `p`
-    l_next: u32, // index of the next leader's public key in `p`
-    /* Counters for `lead-ch` messages.
-    The index of the map is the leader index. */
-    lc: HashMap<u8, u32>,
-    lc_flag: bool, // leader count flag
+    f: u32, // failure threshold
+    i: u32, // index of this node's public key in `p`
+    l: u32, // index of the leader's public key in `p`
     // FIXME: m_bar
     n: u32,               // number of nodes in the setup
     q_bar: BTreeSet<u32>, // set of node indexes
@@ -73,8 +66,7 @@ pub struct Context {
     The keys of the map are sha2-256 hashes of (l, q) pairs. */
     r: HashMap<[u8; 32], u32>,
     // FIXME: r_hat
-    t: u32,   // threshold
-    tau: u32, // session identifier
+    t: u32, // threshold
 }
 
 /* Inserts the provided value if the key is not present in the map. */
@@ -126,8 +118,7 @@ impl Context {
     node index `i`,
     leader index `l`,
     total number of nodes `n`,
-    threshold `t`,
-    and session identifier `tau`. */
+    and threshold `t` */
     pub fn init(
         f: u32, // failure threshold
         i: u32, // index of this node's public key in `p`
@@ -136,8 +127,7 @@ impl Context {
         /* signatures on a lead-ch message for the current leader */
         // FIXME: do these all use the same values for q/rm?
         //sigs: &[u32, G2Affine],
-        t: u32,   // threshold
-        tau: u32, // session identifier
+        t: u32, // threshold
     ) -> Self {
         if n <= i {
             panic!(
@@ -174,9 +164,6 @@ impl Context {
         }
 
         let e = HashMap::new();
-        let l_next = (l + n - 1) % n; //FIXME: is this correct?
-        let lc = HashMap::new();
-        let lc_flag = false;
         let q_bar = BTreeSet::new();
         let q_hat = BTreeSet::new();
         let r = HashMap::new();
@@ -186,22 +173,18 @@ impl Context {
             f,
             i,
             l,
-            l_next,
-            lc,
-            lc_flag,
             n,
             q_bar,
             q_hat,
             r,
             t,
-            tau,
         }
     }
 
     /* Respond to a "shared" message. */
     pub fn shared(
         &mut self,
-        Shared { C, d, s_id }: &Shared,
+        Shared { d, .. }: &Shared,
     ) -> Option<SharedAction> {
         self.q_hat.insert(*d);
         if self.q_hat.len() == (self.t as usize) + 1 && self.q_bar.is_empty() {
@@ -231,10 +214,10 @@ impl Context {
     /* Respond to an "echo" message */
     pub fn echo(&mut self, Echo { q }: Echo) -> Option<Ready> {
         let lq_hash = hash_LQ(self.l, &q);
-        let mut e_LQ = get_mut_or_insert(lq_hash, 0, &mut self.e);
-        *e_LQ += 1;
+        let mut e_LQ = *get_mut_or_insert(lq_hash, 0, &mut self.e);
+        e_LQ += 1;
         let r_LQ = *get_or_insert(lq_hash, 0, &mut self.r);
-        if *e_LQ == div_ceil(self.n + self.t + 1, 2) && r_LQ < self.t + 1 {
+        if e_LQ == div_ceil(self.n + self.t + 1, 2) && r_LQ < self.t + 1 {
             self.q_bar = self.q_bar.union(&q).cloned().collect();
             // FIXME: What should happen to M-bar?
             Some(Ready { q })
@@ -246,14 +229,14 @@ impl Context {
     /* Respond to a "ready" message */
     pub fn ready(&mut self, Ready { q }: Ready) -> Option<ReadyAction> {
         let lq_hash = hash_LQ(self.l, &q);
-        let mut r_LQ = get_mut_or_insert(lq_hash, 0, &mut self.r);
-        *r_LQ += 1;
+        let mut r_LQ = *get_mut_or_insert(lq_hash, 0, &mut self.r);
+        r_LQ += 1;
         let e_LQ = *get_or_insert(lq_hash, 0, &mut self.e);
-        if *r_LQ == self.t + 1 && e_LQ < div_ceil(self.n + self.t + 1, 2) {
+        if r_LQ == self.t + 1 && e_LQ < div_ceil(self.n + self.t + 1, 2) {
             self.q_bar = self.q_bar.union(&q).cloned().collect();
             // FIXME: What should happen to M-bar?
             Some(ReadyAction::Ready(Ready { q }))
-        } else if *r_LQ == self.n - self.t - self.f {
+        } else if r_LQ == self.n - self.t - self.f {
             Some(ReadyAction::Complete)
         } else {
             None
