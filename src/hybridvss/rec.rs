@@ -17,7 +17,6 @@ type Scalar = Fr;
 pub struct Context {
     C: poly::Public, // the public polynomial
     c: u32,          // counter for `reconstruct-share` messages
-    i: u32,          // the index for this node
     params: Params,
     S: HashSet<(u32, Scalar)>, // set of node-index - share pairs.
     s: Scalar,                 // the share for this node
@@ -43,20 +42,12 @@ impl Context {
     pub fn init(
         params: Params,
         C: poly::Public, // the public polynomial
-        i: u32,          // index of this node
         s: Scalar,       // the share for this node
     ) -> Self {
         let c = 0;
         let S = HashSet::new();
 
-        Context {
-            C,
-            c,
-            i,
-            params,
-            S,
-            s,
-        }
+        Context { C, c, params, S, s }
     }
 
     pub fn reconstruct(&self) -> Scalar {

@@ -173,10 +173,10 @@ impl Context {
     /* Respond to an "echo" message */
     pub fn echo(&mut self, Echo { q }: Echo) -> Option<Ready> {
         let lq_hash = hash_LQ(self.params.l, &q);
-        let mut e_LQ = *get_mut_or_insert(lq_hash, 0, &mut self.e);
-        e_LQ += 1;
+        let e_LQ = get_mut_or_insert(lq_hash, 0, &mut self.e);
+        *e_LQ += 1;
         let r_LQ = *get_or_insert(lq_hash, 0, &mut self.r);
-        if e_LQ == div_ceil(self.params.n + self.params.t + 1, 2)
+        if *e_LQ == div_ceil(self.params.n + self.params.t + 1, 2)
             && r_LQ < self.params.t + 1
         {
             self.q_bar = self.q_bar.union(&q).cloned().collect();
@@ -190,16 +190,16 @@ impl Context {
     /* Respond to a "ready" message */
     pub fn ready(&mut self, Ready { q }: Ready) -> Option<ReadyAction> {
         let lq_hash = hash_LQ(self.params.l, &q);
-        let mut r_LQ = *get_mut_or_insert(lq_hash, 0, &mut self.r);
-        r_LQ += 1;
+        let r_LQ = get_mut_or_insert(lq_hash, 0, &mut self.r);
+        *r_LQ += 1;
         let e_LQ = *get_or_insert(lq_hash, 0, &mut self.e);
-        if r_LQ == self.params.t + 1
+        if *r_LQ == self.params.t + 1
             && e_LQ < div_ceil(self.params.n + self.params.t + 1, 2)
         {
             self.q_bar = self.q_bar.union(&q).cloned().collect();
             // FIXME: What should happen to M-bar?
             Some(ReadyAction::Ready(Ready { q }))
-        } else if r_LQ == self.params.n - self.params.t - self.params.f {
+        } else if *r_LQ == self.params.n - self.params.t - self.params.f {
             Some(ReadyAction::Complete)
         } else {
             None

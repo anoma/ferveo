@@ -328,7 +328,7 @@ fn reconstruct_share() {
     let mut rec_node = {
         let C = (*shared_messages[i as usize].C).clone();
         let s = shared_messages[i as usize].s;
-        ferveo::hybridvss::rec::Context::init(params, C, i, s)
+        ferveo::hybridvss::rec::Context::init(params, C, s)
     };
     // accept T + 1 shares
     let mut z_i = None;
