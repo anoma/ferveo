@@ -1,33 +1,16 @@
 #![allow(clippy::many_single_char_names)]
 #![allow(non_snake_case)]
-#![feature(bindings_after_at)]
 
 use ark_bls12_381::Fr;
 use ark_ff::UniformRand;
-use ferveo::hybridvss_rec;
-use ferveo::hybridvss_sh::*;
+use ferveo::hybridvss::sh::*;
+use ferveo::hybridvss::Params;
 use rand::rngs::StdRng;
 use rand::seq::IteratorRandom;
 use rand::Rng;
 use rand::SeedableRng;
 
 type Scalar = Fr;
-
-// HybridVss_sh scheme parameters
-pub struct Params {
-    pub d: u32, // dealer index
-    pub f: u32, // failure threshold
-    pub n: u32, // number of participants
-    pub t: u32, // threshold
-}
-
-impl Params {
-    // initialize with random values for `d`
-    pub fn random_dealer<R: Rng>(f: u32, n: u32, t: u32, rng: &mut R) -> Self {
-        let d = rng.gen_range(0, n);
-        Params { d, f, n, t }
-    }
-}
 
 // A HybridVss_sh scheme
 pub struct Scheme {
@@ -39,8 +22,8 @@ impl Scheme {
     /* Generate a fresh setup with `n` participants,
     failure threshold `f`,
     threshold `t` */
-    pub fn new(params @ Params { d, f, n, t }: Params) -> Self {
-        let nodes = (0..n).map(|i| Context::init(d, f, i, n, t)).collect();
+    pub fn new(params: Params) -> Self {
+        let nodes = (0..params.n).map(|i| Context::init(params, i)).collect();
         Scheme { nodes, params }
     }
 
@@ -293,7 +276,6 @@ fn reconstruct_share() {
     let n = 8;
     let t = 5;
     let params = Params::random_dealer(f, n, t, &mut rng);
-    let d = params.d;
     let scheme = Scheme::new(params);
     let s = Scalar::rand(&mut rng);
     let mut nodes = scheme.nodes;
@@ -346,7 +328,7 @@ fn reconstruct_share() {
     let mut rec_node = {
         let C = (*shared_messages[i as usize].C).clone();
         let s = shared_messages[i as usize].s;
-        hybridvss_rec::Context::init(C, d, i, n, s, t)
+        ferveo::hybridvss::rec::Context::init(params, C, i, s)
     };
     // accept T + 1 shares
     let mut z_i = None;
