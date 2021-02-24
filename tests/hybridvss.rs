@@ -1,43 +1,16 @@
 #![allow(clippy::many_single_char_names)]
 #![allow(non_snake_case)]
-#![feature(bindings_after_at)]
 
-use bls12_381::Scalar;
-use ferveo::hybridvss_rec;
-use ferveo::hybridvss_sh::*;
+use ark_bls12_381::Fr;
+use ark_ff::UniformRand;
+use ferveo::hybridvss::sh::*;
+use ferveo::hybridvss::Params;
 use rand::rngs::StdRng;
 use rand::seq::IteratorRandom;
 use rand::Rng;
 use rand::SeedableRng;
 
-/*
-// Fixed seed for reproducability
-fn seed_zero<R: rand::SeedableRng>() -> R {
-    R::seed_from_u64(0)
-}
-*/
-
-fn random_scalar<R: Rng>(rng: &mut R) -> Scalar {
-    <Scalar as ff::Field>::random(rng)
-}
-
-// HybridVss_sh scheme parameters
-pub struct Params {
-    pub d: u32,   // dealer index
-    pub f: u32,   // failure threshold
-    pub n: u32,   // number of participants
-    pub t: u32,   // threshold
-    pub tau: u32, // session identifier
-}
-
-impl Params {
-    // initialize with random values for `d` and `tau`
-    fn random_d_tau<R: Rng>(f: u32, n: u32, t: u32, rng: &mut R) -> Self {
-        let d = rng.gen_range(0, n);
-        let tau = rng.gen();
-        Params { d, f, n, t, tau }
-    }
-}
+type Scalar = Fr;
 
 // A HybridVss_sh scheme
 pub struct Scheme {
@@ -49,8 +22,8 @@ impl Scheme {
     /* Generate a fresh setup with `n` participants,
     failure threshold `f`,
     threshold `t` */
-    pub fn new(params @ Params { d, f, n, t, tau }: Params) -> Self {
-        let nodes = (0..n).map(|i| Context::init(d, f, i, n, t, tau)).collect();
+    pub fn new(params: Params) -> Self {
+        let nodes = (0..params.n).map(|i| Context::init(params, i)).collect();
         Scheme { nodes, params }
     }
 
@@ -76,11 +49,6 @@ impl Scheme {
     // node i responds to a send message
     fn send(&mut self, i: u32, send: Send) -> SendResponse {
         self.node_mut(i).send(send)
-    }
-
-    // node i responds to a valid send message, producing echos
-    fn send_valid(&mut self, i: u32, send: Send) -> Vec<Echo> {
-        self.send(i, send).unwrap()
     }
 
     // respond to a vector of sends, one for each node
@@ -184,14 +152,10 @@ impl Scheme {
 // test that all nodes echo with a valid send
 fn send_echo_valid() {
     let mut rng = StdRng::seed_from_u64(0);
-    let f = 0;
-    let n = 6;
-    let t = 4;
-    let d = rng.gen_range(0, n);
-    let tau = rng.gen();
-    let mut scheme = Scheme::new(Params { d, f, n, t, tau });
+    let params = Params::random_dealer(0, 6, 4, &mut rng);
+    let mut scheme = Scheme::new(params);
     let share = Share {
-        s: random_scalar(&mut rng),
+        s: Scalar::rand(&mut rng),
     };
     let sends = scheme.dealer_share(share, &mut rng);
     let responses = scheme.send_each(sends);
@@ -202,14 +166,10 @@ fn send_echo_valid() {
 // test that all nodes do not echo with an invalid send
 fn send_echo_invalid() {
     let mut rng = StdRng::seed_from_u64(0);
-    let f = 0;
-    let n = 6;
-    let t = 4;
-    let d = rng.gen_range(0, n);
-    let tau = rng.gen();
-    let mut scheme = Scheme::new(Params { d, f, n, t, tau });
+    let params = Params::random_dealer(0, 6, 4, &mut rng);
+    let mut scheme = Scheme::new(params);
     let share = Share {
-        s: random_scalar(&mut rng),
+        s: Scalar::rand(&mut rng),
     };
 
     let sends = scheme.dealer_share(share, &mut rng);
@@ -224,14 +184,11 @@ fn send_echo_invalid() {
 // test that all nodes generate ready messages with enough valid echos
 fn echo_ready_threshold() {
     let mut rng = StdRng::seed_from_u64(0);
-    let f = 0;
     let n = 8;
-    let t = 5;
-    let d = rng.gen_range(0, n);
-    let tau = rng.gen();
-    let mut scheme = Scheme::new(Params { d, f, n, t, tau });
+    let params = Params::random_dealer(0, n, 5, &mut rng);
+    let mut scheme = Scheme::new(params);
     let share = Share {
-        s: random_scalar(&mut rng),
+        s: Scalar::rand(&mut rng),
     };
 
     let sends = scheme.dealer_share(share, &mut rng);
@@ -263,11 +220,10 @@ fn ready_shared_threshold() {
     let f = 0;
     let n = 8;
     let t = 5;
-    let d = rng.gen_range(0, n);
-    let tau = rng.gen();
-    let scheme = Scheme::new(Params { d, f, n, t, tau });
+    let params = Params::random_dealer(f, n, t, &mut rng);
+    let scheme = Scheme::new(params);
     let share = Share {
-        s: random_scalar(&mut rng),
+        s: Scalar::rand(&mut rng),
     };
 
     let mut nodes = scheme.nodes;
@@ -319,10 +275,9 @@ fn reconstruct_share() {
     let f = 0;
     let n = 8;
     let t = 5;
-    let d = rng.gen_range(0, n);
-    let tau = rng.gen();
-    let scheme = Scheme::new(Params { d, f, n, t, tau });
-    let s = random_scalar(&mut rng);
+    let params = Params::random_dealer(f, n, t, &mut rng);
+    let scheme = Scheme::new(params);
+    let s = Scalar::rand(&mut rng);
     let mut nodes = scheme.nodes;
     let sends = nodes[scheme.params.d as usize].share(&mut rng, Share { s });
     let echos: Vec<Vec<Echo>> = nodes
@@ -373,8 +328,7 @@ fn reconstruct_share() {
     let mut rec_node = {
         let C = (*shared_messages[i as usize].C).clone();
         let s = shared_messages[i as usize].s;
-        let tau = scheme.params.tau;
-        hybridvss_rec::Context::init(C, d, i, n, s, t, tau)
+        ferveo::hybridvss::rec::Context::init(params, C, s)
     };
     // accept T + 1 shares
     let mut z_i = None;

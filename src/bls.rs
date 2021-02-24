@@ -238,13 +238,3 @@ impl Setup {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn h2s() {
-        ()
-    }
-}

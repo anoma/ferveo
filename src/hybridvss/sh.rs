@@ -3,28 +3,31 @@
 
 use crate::poly;
 
-use bls12_381::Scalar;
+use ark_bls12_381::{Fr, G1Affine};
+use ark_poly::Polynomial;
+use ark_serialize::CanonicalSerialize;
 use either::Either;
 use num::integer::div_ceil;
+use num::Zero;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
+
+use crate::hybridvss::params::Params;
+
+type Scalar = Fr;
 
 pub struct Context {
     /* Map keyed by sha2-256 hashes of commitments.
     The values of the map are pairs of node indexes and scalars */
     A: HashMap<[u8; 32], HashSet<(u32, Scalar)>>,
-    d: u32, // index of the dealer's public key in the setup
     /* Counters for `echo` messages.
     The keys of the map are sha2-256 hashes. */
     e: HashMap<[u8; 32], u32>,
-    f: u32, // failure threshold
     i: u32, // index of this node in the setup
-    n: u32, // number of nodes in the setup
     /* Counters for `ready` messages.
     The keys of the map are sha2-256 hashes. */
+    params: Params,
     r: HashMap<[u8; 32], u32>,
-    t: u32,   // threshold
-    tau: u32, // session identifier
 }
 
 #[derive(Clone)]
@@ -70,11 +73,20 @@ pub struct Shared {
 fn hash_public_poly(C: &poly::Public) -> [u8; 32] {
     use digest::Digest;
     let mut hasher = sha2::Sha256::new();
-    C.iter().for_each(|coeff| {
-        let coeff_bytes = coeff.to_compressed().to_vec();
-        hasher.update(coeff_bytes)
+    C.iter().for_each(|coeffs| {
+        coeffs.iter().for_each(|coeff| {
+            let coeff_bytes = compress_G1Affine(coeff);
+            hasher.update(coeff_bytes)
+        })
     });
     hasher.finalize().into()
+}
+
+fn compress_G1Affine(p: &G1Affine) -> [u8; 48] {
+    use std::convert::TryInto;
+    let mut buf = Vec::new();
+    p.serialize(&mut buf).unwrap();
+    buf.try_into().unwrap()
 }
 
 /* Alters the value at the specified key.
@@ -107,70 +119,15 @@ where
 }
 
 impl Context {
-    /* Initialize node with
-    dealer index `d`,
-    failure threshold `f`,
-    node index `i`,
-    node count `n`,
-    threshold `t`,
-    and session identifier `tau`. */
     pub fn init(
-        d: u32,   // index of the dealer's public key in the setup
-        f: u32,   // failure threshold
-        i: u32,   // index of this node's public key in the setup
-        n: u32,   // the number of nodes in the setup
-        t: u32,   // threshold
-        tau: u32, // session identifier
+        params: Params,
+        i: u32, // index of this node's public key in the setup
     ) -> Self {
-        if i >= n {
-            panic!(
-                "Cannot initialize node with index `{}` with fewer than \
-                   `{}` participant node public keys.",
-                i,
-                i + 1
-            )
-        }
-        if d >= n {
-            panic!(
-                "Cannot set dealer index to `{}` with fewer than \
-                   `{}` participant node public keys.",
-                d,
-                d + 1
-            )
-        }
-        if t > n {
-            panic!(
-                "Cannot set threshold to `{t}` with fewer than \
-                   `{t}` participant node public keys.",
-                t = t
-            )
-        }
-        if t + f > n {
-            panic!(
-                "Sum of threshold (`{t}`) and failure threshold (`{f}`) \
-                    must be less than or equal to the number of participant \
-                    nodes (`{n}`)",
-                t = t,
-                f = f,
-                n = n
-            )
-        }
-
         let A = HashMap::new();
         let e = HashMap::new();
         let r = HashMap::new();
 
-        Context {
-            A,
-            d,
-            e,
-            f,
-            i,
-            n,
-            r,
-            t,
-            tau,
-        }
+        Context { A, e, i, params, r }
     }
 
     /* Respond to a "share" message.
@@ -180,10 +137,9 @@ impl Context {
         rng: &mut R,
         Share { s }: Share,
     ) -> ShareResponse {
-        let mut phi = poly::random_secret(self.t, rng);
-        phi[(0, 0)] = s;
+        let phi = poly::random_secret(self.params.t, s, rng);
         let C = Rc::new(poly::public(&phi));
-        (0..self.n)
+        (0..self.params.n)
             .map(|j| Send {
                 C: C.clone(),
                 a: poly::share(&phi, j),
@@ -195,10 +151,10 @@ impl Context {
     Should only be accepted from the dealer. */
     pub fn send(&self, Send { C, a }: Send) -> SendResponse {
         if poly::verify_share(&C, &a, self.i) {
-            (0..self.n)
+            (0..self.params.n)
                 .map(|j| Echo {
                     C: C.clone(),
-                    alpha: poly::eval_share(&a, j.into()),
+                    alpha: a.evaluate(&j.into()),
                 })
                 .collect::<Vec<Echo>>()
                 .into()
@@ -218,16 +174,18 @@ impl Context {
             let e_C = *self.e.get(&C_hash).unwrap();
             let r_C = *self.r.get(&C_hash).unwrap_or(&0);
 
-            if e_C == div_ceil(self.n + self.t + 1, 2) && r_C < self.t + 1 {
+            if e_C == div_ceil(self.params.n + self.params.t + 1, 2)
+                && r_C < self.params.t + 1
+            {
                 let A_C = self.A.get(&C_hash).unwrap();
                 // the points to use for lagrange interpolation
                 let points =
                     A_C.iter().map(|(m, a)| (u64::from(*m).into(), *a));
                 let a_bar = poly::lagrange_interpolate(points);
-                (0..self.n)
+                (0..self.params.n)
                     .map(|j| Ready {
                         C: C.clone(),
-                        alpha: poly::eval_share(&a_bar, j.into()),
+                        alpha: a_bar.evaluate(&j.into()),
                     })
                     .collect::<Vec<Ready>>()
                     .into()
@@ -258,16 +216,18 @@ impl Context {
             let points = A_C.iter().map(|(m, a)| (u64::from(*m).into(), *a));
             let a_bar = poly::lagrange_interpolate(points);
 
-            if e_C < div_ceil(self.n + self.t + 1, 2) && r_C == self.t + 1 {
-                let ready_messages = (0..self.n)
+            if e_C < div_ceil(self.params.n + self.params.t + 1, 2)
+                && r_C == self.params.t + 1
+            {
+                let ready_messages = (0..self.params.n)
                     .map(|j| Ready {
                         C: C.clone(),
-                        alpha: poly::eval_share(&a_bar, j.into()),
+                        alpha: a_bar.evaluate(&j.into()),
                     })
                     .collect();
                 Some(Either::Left(ready_messages))
-            } else if r_C == self.n - self.t - self.f {
-                let s = poly::eval_share(&a_bar, Scalar::zero());
+            } else if r_C == self.params.n - self.params.t - self.params.f {
+                let s = a_bar.evaluate(&Scalar::zero());
                 Some(Either::Right(Shared { C: C.clone(), s }))
             } else {
                 None

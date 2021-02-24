@@ -2,36 +2,29 @@
 #![allow(non_snake_case)]
 #![feature(bindings_after_at)]
 
-use bls12_381::{G1Affine, Scalar};
+use ark_bls12_381::Fr;
+use ark_ff::UniformRand;
 use either::Either;
-use ferveo::bls::Keypair;
 use ferveo::hybriddkg::*;
-use ferveo::hybridvss_sh;
 use ferveo::poly;
-mod hybridvss;
 use rand::rngs::StdRng;
 use rand::Rng;
 use rand::SeedableRng;
 use std::rc::Rc;
+
+mod hybridvss;
+
+type Scalar = Fr;
 
 // Fixed seed for reproducability
 fn rng() -> StdRng {
     StdRng::seed_from_u64(0)
 }
 
-fn random_scalar<R: Rng>(rng: &mut R) -> Scalar {
-    <Scalar as ff::Field>::random(rng)
-}
-
 // A Hybriddkg scheme
 struct Scheme {
-    f: u32, // failure threshold
-    L: u32, // the leader index
-    n: u32, // the number of participant nodes
+    params: Params,
     nodes: Vec<Context>,
-    p: Vec<G1Affine>, // public keys
-    t: u32,           // threshold
-    tau: u32,         // session identifier
 }
 
 impl Scheme {
@@ -39,40 +32,21 @@ impl Scheme {
     failure threshold `f`,
     threshold `t` */
     fn init<R: Rng>(n: u32, f: u32, t: u32, rng: &mut R) -> Self {
-        let mut keypairs: Vec<Keypair> =
-            (0..n).map(|_| random_scalar(rng).into()).collect();
-        // sort keypairs by cpk
-        keypairs.sort();
-        let (secrets, pubkeys): (Vec<_>, Vec<_>) =
-            keypairs.iter().map(|kp| (kp.secret, kp.pubkey)).unzip();
-        let L: u32 = rng.gen_range(0, n);
-        let tau: u32 = rng.gen();
-        let nodes = (0..n)
-            .map(|i| Context::init(f, i, L, &pubkeys, t, tau))
-            .collect();
-        Scheme {
-            f,
-            L,
-            n,
-            nodes,
-            p: pubkeys,
-            t,
-            tau,
-        }
+        let l: u32 = rng.gen_range(0, n);
+        let params = Params { n, f, t, l };
+        let nodes = (0..n).map(|i| Context::init(params, i)).collect();
+        Scheme { params, nodes }
     }
 
     // run hybridvss_sh protocol for dealer `d`
     fn hybridvss_sh(&self, d: u32) -> Vec<Shared> {
         let mut rng = StdRng::seed_from_u64(0);
-        let f = self.f;
-        let n = self.n;
-        let t = self.t;
-        let tau = self.tau;
-        let params = hybridvss::Params { d, f, n, t, tau };
+        let Params { f, n, t, .. } = self.params;
+        let params = ferveo::hybridvss::Params { d, f, n, t };
         let mut scheme = hybridvss::Scheme::new(params);
 
-        let share = hybridvss_sh::Share {
-            s: random_scalar(&mut rng),
+        let share = ferveo::hybridvss::sh::Share {
+            s: Scalar::rand(&mut rng),
         };
         let sends = scheme.dealer_share(share, &mut rng);
         let echos = scheme.send_valid_each(sends);
@@ -86,7 +60,7 @@ impl Scheme {
             .ready_threshold_each(ready_messages, &mut rng)
             .into_iter()
             .map(|ready_response| match ready_response {
-                Some(Either::Right(hybridvss_sh::Shared { C, s })) => {
+                Some(Either::Right(ferveo::hybridvss::sh::Shared { C, s })) => {
                     Shared { C, d, s_id: s }
                 }
                 _ => panic!(),
@@ -98,10 +72,10 @@ impl Scheme {
     fn run_hybridvss_sh(&self) -> Vec<Vec<Shared>> {
         // shared messages for each dealer
         let shared_messages: Vec<_> =
-            (0..self.n).map(|d| self.hybridvss_sh(d)).collect();
+            (0..self.params.n).map(|d| self.hybridvss_sh(d)).collect();
 
         // shared messages from each node
-        (0..self.n)
+        (0..self.params.n)
             .map(|i| {
                 shared_messages
                     .iter()
@@ -121,12 +95,13 @@ fn shared_send_valid() {
     let t = 4u32;
     let scheme = Scheme::init(n, 0, t, &mut rng);
     let mut nodes = scheme.nodes;
-    let L = scheme.L;
+    let l = scheme.params.l;
 
     // Commitments for each dealer
     let Cs: Vec<_> = (0..n)
         .map(|_| {
-            let secret = poly::random_secret(t, &mut rng);
+            let secret =
+                poly::random_secret(t, Scalar::rand(&mut rng), &mut rng);
             Rc::new(poly::public(&secret))
         })
         .collect();
@@ -143,7 +118,7 @@ fn shared_send_valid() {
             .map(|(d, C)| Shared {
                 C,
                 d: (d as u32),
-                s_id: random_scalar(&mut rng),
+                s_id: Scalar::rand(&mut rng),
             })
             .collect();
 
@@ -158,8 +133,8 @@ fn shared_send_valid() {
                 if (count as u32) == t {
                     assert!(shared_response.is_some());
                     match shared_response.unwrap() {
-                        SharedAction::Delay => assert!(L != (i as u32)),
-                        SharedAction::Send(_) => assert!(L == (i as u32)),
+                        SharedAction::Delay => assert!(l != (i as u32)),
+                        SharedAction::Send(_) => assert!(l == (i as u32)),
                     }
                 } else {
                     assert!(shared_response.is_none())
@@ -178,12 +153,13 @@ fn send_echo_valid() {
     let t = 4u32;
     let scheme = Scheme::init(n, 0, t, &mut rng);
     let mut nodes = scheme.nodes;
-    let L = scheme.L;
+    let l = scheme.params.l;
 
     // Commitments for each dealer
     let Cs: Vec<_> = (0..n)
         .map(|_| {
-            let secret = poly::random_secret(t, &mut rng);
+            let secret =
+                poly::random_secret(t, Scalar::rand(&mut rng), &mut rng);
             Rc::new(poly::public(&secret))
         })
         .collect();
@@ -197,7 +173,7 @@ fn send_echo_valid() {
         .map(|(d, C)| Shared {
             C,
             d: (d as u32),
-            s_id: random_scalar(&mut rng),
+            s_id: Scalar::rand(&mut rng),
         })
         .collect();
 
@@ -208,7 +184,7 @@ fn send_echo_valid() {
         .choose_multiple(&mut rng, (t + 1) as usize)
         .into_iter()
         .for_each(|shared_message| {
-            let shared_response = nodes[L as usize].shared(&shared_message);
+            let shared_response = nodes[l as usize].shared(&shared_message);
             match shared_response {
                 Some(SharedAction::Send(s)) => send = Some(s),
                 _ => (),
@@ -232,12 +208,13 @@ fn echo_ready_valid() {
     let t = 4u32;
     let scheme = Scheme::init(n, 0, t, &mut rng);
     let mut nodes = scheme.nodes;
-    let L = scheme.L;
+    let l = scheme.params.l;
 
     // Commitments for each dealer
     let Cs: Vec<_> = (0..n)
         .map(|_| {
-            let secret = poly::random_secret(t, &mut rng);
+            let secret =
+                poly::random_secret(t, Scalar::rand(&mut rng), &mut rng);
             Rc::new(poly::public(&secret))
         })
         .collect();
@@ -251,7 +228,7 @@ fn echo_ready_valid() {
         .map(|(d, C)| Shared {
             C,
             d: (d as u32),
-            s_id: random_scalar(&mut rng),
+            s_id: Scalar::rand(&mut rng),
         })
         .collect();
 
@@ -262,7 +239,7 @@ fn echo_ready_valid() {
         .choose_multiple(&mut rng, (t + 1) as usize)
         .into_iter()
         .for_each(|shared_message| {
-            let shared_response = nodes[L as usize].shared(&shared_message);
+            let shared_response = nodes[l as usize].shared(&shared_message);
             match shared_response {
                 Some(SharedAction::Send(s)) => send = Some(s),
                 _ => (),
@@ -305,12 +282,13 @@ fn ready_complete_valid() {
     let f = 0;
     let scheme = Scheme::init(n, f, t, &mut rng);
     let mut nodes = scheme.nodes;
-    let L = scheme.L;
+    let l = scheme.params.l;
 
     // Commitments for each dealer
     let Cs: Vec<_> = (0..n)
         .map(|_| {
-            let secret = poly::random_secret(t, &mut rng);
+            let secret =
+                poly::random_secret(t, Scalar::rand(&mut rng), &mut rng);
             Rc::new(poly::public(&secret))
         })
         .collect();
@@ -324,7 +302,7 @@ fn ready_complete_valid() {
         .map(|(d, C)| Shared {
             C,
             d: (d as u32),
-            s_id: random_scalar(&mut rng),
+            s_id: Scalar::rand(&mut rng),
         })
         .collect();
 
@@ -335,7 +313,7 @@ fn ready_complete_valid() {
         .choose_multiple(&mut rng, (t + 1) as usize)
         .into_iter()
         .for_each(|shared_message| {
-            let shared_response = nodes[L as usize].shared(&shared_message);
+            let shared_response = nodes[l as usize].shared(&shared_message);
             match shared_response {
                 Some(SharedAction::Send(s)) => send = Some(s),
                 _ => (),
@@ -394,20 +372,20 @@ fn shared_output_finalize_valid() {
     let t = 4;
     let f = 0;
     let mut scheme = Scheme::init(n, f, t, &mut rng);
-    let L = scheme.L;
+    let l = scheme.params.l;
 
     let shared_messages = scheme.run_hybridvss_sh();
 
     /* leader accepts shared messages for t + 1 dealers in random order */
     let mut send = None;
-    shared_messages[L as usize]
+    shared_messages[l as usize]
         .iter()
         .choose_multiple(&mut rng, (t + 1) as usize)
         .into_iter()
         .cloned()
         .for_each(|shared_message| {
             let shared_response =
-                scheme.nodes[L as usize].shared(&shared_message);
+                scheme.nodes[l as usize].shared(&shared_message);
             match shared_response {
                 Some(SharedAction::Send(s)) => send = Some(s),
                 _ => (),
