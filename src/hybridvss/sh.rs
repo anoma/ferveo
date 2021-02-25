@@ -109,6 +109,18 @@ where
     alter(|x| x.unwrap_or(v).into(), k, hm)
 }
 
+/* If the key exists in the map,
+returns a reference to the value at that key.
+Otherwise, inserts the provided value,
+and returns a reference to it. */
+fn get_or_insert<K, V>(k: K, v: V, m: &mut HashMap<K, V>) -> &V
+where
+    K: Copy + std::cmp::Eq + std::hash::Hash,
+{
+    insert_if_none(k, v, m);
+    m.get(&k).unwrap()
+}
+
 /* Increments the value at the given key */
 fn incr<K>(k: K, hm: &mut HashMap<K, u32>)
 where
@@ -140,10 +152,8 @@ impl Context {
         let phi = poly::random_secret(self.params.t, s, rng);
         let C = Rc::new(poly::public(&phi));
         (0..self.params.n)
-            .map(|j| Send {
-                C: C.clone(),
-                a: poly::share(&phi, j),
-            })
+            .map(|j| poly::share(&phi, j))
+            .map(|a| Send { C: C.clone(), a })
             .collect()
     }
 
@@ -151,50 +161,81 @@ impl Context {
     Should only be accepted from the dealer. */
     pub fn send(&self, Send { C, a }: Send) -> SendResponse {
         if poly::verify_share(&C, &a, self.i) {
-            (0..self.params.n)
-                .map(|j| Echo {
+            let echos = (0..self.params.n)
+                .map(|j| a.evaluate(&j.into()))
+                .map(|alpha| Echo {
                     C: C.clone(),
-                    alpha: a.evaluate(&j.into()),
+                    alpha,
                 })
-                .collect::<Vec<Echo>>()
-                .into()
+                .collect::<Vec<Echo>>();
+            Some(echos)
         } else {
             None
         }
+    }
+
+    // return a mutable reference to A_C
+    fn get_mut_A_C(&mut self, C_hash: [u8; 32]) -> &mut HashSet<(u32, Scalar)> {
+        insert_if_none(C_hash, HashSet::new(), &mut self.A);
+        self.A.get_mut(&C_hash).unwrap()
+    }
+
+    /* determine if the threshold has been met,
+    in order to broadcast ready messages */
+    fn echo_ready_threshold(&mut self, C_hash: [u8; 32]) -> bool {
+        let Params { n, t, .. } = self.params;
+        let e_C = *get_or_insert(C_hash, 0, &mut self.e);
+        let r_C = *get_or_insert(C_hash, 0, &mut self.r);
+        e_C == div_ceil(n + t + 1, 2) && r_C < t + 1
+    }
+
+    fn lagrange_interpolate_A_C(&self, C_hash: [u8; 32]) -> poly::Univar {
+        let A_C = self.A.get(&C_hash).unwrap();
+        // the points to use for lagrange interpolation
+        let points = A_C.iter().map(|(m, a)| ((*m as u64).into(), *a));
+        poly::lagrange_interpolate(points)
     }
 
     /* Respond to an "echo" message. */
     pub fn echo(&mut self, m: u32, Echo { C, alpha }: &Echo) -> EchoResponse {
         if poly::verify_point(&C, self.i, m, *alpha) {
             let C_hash = hash_public_poly(&C);
-            insert_if_none(C_hash, HashSet::new(), &mut self.A);
-            self.A.get_mut(&C_hash).unwrap().insert((m, *alpha));
             incr(C_hash, &mut self.e);
+            self.get_mut_A_C(C_hash).insert((m, *alpha));
 
-            let e_C = *self.e.get(&C_hash).unwrap();
-            let r_C = *self.r.get(&C_hash).unwrap_or(&0);
-
-            if e_C == div_ceil(self.params.n + self.params.t + 1, 2)
-                && r_C < self.params.t + 1
-            {
-                let A_C = self.A.get(&C_hash).unwrap();
-                // the points to use for lagrange interpolation
-                let points =
-                    A_C.iter().map(|(m, a)| (u64::from(*m).into(), *a));
-                let a_bar = poly::lagrange_interpolate(points);
-                (0..self.params.n)
-                    .map(|j| Ready {
+            if self.echo_ready_threshold(C_hash) {
+                let a_bar = self.lagrange_interpolate_A_C(C_hash);
+                let ready_messages = (0..self.params.n)
+                    .map(|j| a_bar.evaluate(&j.into()))
+                    .map(|alpha| Ready {
                         C: C.clone(),
-                        alpha: a_bar.evaluate(&j.into()),
+                        alpha,
                     })
-                    .collect::<Vec<Ready>>()
-                    .into()
+                    .collect::<Vec<Ready>>();
+                ready_messages.into()
             } else {
                 None
             }
         } else {
             None
         }
+    }
+
+    /* determine if the threshold has been met,
+    in order to broadcast ready messages */
+    fn ready_ready_threshold(&mut self, C_hash: [u8; 32]) -> bool {
+        let Params { n, t, .. } = self.params;
+        let e_C = *get_or_insert(C_hash, 0, &mut self.e);
+        let r_C = *get_or_insert(C_hash, 0, &mut self.r);
+        e_C < div_ceil(n + t + 1, 2) && r_C == t + 1
+    }
+
+    /* determine if the threshold has been met,
+    in order to broadcast shared messages */
+    fn ready_shared_threshold(&mut self, C_hash: [u8; 32]) -> bool {
+        let Params { n, t, f, .. } = self.params;
+        let r_C = *get_or_insert(C_hash, 0, &mut self.r);
+        r_C == n - t - f
     }
 
     pub fn ready(
@@ -204,29 +245,21 @@ impl Context {
     ) -> ReadyResponse {
         if poly::verify_point(&C, self.i, m, *alpha) {
             let C_hash = hash_public_poly(&C);
-            insert_if_none(C_hash, HashSet::new(), &mut self.A);
-            self.A.get_mut(&C_hash).unwrap().insert((m, *alpha));
             incr(C_hash, &mut self.r);
+            self.get_mut_A_C(C_hash).insert((m, *alpha));
 
-            let e_C = *self.e.get(&C_hash).unwrap();
-            let r_C = *self.r.get(&C_hash).unwrap_or(&0);
+            let a_bar = self.lagrange_interpolate_A_C(C_hash);
 
-            let A_C = self.A.get(&C_hash).unwrap();
-            // the points to use for lagrange interpolation
-            let points = A_C.iter().map(|(m, a)| (u64::from(*m).into(), *a));
-            let a_bar = poly::lagrange_interpolate(points);
-
-            if e_C < div_ceil(self.params.n + self.params.t + 1, 2)
-                && r_C == self.params.t + 1
-            {
+            if self.ready_ready_threshold(C_hash) {
                 let ready_messages = (0..self.params.n)
-                    .map(|j| Ready {
+                    .map(|j| a_bar.evaluate(&j.into()))
+                    .map(|alpha| Ready {
                         C: C.clone(),
-                        alpha: a_bar.evaluate(&j.into()),
+                        alpha,
                     })
                     .collect();
                 Some(Either::Left(ready_messages))
-            } else if r_C == self.params.n - self.params.t - self.params.f {
+            } else if self.ready_shared_threshold(C_hash) {
                 let s = a_bar.evaluate(&Scalar::zero());
                 Some(Either::Right(Shared { C: C.clone(), s }))
             } else {

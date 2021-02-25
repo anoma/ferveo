@@ -138,16 +138,27 @@ impl Context {
         }
     }
 
+    pub fn is_leader(&self) -> bool {
+        self.i == self.params.l
+    }
+
+    /* determine if the threshold has been met,
+    in order to broadcast a send message */
+    fn shared_send_threshold(&self) -> bool {
+        let t = self.params.t as usize;
+        let q_bar = &self.q_bar;
+        let q_hat_size = self.q_hat.len();
+        q_hat_size == t + 1 && q_bar.is_empty()
+    }
+
     /* Respond to a "shared" message. */
     pub fn shared(
         &mut self,
         Shared { d, .. }: &Shared,
     ) -> Option<SharedAction> {
         self.q_hat.insert(*d);
-        if self.q_hat.len() == (self.params.t as usize) + 1
-            && self.q_bar.is_empty()
-        {
-            if self.i == self.params.l {
+        if self.shared_send_threshold() {
+            if self.is_leader() {
                 Some(SharedAction::Send(Send {
                     q: self.q_hat.clone(),
                     // FIXME: add r/m
@@ -170,15 +181,26 @@ impl Context {
         }
     }
 
+    // increment the echo counter
+    fn incr_echo_counter(&mut self, lq_hash: [u8; 32]) {
+        let e_LQ: &mut u32 = get_mut_or_insert(lq_hash, 0, &mut self.e);
+        *e_LQ += 1;
+    }
+
+    /* determine if the threshold has been met,
+    in order to broadcast a ready message */
+    fn echo_ready_threshold(&mut self, lq_hash: [u8; 32]) -> bool {
+        let Params { n, t, .. } = self.params;
+        let e_LQ = *get_or_insert(lq_hash, 0, &mut self.e);
+        let r_LQ = *get_or_insert(lq_hash, 0, &mut self.r);
+        e_LQ == div_ceil(n + t + 1, 2) && r_LQ < t + 1
+    }
+
     /* Respond to an "echo" message */
     pub fn echo(&mut self, Echo { q }: Echo) -> Option<Ready> {
         let lq_hash = hash_LQ(self.params.l, &q);
-        let e_LQ = get_mut_or_insert(lq_hash, 0, &mut self.e);
-        *e_LQ += 1;
-        let r_LQ = *get_or_insert(lq_hash, 0, &mut self.r);
-        if *e_LQ == div_ceil(self.params.n + self.params.t + 1, 2)
-            && r_LQ < self.params.t + 1
-        {
+        self.incr_echo_counter(lq_hash);
+        if self.echo_ready_threshold(lq_hash) {
             self.q_bar = self.q_bar.union(&q).cloned().collect();
             // FIXME: What should happen to M-bar?
             Some(Ready { q })
@@ -187,19 +209,38 @@ impl Context {
         }
     }
 
+    // increment ready echo counter
+    fn incr_ready_counter(&mut self, lq_hash: [u8; 32]) {
+        let r_LQ: &mut u32 = get_mut_or_insert(lq_hash, 0, &mut self.r);
+        *r_LQ += 1;
+    }
+
+    /* determine if the threshold has been met,
+    in order to broadcast a ready message */
+    fn ready_ready_threshold(&mut self, lq_hash: [u8; 32]) -> bool {
+        let Params { n, t, .. } = self.params;
+        let e_LQ = *get_or_insert(lq_hash, 0, &mut self.e);
+        let r_LQ = *get_or_insert(lq_hash, 0, &mut self.r);
+        r_LQ == t + 1 && e_LQ < div_ceil(n + t + 1, 2)
+    }
+
+    /* determine if the threshold has been met,
+    in order to complete the dkg */
+    fn ready_complete_threshold(&mut self, lq_hash: [u8; 32]) -> bool {
+        let Params { n, t, f, .. } = self.params;
+        let r_LQ = *get_or_insert(lq_hash, 0, &mut self.r);
+        r_LQ == n - t - f
+    }
+
     /* Respond to a "ready" message */
     pub fn ready(&mut self, Ready { q }: Ready) -> Option<ReadyAction> {
         let lq_hash = hash_LQ(self.params.l, &q);
-        let r_LQ = get_mut_or_insert(lq_hash, 0, &mut self.r);
-        *r_LQ += 1;
-        let e_LQ = *get_or_insert(lq_hash, 0, &mut self.e);
-        if *r_LQ == self.params.t + 1
-            && e_LQ < div_ceil(self.params.n + self.params.t + 1, 2)
-        {
+        self.incr_ready_counter(lq_hash);
+        if self.ready_ready_threshold(lq_hash) {
             self.q_bar = self.q_bar.union(&q).cloned().collect();
             // FIXME: What should happen to M-bar?
             Some(ReadyAction::Ready(Ready { q }))
-        } else if *r_LQ == self.params.n - self.params.t - self.params.f {
+        } else if self.ready_complete_threshold(lq_hash) {
             Some(ReadyAction::Complete)
         } else {
             None

@@ -1,5 +1,3 @@
-#![feature(format_args_capture)]
-#![feature(is_sorted)]
 #![feature(iterator_fold_self)]
 
 pub mod bls;
