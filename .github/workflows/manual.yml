@@ -7,7 +7,7 @@ env:
 
 jobs:
   build:
-    runs-on: rustlang/rust:nightly
+    runs-on: ubuntu-latest
     container:
       image: rustlang/rust:nightly
     steps:
