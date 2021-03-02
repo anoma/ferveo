@@ -1,7 +1,7 @@
 
 
 default:
-  image: rust:1.43.0
+  image: rustlang/rust:nightly
 
 stages:
   - lint
