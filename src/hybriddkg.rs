@@ -254,7 +254,7 @@ pub fn finalize(shares: &[Shared]) -> (poly::Public, Scalar) {
     let C = shares
         .iter()
         .map(|s| s.C.clone())
-        .fold_first(|x, y| poly::add_public(&x, &y).into())
+        .reduce(|x, y| poly::add_public(&x, &y).into())
         .unwrap();
     let C = Rc::try_unwrap(C).unwrap();
     (C, s_i)
