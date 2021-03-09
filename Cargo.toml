@@ -14,14 +14,20 @@ authors = ["Metastate AG <hello@metastate.dev>"]
 
 [dependencies]
 ark-std = { git = "https://github.com/arkworks-rs/utils" }
-ark-bls12-381 = { git = "https://github.com/arkworks-rs/curves" }
-ark-ec = { git = "https://github.com/arkworks-rs/algebra" }
-ark-ff = { git = "https://github.com/arkworks-rs/algebra" }
-ark-serialize = { git = "https://github.com/arkworks-rs/algebra" }
-ark-poly = { git = "https://github.com/arkworks-rs/algebra" }
-bls12_381 = "0.3.1"
+# ark-bls12-381 = { git = "https://github.com/arkworks-rs/curves" }
+ark-bls12-381 = { path = "/home/george/Projects/heliax/arkworks-curves/bls12_381" }
+# ark-ec = { git = "https://github.com/arkworks-rs/algebra" }
+ark-ec = { path = "/home/george/Projects/heliax/arkworks-algebra/ec" }
+# ark-ff = { git = "https://github.com/arkworks-rs/algebra" }
+ark-ff = {path = "/home/george/Projects/heliax/arkworks-algebra/ff"}
+# ark-serialize = { git = "https://github.com/arkworks-rs/algebra" }
+ark-serialize = { path = "/home/george/Projects/heliax/arkworks-algebra/serialize" }
+# ark-poly = { git = "https://github.com/arkworks-rs/algebra" }
+ark-poly = { path = "/home/george/Projects/heliax/arkworks-algebra/poly" }
+bls12_381 = "0.4.0"
 either = "1.6.1"
-ff = "0.8.0"
+# ff = "0.8.0"
+ff = {path = "/home/george/Projects/heliax/zkcrypto-ff"}
 hex = "0.4.2"
 miracl_core = "2.3.0"
 num = "0.3.1"
@@ -38,6 +44,7 @@ criterion = "0.3.3"
 # local override for bls12-381
 [patch.crates-io]
 bls12_381 = { git = 'https://github.com/A-Manning/bls12_381.git', branch = "ash/scalar-traits" }
+ff = { path = "/home/george/Projects/heliax/zkcrypto-ff" }
 
 [[bench]]
 name = "benchmarks"

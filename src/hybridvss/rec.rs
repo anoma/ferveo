@@ -1,16 +1,21 @@
 #![allow(clippy::many_single_char_names)]
 #![allow(non_snake_case)]
 
+use ark_ec::group::wnaf_table;
+use ark_ec::group::wnaf_form;
+use ark_ec::group::wnaf_mul;
+
 use crate::poly;
 
 use ark_bls12_381::{Fr, G1Projective};
-use ark_ec::ProjectiveCurve;
 use ark_ff::Field;
 use ark_poly::polynomial::Polynomial;
 use num::Zero;
 use std::collections::HashSet;
 
 use crate::hybridvss::params::Params;
+
+use ark_ec::ProjectiveCurve;
 
 type Scalar = Fr;
 
@@ -22,10 +27,21 @@ pub struct Context {
     s: Scalar,                 // the share for this node
 }
 
+
+use ark_ff::BigInteger;
+
 fn mul_g1proj(lhs: G1Projective, rhs: Scalar) -> G1Projective {
-    let mut lhs = lhs;
-    lhs *= rhs;
-    lhs
+    // let mut lhs = lhs;
+    // lhs *= rhs;
+    // lhs;
+
+    let mut table : Vec<G1Projective> = vec![];
+    let mut wnaf : Vec<i64> = vec![];
+    let w = 10;
+    wnaf_table(&mut table, lhs, w);
+    wnaf = rhs.0.find_wnaf();
+    let g2 = wnaf_mul(&table, &wnaf);
+    g2
 }
 
 // Scalar exponentiation by u64. `exp(x, y) = x^y`
