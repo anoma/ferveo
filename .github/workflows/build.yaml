@@ -20,3 +20,15 @@ jobs:
       run: cargo build --verbose
     - name: Run tests
       run: cargo test --verbose
+
+  security:
+    runs-on: ubuntu-latest
+    container:
+      image: rustlang/rust:nightly
+    steps:
+    - uses: actions/checkout@v2
+    - name: Install cargo-audit
+      run: cargo install cargo-audit
+    - name: Cargo Audit
+      run: cargo audit
+    
