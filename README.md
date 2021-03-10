@@ -1,3 +1,5 @@
+![ci-badge](https://github.com/heliaxdev/ferveo/actions/workflows/build.yaml/badge.svg)
+
 # ferveo
 An implementation of a DKG protocol for front-running protection on public blockchains.
 
