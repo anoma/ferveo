@@ -27,6 +27,8 @@ jobs:
       image: rustlang/rust:nightly
     steps:
     - uses: actions/checkout@v2
+    - name: Install cargo-audit
+      run: cargo install cargo-audit
     - name: Cargo Audit
       run: cargo audit
     
