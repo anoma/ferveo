@@ -31,7 +31,10 @@ ff = {path = "/home/george/Projects/heliax/zkcrypto-ff"}
 hex = "0.4.2"
 miracl_core = "2.3.0"
 num = "0.3.1"
+# need both rand 0.8.3 and 0.7.3 to properly integrate with both bls and ark-bls
+rand-083 = {package = "rand", version = "0.8.3"}
 rand = "0.7.3"
+rand_core = "0.5.1"
 sha2 = "0.9.1"
 
 [dependencies.digest]
@@ -41,9 +44,8 @@ features = ["alloc"]
 [dev-dependencies]
 criterion = "0.3.3"
 
-# local override for bls12-381
 [patch.crates-io]
-bls12_381 = { git = 'https://github.com/A-Manning/bls12_381.git', branch = "ash/scalar-traits" }
+# bls12_381 = { git = 'https://github.com/A-Manning/bls12_381.git', branch = "ash/scalar-traits" }
 ff = { path = "/home/george/Projects/heliax/zkcrypto-ff" }
 
 [[bench]]

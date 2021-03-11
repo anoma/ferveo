@@ -2,16 +2,16 @@ use bls12_381::{G2Affine, G2Projective, Scalar};
 use ferveo::bls::*;
 
 // Fixed seed for reproducability
-fn rng() -> rand::rngs::StdRng {
-    use rand::SeedableRng;
-    rand::rngs::StdRng::seed_from_u64(0)
+fn rng() -> rand_083::rngs::StdRng {
+    use rand_083::SeedableRng;
+    rand_083::rngs::StdRng::seed_from_u64(0)
 }
 
 // A threshold scheme with n participants
 struct Scheme {
     memkeys: Vec<G2Affine>,
     n: usize,
-    rng: rand::rngs::StdRng,
+    rng: rand_083::rngs::StdRng,
     secrets: Vec<Scalar>,
     setup: Setup,
 }
@@ -73,7 +73,7 @@ impl Scheme {
         m: usize,
         msg: &[u8],
     ) -> (G2Affine, Vec<usize>) {
-        use rand::seq::IteratorRandom;
+        use rand_083::seq::IteratorRandom;
         assert!(m <= self.n);
         let mut positions = (0..self.n).choose_multiple(&mut self.rng, m);
         positions.sort();
