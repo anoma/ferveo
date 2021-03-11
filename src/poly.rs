@@ -4,7 +4,8 @@ Operations involving polynomials.
 
 use ark_bls12_381::{Fr, G1Affine, G1Projective};
 use ark_ec::ProjectiveCurve;
-use ark_ff::{Field, UniformRand};
+use ark_ec::group::{wnaf_table, wnaf_mul};
+use ark_ff::{Field, UniformRand, BigInteger, PrimeField};
 use ark_poly::polynomial::multivariate::{SparsePolynomial, SparseTerm, Term};
 use ark_poly::polynomial::univariate::DensePolynomial;
 use ark_poly::polynomial::{MVPolynomial, Polynomial, UVPolynomial};
@@ -199,9 +200,16 @@ pub fn random_secret<R: rand::Rng + Sized>(
 }
 
 fn mul_g1proj(lhs: G1Projective, rhs: Scalar) -> G1Projective {
-    let mut lhs = lhs;
-    lhs *= rhs;
-    lhs
+    let mut table : Vec<G1Projective> = vec![];
+    let w = 10;
+
+    wnaf_table(&mut table, lhs, w);
+
+    let rhs : <Scalar as PrimeField>::BigInt = rhs.into();
+    let wnaf = rhs.find_wnaf();
+
+    let g2 = wnaf_mul(&table, &wnaf);
+    g2
 }
 
 // Generate the public polynomial for a given secret polynomial.
