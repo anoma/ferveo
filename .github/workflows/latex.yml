@@ -1,0 +1,38 @@
+name: render-latex
+
+on: 
+  push:
+    branches:
+      - doc/joe
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.x']
+
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install pdflatex and rename
+        run: sudo apt install texlive-latex-base rename
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v2
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip3 install readme2tex
+      - name: Build .md files
+        run: |
+          find . -type f -name '*.tex.md' -execdir python3 -m readme2tex --readme {} --nocdn --output "{}" \;
+      - name: Rename built files
+        run: |
+          find . -type f -exec rename 's/.tex.md/.md/' '{}' \;
+      - name: Commit the built files
+        run: |
+          git config --global user.name '${{github.repository_owner}}'
+          git config --global user.email '${{github.actor}}@users.noreply.github.com'
+          git diff --quiet || (git add . && git commit -m "Built the .tex.md files")
+          git push
