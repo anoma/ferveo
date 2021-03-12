@@ -18,6 +18,24 @@ Among the $n$ nodes, at most total weight $t$ nodes are Byzantine (adversarial) 
 
 AVSS can only offer resiliance when $W \ge 3t + 2f + 1$, implying $t<W/3$. Synchronous VSS can achieve resiliance when $W \ge 2t+1$, implying $t < W/2$. The privacy threshold $p$ is the value such that subsets of nodes of weight at least $p+1$ can always recover the key or perform operations using the key, and subsets nodes of weight at most $p$ are unable to recover the key or perform operations using the key. It must be $p < W - t$. The default values $t = W/3 - 1$ and $p = 2W/3$ offer maximal sharing of the key.
 
+### Assumptions
+
+Under the asynchronous model, node clocks are not synchronized and messages can be delayed for abritrary periods of time.
+
+In practice a weak synchrony assumption is needed to assure liveness.
+Under weak synchrony, the time difference $delay(T)$ between the time a message was sent ($T$) and the time it is received doesn't grow indefinitely over time.
+
+#### Tendermint 
+Tendermint works under the partially syncrhonous model.
+In this model, there exist a point in time (GST - Global Stabilization Time) after which messages are delivered within a specific time bound.
+The GST and time bound are not known in advance.
+Tendermint tolerates a $t$-limited Byzantine adversary, with resilience  
+$n \ge 3t+1$
+
+#### Ferveo 
+Ferveo's model and resilience will be the most restrictive of the above:  
+$n \ge 3t+1$ under the partially synchronous mode
+
 ### Curve
 
 The curve used is BLS12-381. $\mathbb{G}_1$ denotes the prime order subgroup of order $r$ and $\mathbb{F}_r$ is the scalar field of BLS12-381 with prime order $r$. The pairing operation is $e(P,Q) : \mathbb{G}_1 \times \mathbb{G}_2$ \rightarrow \mathbb{G}_T$. The generator of $\mathbb{G}_1$ and $\mathbb{G}_2$ are denoted $G_1$ and $G_2$ respectively.
@@ -62,7 +80,7 @@ Each DKG session begins by choosing a unique integer session id $\tau$. This can
 
 Nodes that want to participate in the DKG and receive key shares can stake value tied to the session id. Using the consensus layer, all nodes should agree on a canonical ordering of $(pk_i, w_i)$ where $pk_i$ is the public key of the $i$th node participating in the DKG and $w_i$ is number of shares belonging to node $i$. The value $i$ is the integer id of the node with public key $pk_i$. 
 
-Let $\Psi_{\tau,i} = \{ k, k+1, \ldots, k+w_i} \}$ be a disjoint partition of $\{0,1, \ldots, W-1\}$, and $\Omega_{\tau,i} = \{ \omega^k \ mid k \in \Psi_{\tau,i} \}$.
+Let $\Psi_{i} = \{ a, a+1, \ldots, a+w_i} \}$ be a disjoint partition where $\cup_i \Psi_{i} =  \{0,1, \ldots, W-1\}$, and $\Omega_{i} = \{ \omega^k \ mid k \in \Psi_{i} \}$.
 
 ## VSS
 
@@ -188,7 +206,7 @@ Messages should be encrypted with a symmetric cipher with authentication, for ex
 
 Scheme based on "Simple and Efficient Threshold Cryptosystem from the Gap Diffie-Hellman Group" 
 
-Let $k \in \{0,1\}^256$ be a symmetric key.
+Let $k \in \{0,1\}^{256}$ be a symmetric key.
 Let $r \in \mathbb{F}_q$ be uniformly random.
 Let $V = \operatorname{BLAKE2b}(rQ) \oplus k$.
 The ciphertext $C = (rP, V, r \operatorname{HTC}(\operatorname{repr}(rQ), V))$
