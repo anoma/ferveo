@@ -25,7 +25,6 @@ dependencies = [
  "ark-ff",
  "ark-serialize",
  "ark-std",
- "byteorder",
  "derivative",
  "num-traits",
  "zeroize",

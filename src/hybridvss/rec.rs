@@ -9,7 +9,7 @@ use ark_ff::{Field, BigInteger, PrimeField};
 use ark_poly::polynomial::Polynomial;
 use num::Zero;
 use std::collections::HashSet;
-use ark_ec::group::{wnaf_table, wnaf_mul};
+use ark_ec::group::wnaf::{wnaf_mul, wnaf_table};
 
 use crate::hybridvss::params::Params;
 
@@ -28,16 +28,18 @@ pub struct Context {
 
 
 fn mul_g1proj(lhs: G1Projective, rhs: Scalar) -> G1Projective {
-    let mut table : Vec<G1Projective> = vec![];
-    let w = 10;
+    // let mut lhs = lhs;
+    // lhs *= rhs;
+    // lhs
 
-    wnaf_table(&mut table, lhs, w);
+   let mut table : Vec<G1Projective> = vec![];
+   let w = 10;
 
-    let rhs : <Scalar as PrimeField>::BigInt = rhs.into();
-    let wnaf = rhs.find_wnaf();
-
-    let g2 = wnaf_mul(&table, &wnaf);
-    g2
+   wnaf_table(&mut table, lhs, w);
+   let rhs : <Scalar as PrimeField>::BigInt = rhs.into();
+   let wnaf = rhs.find_wnaf();
+   let g2 = wnaf_mul(&table, &wnaf);
+   g2
 }
 
 // Scalar exponentiation by u64. `exp(x, y) = x^y`
