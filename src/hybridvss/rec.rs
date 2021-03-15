@@ -32,10 +32,8 @@ fn mul_g1proj(lhs: G1Projective, rhs: Scalar) -> G1Projective {
     // lhs *= rhs;
     // lhs
 
-   let mut table : Vec<G1Projective> = vec![];
    let w = 10;
-
-   wnaf_table(&mut table, lhs, w);
+   let table = wnaf_table(lhs, w);
    let rhs : <Scalar as PrimeField>::BigInt = rhs.into();
    let wnaf = rhs.find_wnaf();
    let g2 = wnaf_mul(&table, &wnaf);
