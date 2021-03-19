@@ -1,11 +1,11 @@
 use ark_ff::UniformRand;
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use ferveo::poly;
+use rand::SeedableRng;
 
 // generating public polynomials
 pub fn bench_public(c: &mut Criterion) {
     // use a fixed seed for reproducability
-    use rand::SeedableRng;
     let mut rng = rand::rngs::StdRng::seed_from_u64(0);
 
     let mut gen_public = |threshold: u32| {
@@ -53,7 +53,6 @@ pub fn bench_public(c: &mut Criterion) {
 // generating secret shares
 pub fn bench_shares(c: &mut Criterion) {
     // use a fixed seed for reproducability
-    use rand::SeedableRng;
     let mut rng = rand::rngs::StdRng::seed_from_u64(0);
 
     let mut gen_shares = |threshold: u32, participants: u32| {

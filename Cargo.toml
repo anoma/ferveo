@@ -8,18 +8,19 @@ readme = "README.md"
 description = "An implementation of a DKG protocol for front-running protection on public blockchains."
 keywords = ["DKG"]
 categories = ["cryptography"]
-authors = ["Metastate AG <hello@metastate.dev>"]
+authors = ["Heliax AG <hello@heliax.dev>"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 anyhow = "1.0.32"
-ark-std = "0.2.0"
-ark-serialize = "0.2.0"
-ark-ec = "0.2.0"
-ark-poly = "0.2.0"
-ark-bls12-381 = "0.2.0"
-ark-ff = "0.2.0"
+ark-poly-commit = "0.2"
+ark-std = "0.2"
+ark-bls12-381 = "0.2"
+ark-ec = "0.2"
+ark-ff = "0.2"
+ark-serialize = "0.2"
+ark-poly = "0.2"
 bls12_381 = "0.3.1"
 dusk-bls12_381 = "0.3.0"
 either = "1.6.1"
@@ -34,14 +35,24 @@ rand_chacha = "0.2"
 rayon = "1.3.0"
 sha2 = "0.9.1"
 thiserror = "1.0"
-
+ed25519-dalek = { version = "1", features = ["serde"] }
+x25519-dalek = { version = "1.1", features = ["serde"] }
+curve25519-dalek = { version = "3.0", features = ["serde"] }
+serde = { version = "1.0", features = ["derive"] }
+blake2 = "0.9.1"
+blake2b_simd = "0.5.11"
+zeroize = { version = "1", default-features = false, features = ["zeroize_derive"] }
+chacha20poly1305 = "0.7"
+serde_bytes = { version = "0.11" }
+bincode = "1.3"
+serde_json = "1.0"
 
 [dependencies.digest]
 version = "0.9.0"
 features = ["alloc"]
 
 [dev-dependencies]
-criterion = "0.3.3"
+criterion = "0.3"
 
 # local override for ark-{ec, ff, serialize}
 # local override for bls12-381
@@ -51,10 +62,18 @@ ark-ff = { git = 'https://github.com/arkworks-rs/algebra.git' }
 ark-serialize = { git = 'https://github.com/arkworks-rs/algebra.git' }
 bls12_381 = { git = 'https://github.com/A-Manning/bls12_381.git', branch = "ash/scalar-traits" }
 
-[[bench]]
-name = "benchmarks"
-harness = false
+#[[bench]]
+#name = "benchmarks"
+#harness = false
 
 # Optimizations are needed such that the tests run in a reasonable timeframe
 [profile.test]
 opt-level = 3
+
+[profile.release]
+debug = true
+
+[[bench]]
+name = "kzg"
+harness = false
+html_reports = true
