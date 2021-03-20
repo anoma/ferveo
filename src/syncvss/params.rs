@@ -1,3 +1,5 @@
+#![allow(unused_imports)]
+
 use rand::Rng;
 
 use ark_bls12_381::{Fr, G1Affine};
@@ -18,8 +20,18 @@ pub struct Params {
 
 impl Params {
     // initialize with random values for `d`
-    pub fn random_dealer<R: Rng>(f: u32, t: u32, total_weight: u32, rng: &mut R) -> Self {
+    pub fn random_dealer<R: Rng>(
+        f: u32,
+        t: u32,
+        total_weight: u32,
+        rng: &mut R,
+    ) -> Self {
         let d = rng.gen_range(0, 10);
-        Params { d, f, t, total_weight }
+        Params {
+            d,
+            f,
+            t,
+            total_weight,
+        }
     }
 }

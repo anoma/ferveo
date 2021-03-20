@@ -1,8 +1,8 @@
 #![allow(clippy::many_single_char_names)]
 #![allow(non_snake_case)]
+#![allow(unused_imports)]
 
 use crate::poly;
-
 use ark_bls12_381::{Fr, G1Affine};
 use num::integer::div_ceil;
 use rand::Rng;
@@ -13,8 +13,10 @@ use ark_poly::{
     polynomial::univariate::DensePolynomial, polynomial::UVPolynomial,
     EvaluationDomain, Polynomial,
 };
+use std::collections::{BTreeMap};
 //use ed25519_dalek::{Signature, Signer, PublicKey, Verifier};
 use ed25519_dalek as ed25519;
+use crate::syncvss;
 
 // DKG parameters
 #[derive(Copy, Clone)]
@@ -44,12 +46,13 @@ pub struct Context {
     pub params: Params,
     pub participants: Vec<Participant>,
     pub domain: ark_poly::Radix2EvaluationDomain<Scalar>,
+    pub recv_shares : BTreeMap<u32,crate::syncvss::Share>,
+    pub recv_weight : u32,
 }
 
 impl Context {
     pub fn new(
         me: ParticipantKeys,
-        //my_encryption_key: crypto_box::SecretKey,
         my_signature_key: ed25519::Keypair,
         tau: u32,
         params: Params,
@@ -57,7 +60,7 @@ impl Context {
     ) -> Context {
         let mut rng = rand::thread_rng();
         let my_encryption_key = crypto_box::SecretKey::generate(&mut rng);
-        let total_weight : u32 = weights.iter().map(|(_, i)| *i).sum();
+        let total_weight: u32 = weights.iter().map(|(_, i)| *i).sum();
         let domain = ark_poly::Radix2EvaluationDomain::<Scalar>::new(
             total_weight as usize,
         )
@@ -72,7 +75,7 @@ impl Context {
                 my_index = Some(i as u32);
             }
             let mut share_domain = vec![];
-            for share in 0..*weight as usize {
+            for _share in 0..*weight as usize {
                 share_domain.push(share_element);
                 share_element *= domain.group_gen;
             }
@@ -95,6 +98,8 @@ impl Context {
             params,
             participants,
             domain,
+            recv_shares : BTreeMap::<u32, syncvss::Share>::new(),
+            recv_weight : 0u32,
         }
     }
 }

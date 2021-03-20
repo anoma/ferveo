@@ -1,18 +1,23 @@
 #![allow(clippy::many_single_char_names)]
 #![allow(non_snake_case)]
+#![allow(unused_imports)]
 
 use crate::poly;
 
 use ark_bls12_381::{Fr, G1Affine};
+use ark_ec::AffineCurve;
 use ark_serialize::CanonicalSerialize;
 use crypto_box::aead::Aead;
-use ed25519_dalek::Signer;
+use ed25519_dalek::{Signer};
+use ed25519_dalek::Signature;
 use either::Either;
 use num::integer::div_ceil;
 use num::Zero;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
-
+use ark_serialize::*;
+//use serde::{Serialize, Deserialize};
+use std::convert::TryFrom;
 use ed25519_dalek as ed25519;
 
 use ark_poly::{
@@ -25,93 +30,124 @@ use crate::syncvss::params::Params;
 
 type Scalar = Fr;
 
-pub type VSSShareCiphertext = (Vec<u8>, ed25519::Signature);
+pub type ShareCiphertext = Vec<u8>;
 
-pub struct Context {
-    /* Map keyed by sha2-256 hashes of commitments.
-    The values of the map are pairs of node indexes and scalars */
-    A: HashMap<[u8; 32], HashSet<(u32, Scalar)>>,
-    /* Counters for `echo` messages.
-    The keys of the map are sha2-256 hashes. */
-    e: HashMap<[u8; 32], u32>,
-    i: u32, // index of this node in the setup
-    /* Counters for `ready` messages.
-    The keys of the map are sha2-256 hashes. */
-    params: Params,
-    r: HashMap<[u8; 32], u32>,
+pub struct Share {
+    pub s : Vec<Scalar>,
 }
 
-impl Context {
-    pub fn init(
-        params: Params,
-        i: u32, // index of this node's public key in the setup
-    ) -> Self {
-        let A = HashMap::new();
-        let e = HashMap::new();
-        let r = HashMap::new();
-
-        Context { A, e, i, params, r }
-    }
-
-    pub fn share<R: rand::Rng + Sized>(
-        &self,
-        rng: &mut R,
-        s: Scalar,
-        dkg: &dkg::Context,
-    ) -> Vec<VSSShareCiphertext> {
-        let mut phi = DensePolynomial::<Scalar>::rand(self.params.t as usize, rng);
-        phi.coeffs[0] = s;
-        let evals = phi.evaluate_over_domain_by_ref(dkg.domain);
-
-        dkg
-            .participants
-            .iter()
-            .enumerate()
-            .map(|(i, participant)| {
-                encrypt_and_sign(
-                    &evals.evals[participant.share_index
-                        ..participant.share_index
-                            + participant.weight as usize],
-                    dkg.tau,
-                    dkg.my_index,
-                    i as u32,
-                    &participant.keys.encryption_key,
-                    &dkg.my_encryption_key,
-                    &dkg.my_signature_key,
-                )
-            })
-            .collect()
-    }
+#[derive(CanonicalSerialize, CanonicalDeserialize)]
+pub struct DealtShares {
+    pub tau: u32,
+    pub d: u32,
+    pub commitment: G1Affine,
+    pub shares: Vec<ShareCiphertext>,
 }
 
-pub fn encrypt_and_sign(
+pub fn deal_shares<R: rand::Rng + Sized>(
+    rng: &mut R,
+    s: Scalar,
+    dkg: &dkg::Context,
+) -> Vec<u8> {
+    let mut phi = DensePolynomial::<Scalar>::rand(dkg.params.t as usize, rng);
+    phi.coeffs[0] = s;
+    let evals = phi.evaluate_over_domain_by_ref(dkg.domain);
+
+    let commitment = G1Affine::prime_subgroup_generator(); // Placeholder
+
+    let vss_shares = dkg
+        .participants
+        .iter()
+        .map(|participant| {
+            encrypt(
+                &evals.evals[participant.share_index
+                    ..participant.share_index + participant.weight as usize],
+                &G1Affine::prime_subgroup_generator(), // TODO: placeholder
+                &participant.keys.encryption_key,
+                &dkg.my_encryption_key,
+            )
+        })
+        .collect::<Vec<ShareCiphertext>>();
+
+    let mut msg_bytes = vec![];
+
+    //msg_bytes.extend_from_slice(&dkg.tau.to_le_bytes());
+    //msg_bytes.extend_from_slice(&dkg.my_index.to_le_bytes());
+    //commitment.serialize(&mut msg_bytes);
+    //vss_shares.serialize(&mut msg_bytes).unwrap(); // Placeholder
+    let dealt_shares = DealtShares { tau: dkg.tau, d: dkg.my_index, commitment, shares : vss_shares };
+    dealt_shares.serialize(&mut msg_bytes);
+    let signature = dkg.my_signature_key.sign(&msg_bytes);
+    msg_bytes.extend_from_slice(&signature.to_bytes());
+    msg_bytes
+}
+
+pub fn encrypt(
     shares: &[Scalar],
-    tau: u32,
-    sender: u32,
-    receiver: u32,
+    opening: &G1Affine,
     public_key: &crypto_box::PublicKey,
     secret_key: &crypto_box::SecretKey,
-    sign_secret_key: &ed25519::Keypair,
-) -> VSSShareCiphertext {
-    let mut msg = Vec::<u8>::with_capacity(shares.len() * 4);
-    shares.serialize(&mut msg[..]);
-    //for s in shares.iter() {
-
-    //    msg.extend_with_slice(s. );
-    //}
+) -> ShareCiphertext {
+    let mut msg = vec![];
+    shares.serialize(&mut msg);
+    opening.serialize(&mut msg);
 
     let msg_box = crypto_box::ChaChaBox::new(&public_key, &secret_key);
     let mut rng = rand::thread_rng();
-    let nonce = crypto_box::generate_nonce(&mut rng);
+    let nonce = [0u8; 24];//crypto_box::generate_nonce(&mut rng);
 
-    let mut aad = [0u8; 12];
-    aad[0..2].copy_from_slice(&tau.to_le_bytes());
-    aad[2..4].copy_from_slice(&sender.to_le_bytes());
-    aad[4..6].copy_from_slice(&receiver.to_le_bytes());
+    msg_box
+        .encrypt(
+            &nonce.into(),
+            &msg[..],
+        )
+        .unwrap()
+}
 
-    let ciphertext =
-        msg_box.encrypt(&nonce, crypto_box::aead::Payload { msg: &msg, aad: &aad }).unwrap();
+pub fn recv_shares(dkg: &mut dkg::Context, shares: Vec<u8>) -> Result<(), String> {
+    if shares.len() <= ed25519::SIGNATURE_LENGTH {
+        return Err("too short".to_string());  
+    }
+    let sig_bytes = &shares[shares.len() - ed25519::SIGNATURE_LENGTH..shares.len()];
+    let msg_bytes = &shares[0..shares.len()-ed25519::SIGNATURE_LENGTH]; 
 
-    let signature = sign_secret_key.sign(&ciphertext);
-    (ciphertext, signature)
+    let shares = DealtShares::deserialize(&shares[..]).unwrap(); //TODO: handle error
+
+    if dkg.tau != shares.tau {
+        return Ok(()); // not relevant round
+    }
+
+    if dkg.recv_shares.contains_key(&shares.d) {
+        return Ok(());
+    }
+
+    let signature = Signature::try_from(sig_bytes).unwrap();
+    dkg.participants[shares.d as usize].keys.signing_key.verify_strict(msg_bytes, &signature).unwrap();
+
+    let enc_share = &shares.shares[dkg.my_index as usize];
+    let dec_share = decrypt(&enc_share, &shares.commitment, dkg.participants[dkg.my_index as usize].share_domain.as_ref().unwrap(), 
+&dkg.participants[shares.d as usize].keys.encryption_key, &dkg.my_encryption_key).unwrap();
+    
+    Ok(())
+}
+
+pub fn decrypt(
+    enc_share: &[u8],
+    commitment: &G1Affine,
+    domain: &Vec<Scalar>,
+    public_key: &crypto_box::PublicKey,
+    secret_key: &crypto_box::SecretKey,
+) -> Result<Vec<Scalar>, String> {
+
+    let msg_box = crypto_box::ChaChaBox::new(&public_key, &secret_key);
+    let mut rng = rand::thread_rng();
+    let nonce = [0u8; 24]; //crypto_box::generate_nonce(&mut rng);
+
+    let dec_share = msg_box
+        .decrypt(
+            &nonce.into(),
+            &enc_share[..],
+        );
+    
+    Ok(vec![])
 }

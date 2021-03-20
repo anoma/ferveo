@@ -465,6 +465,7 @@ dependencies = [
  "miracl_core",
  "num",
  "rand",
+ "serde",
  "sha2",
  "x25519-dalek",
 ]
