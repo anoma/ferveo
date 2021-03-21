@@ -44,7 +44,7 @@ pub struct DealtShares {
     pub shares: Vec<ShareCiphertext>,
 }
 
-pub fn deal_shares<R: rand::Rng + Sized>(
+pub fn deal_shares<R: rand::Rng + rand::CryptoRng + Sized>(
     rng: &mut R,
     s: Scalar,
     dkg: &dkg::Context,
@@ -104,12 +104,19 @@ pub fn encrypt(
         .unwrap()
 }
 
-pub fn recv_shares(dkg: &mut dkg::Context, shares: Vec<u8>) -> Result<(), String> {
+pub fn recv_dealing(dkg: &mut dkg::Context, shares: Vec<u8>) -> Result<(), String> {
+    use blake2::{Blake2b, Digest};
+    use std::convert::TryInto;
+
     if shares.len() <= ed25519::SIGNATURE_LENGTH {
         return Err("too short".to_string());  
     }
     let sig_bytes = &shares[shares.len() - ed25519::SIGNATURE_LENGTH..shares.len()];
     let msg_bytes = &shares[0..shares.len()-ed25519::SIGNATURE_LENGTH]; 
+
+    let mut hasher = blake2::Blake2b::new();
+    hasher.update(&shares);
+    let hash :[u8; 32] = hasher.finalize()[..].try_into().unwrap();
 
     let shares = DealtShares::deserialize(&shares[..]).unwrap(); //TODO: handle error
 
@@ -124,10 +131,12 @@ pub fn recv_shares(dkg: &mut dkg::Context, shares: Vec<u8>) -> Result<(), String
     let signature = Signature::try_from(sig_bytes).unwrap();
     dkg.participants[shares.d as usize].keys.signing_key.verify_strict(msg_bytes, &signature).unwrap();
 
+
     let enc_share = &shares.shares[dkg.my_index as usize];
     let dec_share = decrypt(&enc_share, &shares.commitment, dkg.participants[dkg.my_index as usize].share_domain.as_ref().unwrap(), 
 &dkg.participants[shares.d as usize].keys.encryption_key, &dkg.my_encryption_key).unwrap();
-    
+
+    dkg.recv_dealings.insert(hash, shares);
     Ok(())
 }
 
@@ -146,7 +155,7 @@ pub fn decrypt(
     let dec_share = msg_box
         .decrypt(
             &nonce.into(),
-            &enc_share[..],
+            enc_share,
         );
     
     Ok(vec![])
