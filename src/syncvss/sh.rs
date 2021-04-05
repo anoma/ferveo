@@ -7,18 +7,18 @@ use crate::poly;
 use ark_bls12_381::{Fr, G1Affine};
 use ark_ec::AffineCurve;
 use ark_serialize::CanonicalSerialize;
+use ark_serialize::*;
 use crypto_box::aead::Aead;
-use ed25519_dalek::{Signer};
 use ed25519_dalek::Signature;
+use ed25519_dalek::Signer;
 use either::Either;
 use num::integer::div_ceil;
 use num::Zero;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
-use ark_serialize::*;
 //use serde::{Serialize, Deserialize};
-use std::convert::TryFrom;
 use ed25519_dalek as ed25519;
+use std::convert::TryFrom;
 
 use ark_poly::{
     polynomial::univariate::DensePolynomial, polynomial::UVPolynomial,
@@ -33,7 +33,7 @@ type Scalar = Fr;
 pub type ShareCiphertext = Vec<u8>;
 
 pub struct Share {
-    pub s : Vec<Scalar>,
+    pub s: Vec<Scalar>,
 }
 
 #[derive(CanonicalSerialize, CanonicalDeserialize)]
@@ -75,7 +75,12 @@ pub fn deal_shares<R: rand::Rng + rand::CryptoRng + Sized>(
     //msg_bytes.extend_from_slice(&dkg.my_index.to_le_bytes());
     //commitment.serialize(&mut msg_bytes);
     //vss_shares.serialize(&mut msg_bytes).unwrap(); // Placeholder
-    let dealt_shares = DealtShares { tau: dkg.tau, d: dkg.my_index, commitment, shares : vss_shares };
+    let dealt_shares = DealtShares {
+        tau: dkg.tau,
+        d: dkg.my_index,
+        commitment,
+        shares: vss_shares,
+    };
     dealt_shares.serialize(&mut msg_bytes);
     let signature = dkg.my_signature_key.sign(&msg_bytes);
     msg_bytes.extend_from_slice(&signature.to_bytes());
@@ -94,29 +99,31 @@ pub fn encrypt(
 
     let msg_box = crypto_box::ChaChaBox::new(&public_key, &secret_key);
     let mut rng = rand::thread_rng();
-    let nonce = [0u8; 24];//crypto_box::generate_nonce(&mut rng);
+    let nonce = [0u8; 24]; //crypto_box::generate_nonce(&mut rng);
 
-    msg_box
-        .encrypt(
-            &nonce.into(),
-            &msg[..],
-        )
-        .unwrap()
+    msg_box.encrypt(&nonce.into(), &msg[..]).unwrap()
 }
 
-pub fn recv_dealing(dkg: &mut dkg::Context, shares: Vec<u8>) -> Result<(), String> {
-    use blake2::{Blake2b, Digest};
+pub fn recv_dealing(
+    dkg: &mut dkg::Context,
+    shares: Vec<u8>,
+) -> Result<(), String> {
+    use blake2b_simd::{Params, State};
     use std::convert::TryInto;
 
     if shares.len() <= ed25519::SIGNATURE_LENGTH {
-        return Err("too short".to_string());  
+        return Err("too short".to_string());
     }
-    let sig_bytes = &shares[shares.len() - ed25519::SIGNATURE_LENGTH..shares.len()];
-    let msg_bytes = &shares[0..shares.len()-ed25519::SIGNATURE_LENGTH]; 
+    let sig_bytes =
+        &shares[shares.len() - ed25519::SIGNATURE_LENGTH..shares.len()];
+    let msg_bytes = &shares[0..shares.len() - ed25519::SIGNATURE_LENGTH];
 
-    let mut hasher = blake2::Blake2b::new();
+    let mut params = blake2b_simd::Params::new();
+    params.hash_length(32);
+    let mut hasher = params.to_state();
     hasher.update(&shares);
-    let hash :[u8; 32] = hasher.finalize()[..].try_into().unwrap();
+    let mut hash = [0u8; 32];
+    hash.copy_from_slice(hasher.finalize().as_bytes());
 
     let shares = DealtShares::deserialize(&shares[..]).unwrap(); //TODO: handle error
 
@@ -129,12 +136,24 @@ pub fn recv_dealing(dkg: &mut dkg::Context, shares: Vec<u8>) -> Result<(), Strin
     }
 
     let signature = Signature::try_from(sig_bytes).unwrap();
-    dkg.participants[shares.d as usize].keys.signing_key.verify_strict(msg_bytes, &signature).unwrap();
-
+    dkg.participants[shares.d as usize]
+        .keys
+        .signing_key
+        .verify_strict(msg_bytes, &signature)
+        .unwrap();
 
     let enc_share = &shares.shares[dkg.my_index as usize];
-    let dec_share = decrypt(&enc_share, &shares.commitment, dkg.participants[dkg.my_index as usize].share_domain.as_ref().unwrap(), 
-&dkg.participants[shares.d as usize].keys.encryption_key, &dkg.my_encryption_key).unwrap();
+    let dec_share = decrypt(
+        &enc_share,
+        &shares.commitment,
+        dkg.participants[dkg.my_index as usize]
+            .share_domain
+            .as_ref()
+            .unwrap(),
+        &dkg.participants[shares.d as usize].keys.encryption_key,
+        &dkg.my_encryption_key,
+    )
+    .unwrap();
 
     dkg.recv_dealings.insert(hash, shares);
     Ok(())
@@ -147,16 +166,11 @@ pub fn decrypt(
     public_key: &crypto_box::PublicKey,
     secret_key: &crypto_box::SecretKey,
 ) -> Result<Vec<Scalar>, String> {
-
     let msg_box = crypto_box::ChaChaBox::new(&public_key, &secret_key);
     let mut rng = rand::thread_rng();
     let nonce = [0u8; 24]; //crypto_box::generate_nonce(&mut rng);
 
-    let dec_share = msg_box
-        .decrypt(
-            &nonce.into(),
-            enc_share,
-        );
-    
+    let dec_share = msg_box.decrypt(&nonce.into(), enc_share);
+
     Ok(vec![])
 }

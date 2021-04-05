@@ -13,10 +13,10 @@ use ark_poly::{
     polynomial::univariate::DensePolynomial, polynomial::UVPolynomial,
     EvaluationDomain, Polynomial,
 };
-use std::collections::{BTreeMap};
+use std::collections::BTreeMap;
 //use ed25519_dalek::{Signature, Signer, PublicKey, Verifier};
-use ed25519_dalek as ed25519;
 use crate::syncvss;
+use ed25519_dalek as ed25519;
 
 // DKG parameters
 #[derive(Copy, Clone)]
@@ -46,9 +46,9 @@ pub struct Context {
     pub params: Params,
     pub participants: Vec<Participant>,
     pub domain: ark_poly::Radix2EvaluationDomain<Scalar>,
-    pub recv_dealings : HashMap<[u8;32], syncvss::sh::DealtShares>,
-    pub recv_shares : BTreeMap<u32, syncvss::Share>,
-    pub recv_weight : u32,
+    pub recv_dealings: HashMap<[u8; 32], syncvss::sh::DealtShares>,
+    pub recv_shares: BTreeMap<u32, syncvss::Share>,
+    pub recv_weight: u32,
 }
 
 impl Context {
@@ -99,9 +99,9 @@ impl Context {
             params,
             participants,
             domain,
-            recv_dealings : HashMap::new(),
-            recv_shares : BTreeMap::new(),
-            recv_weight : 0u32,
+            recv_dealings: HashMap::new(),
+            recv_shares: BTreeMap::new(),
+            recv_weight: 0u32,
         }
     }
 }

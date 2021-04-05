@@ -4,4 +4,4 @@ pub mod dispute;
 pub mod sh;
 
 pub use params::Params;
-pub use sh::{ShareCiphertext,Share};
+pub use sh::{Share, ShareCiphertext};
