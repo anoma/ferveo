@@ -16,7 +16,7 @@ Each node $i \in [1,n]$ in Ferveo has an associated public key identity, and ass
 
 Among the $n$ nodes, at most total weight $t$ nodes are Byzantine (adversarial) and at most $f$ weight nodes are faulty (some or all communications fail). When faulty nodes crash and recover, at most $f$ weight nodes are faulty at a given moment of time. If proactive secret sharing/key refresh is used, then at most $t$ weight nodes are Byzantine during a key phase.
 
-AVSS can only offer resiliance when $W \ge 3t + 2f + 1$, implying $t<W/3$. Synchronous VSS can achieve resiliance when $W \ge 2t+1$, implying $t < W/2$. The privacy threshold $p$ is the value such that subsets of nodes of weight at least $p+1$ can always recover the key or perform operations using the key, and subsets nodes of weight at most $p$ are unable to recover the key or perform operations using the key. It must be $p < W - t$. The default values $t = W/3 - 1$ and $p = 2W/3$ offer maximal sharing of the key.
+Synchronous VSS can achieve resiliance when $W \ge 2t+1$, implying $t < W/2$. The privacy threshold $p$ is the value such that subsets of nodes of weight at least $p+1$ can always recover the key or perform operations using the key, and subsets nodes of weight at most $p$ are unable to recover the key or perform operations using the key. It must be $p < W - t$. The default values $t = W/3 - 1$ and $p = 2W/3$ are designed to match the resiliance of Tendermint.
 
 ### Assumptions
 
@@ -26,7 +26,7 @@ In practice a weak synchrony assumption is needed to assure liveness.
 Under weak synchrony, the time difference $delay(T)$ between the time a message was sent ($T$) and the time it is received doesn't grow indefinitely over time.
 
 #### Tendermint 
-Tendermint works under the partially syncrhonous model.
+Tendermint works under the partially synchronous model.
 In this model, there exist a point in time (GST - Global Stabilization Time) after which messages are delivered within a specific time bound.
 The GST and time bound are not known in advance.
 Tendermint tolerates a $t$-limited Byzantine adversary, with resilience  
@@ -34,7 +34,9 @@ $n \ge 3t+1$
 
 #### Ferveo 
 Ferveo's model and resilience will be the most restrictive of the above:  
-$n \ge 3t+1$ under the partially synchronous mode
+$n \ge 3t+1$ under the partially synchronous mode.
+
+In addition, it is assumed that $2W/3$ weight nodes honestly follow the protocol (this excludes honest-but-curious behavior, such as engaging in out-of-band collusion outside of the protocol)
 
 ### Curve
 
@@ -229,15 +231,41 @@ Shares of the decrypted symmetric key $k$ can be verifiably recovered from $p+1$
 
 TODO
 
+## Dispute procedures
+
+### VSS dealer dispute
+
+Dispute in the VSS protocol is based on the ETHSKG method, https://eprint.iacr.org/2019/985. 
+
+Nodes are incentivized to perform the VSS protocol properly though penalties for VSS failure and rewards for reporting VSS failure.
+
+In the case where a node serves as a VSS dealer and distributes encrypted VSS shares to the other nodes, the dealer node can be penalized if the encrypted shares are invalid. The dealer commits to a single polynomial, and every node has fixed evaluation points for its shares, so the recipient of the shares can verifiably reveal the shared secret used to encrypt the shares. In case of any inconsistency of the share encryption or the evaluations of the shares, the dealer can be penalized.
+
+Therefore, dealers have incentive to ensure that the VSS shares distributed via Tendermint are well formed and decryptable according to the protocol, and that (for example) a partial distribution of shares is incentive-incompatible.
+
+### Threshold decryption dispute
+
+The goal of dispute in the threshold decryption process is to disincentivize early decryption of the ciphertexts. The threshold encryption/decryption scheme of BZ03 is not disputable in this way, because the encrypter of a ciphertext can also construct every participant's decryption share and so there is never cryptographically sound evidence of dishonest or out-of-protocol behavior by a participant.
+
+There is an alternative threshold decryption scheme which is plausibly disputable in this way, however there are other problems with alternative disputable schemes: susceptibility to silent collusion via secure enclave, and also large ciphertexts.
+
 ## Miscellany
 
-## Key refresh
+### Key refresh
 
 It is possible to refresh a key (also called proactive secret sharing) to change all the issued key shares without changing the actual public key. 
 
 The primary purpose is to limit vulnerability windows for key shares to leak or compromise. Instead of compromising sufficient key shares of the distributed key, an attacker must compromise those key shares within the refresh window. The secondary purpose may be to invalidate and/or issue new key shares of the same key to adjust for dynamic weights (e.g. change in stake) without changing the public key.
 
 This is accomplished by running the DKG again, except the VSS instances all share the secret 0, and an opening of each $R$ polynomial at 0 is revealed. When the DKG succeeds the new shares of secret 0 are added to the old shares.
+
+### Secure enclave computations
+
+The hardware-based security enclaves built into certain CPUs, such as Intel SGX, can both positively and negatively affect the security model.
+
+Since the VSS, DKG, and threshold operations include storage and computation on secret data that should not be publicly revealed, a node may run these sensitive computations inside of a secure enclave as a layer of protection against attack by an external adversary. Since HSM support for VSS, DKG, and threshold operations is unlikely, use of a secure enclave may be useful.
+
+Alternatively, secure enclaves can undermine the dispute process by facilitating silent collusion among adversarial or honest-but-curious participants. Since dispute procedures rely on incentivizing nodes (even adversarial or dishonest ones) to report dishonest behavior, a dispute process can only work if evidence of dishonest behavior is available; however, if collusion occurs entirely within a secure enclave or a cryptographic multiparty computation, then such evidence may not be revealed.
 
 ### Side channel vulnerability analysis and mitigations
 
