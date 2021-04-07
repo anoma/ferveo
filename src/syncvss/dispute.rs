@@ -1,3 +1,5 @@
+#![allow(unused_imports)]
+
 use crate::dkg;
 use ark_serialize::*;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};

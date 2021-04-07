@@ -1,8 +1,9 @@
 #![allow(clippy::many_single_char_names)]
 #![allow(non_snake_case)]
 #![allow(unused_imports)]
+#![allow(unused_variables)]
 
-use crate::poly;
+//use crate::poly;
 
 use ark_bls12_381::{Fr, G1Affine};
 use ark_ec::AffineCurve;
@@ -53,7 +54,7 @@ pub fn deal_shares<R: rand::Rng + rand::CryptoRng + Sized>(
     phi.coeffs[0] = s;
     let evals = phi.evaluate_over_domain_by_ref(dkg.domain);
 
-    let commitment = G1Affine::prime_subgroup_generator(); // Placeholder
+    let commitment = G1Affine::prime_subgroup_generator(); // TODO: Placeholder
 
     let vss_shares = dkg
         .participants
@@ -87,6 +88,12 @@ pub fn deal_shares<R: rand::Rng + rand::CryptoRng + Sized>(
     msg_bytes
 }
 
+#[derive(CanonicalSerialize, CanonicalDeserialize)]
+struct NodeSharesPlaintext {
+    pub shares: Vec<Scalar>,
+    pub opening: G1Affine,
+}
+
 pub fn encrypt(
     shares: &[Scalar],
     opening: &G1Affine,
@@ -94,8 +101,12 @@ pub fn encrypt(
     secret_key: &crypto_box::SecretKey,
 ) -> ShareCiphertext {
     let mut msg = vec![];
-    shares.serialize(&mut msg);
-    opening.serialize(&mut msg);
+    NodeSharesPlaintext {
+        shares: shares.to_vec(),
+        opening: *opening,
+    }
+    .serialize(&mut msg);
+    //opening.serialize(&mut msg);
 
     let msg_box = crypto_box::ChaChaBox::new(&public_key, &secret_key);
     let mut rng = rand::thread_rng();
@@ -170,7 +181,54 @@ pub fn decrypt(
     let mut rng = rand::thread_rng();
     let nonce = [0u8; 24]; //crypto_box::generate_nonce(&mut rng);
 
-    let dec_share = msg_box.decrypt(&nonce.into(), enc_share);
+    let dec_share = msg_box.decrypt(&nonce.into(), enc_share).unwrap();
 
-    Ok(vec![])
+    let node_shares = NodeSharesPlaintext::deserialize(&dec_share[..]).unwrap();
+
+    //TODO: Check node_shares.opening
+
+    Ok(node_shares.shares)
+}
+
+#[test]
+fn test_encrypt_decrypt() {
+    use rand_chacha::rand_core::{RngCore, SeedableRng};
+    use rand_chacha::ChaCha8Rng;
+
+    let mut rng = rand::thread_rng();
+    //let mut rng = ChaCha8Rng::from_seed([0u8;32]);
+    use ark_std::UniformRand;
+    use crypto_box::{PublicKey, SecretKey};
+
+    for _ in 0..1000 {
+        let alice_secret = SecretKey::generate(&mut rng);
+
+        let alice_public = PublicKey::from(&alice_secret);
+        let bob_secret = SecretKey::generate(&mut rng);
+
+        let bob_public = PublicKey::from(&bob_secret);
+
+        let mut sent_shares = vec![];
+        for _ in 0..1000 {
+            sent_shares.push(Scalar::rand(&mut rng));
+        }
+
+        let enc = encrypt(
+            sent_shares.as_slice(),
+            &G1Affine::prime_subgroup_generator(),
+            &bob_public,
+            &alice_secret,
+        );
+
+        let domain = vec![Scalar::zero(); 1000]; //TODO: real domain
+
+        let dec = decrypt(
+            &enc,
+            &G1Affine::prime_subgroup_generator(),
+            &domain,
+            &alice_public,
+            &bob_secret,
+        )
+        .unwrap();
+    }
 }
