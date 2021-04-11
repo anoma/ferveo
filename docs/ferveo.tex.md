@@ -44,6 +44,12 @@ The curve used is BLS12-381. $\mathbb{G}_1$ denotes the prime order subgroup of 
 
 Let $\omega$ denote an $W$th root of unity in $\mathbb{F}_r$. 
 
+#### Hashing
+
+Let $\operatorname{HTC}: \{0,1\}^* \rightarrow \mathbb{G}_1$ be the hash to curve function as specified in RFC https://datatracker.ietf.org/doc/draft-irtf-cfrg-hash-to-curve/ 
+
+TODO: details of exact instantiation chosen
+
 #### Fast subgroup checks
 
 All subgroup checks of membership in the subgroup $\mathbb{G}_1$ are performed as described in https://eprint.iacr.org/2019/814.pdf
@@ -61,16 +67,16 @@ Symmetric key encryption and decryption are provided by the ChaCha20Poly1305 (RF
 
 ## Public Key identities
 
-Every node $i$ in the network chooses $sk_i \in \mathbb{F}_r$ and derives $pk_i = [sk_i]G_1 \in \mathbb{G}_1$.
+Every node $i$ in the network chooses an Ed25519 keypair for signing and an x25519 keypair for ephemeral key exchange.
 
 ## Key agreement
 
 Node $i$ can send asynchronous messages to node $j$ through either a gossip protocol or on-chain. The messages should be encrypted and authenticated via a symmetric cipher (e.g. ChaCha20) using an ephemeral key derived through key agreement.
 
 1. Node $i$ chooses an ephemeral secret key $\alpha \in \mathbb{F}_r$
-2. The ephemeral public key is $[\alpha]G_1$.
-3. The ephemeral shared secret is $[sk_i] pk_j = [sk_i sk_j] G_1$.
-4. The shared symmetric key is $\operatorname{BLAKE2b}([\alpha]G_1, [sk_i] pk_j)$
+2. The ephemeral public key is $[\alpha] G$.
+3. The ephemeral shared secret is $[sk_i] pk_j = [sk_i sk_j] G$.
+4. The shared symmetric key is $\operatorname{BLAKE2b}([\alpha]G, [sk_i] pk_j)$
 
 (TODO: Check this is accurate and complete)
 
@@ -96,21 +102,19 @@ Additional performance enhancements from:
 * https://github.com/khovratovich/Kate/blob/66aae66cd4e99db3182025c27f02e147dfa0c034/Kate_amortized.pdf
 * https://alinush.github.io/2020/03/12/towards-scalable-vss-and-dkg.html#authenticated-multipoint-evaluation-trees-amts.
 
-(TODO: possibly compare/implement the inner product commitment scheme as well)
-
-### Vector commitment scheme
-
-While it is possible to use the KZG commitment scheme (alternatively, inner product argument scheme) for vector commitments, likely the best performant primitive will be Merkle tree commitments, as only one element opening is needed for each node.
+(TODO: possibly compare the inner product commitment scheme as well)
 
 ### Dealer messages
 
 1. The dealer $d$ chooses a uniformly random polynomial $S$ of degree $p$.
 2. KZG commit to $S$ to obtain $\hat{S}$
-3. For all $i \in [1,n]$: 
+3. KZG commit to $S(0)$ to obtain $[S(0)] G_1$
+4. Create an opening proof $\pi_0$ of commitment $\hat{S} - [S(0)] G_1$ opening to $0$ at $0$. 
+5. For all $i \in [1,n]$: 
    - create an opening proof $\pi_i$ of commitment $\hat{S}$ at all points $\alpha \in \Omega_i$. 
    - compute $\hat{T_i} = \hat{R} - \hat{S}_i$ where $T_i = R - S_i$
 
-The dealer signs and posts $(\tau,d,\hat{S})$ to the blockchain.
+The dealer signs and posts $(\tau,d,\hat{S}, [S(0)] G_1, \pi_0)$ to the blockchain.
 
 For each node $i$, the dealer encrypts (with MAC) to $pk_i$ the message $(\tau, d, \langle S(\alpha) \mid \alpha \in \Omega_i \rangle, \pi_i)$ which consists of:
 
@@ -130,19 +134,34 @@ Most of the dealer's computation can be done offline/precomputed, potentially sa
 
 ### Receiving dealer message
 
-Node $i$ recieves, decrypts, and authenticates $(\tau,d,\hat{S})$ and $(\tau, d, \hat{S},  \langle s_{\alpha} \rangle, \pi)$ from dealer $d$ through the blockchain.
+Node $i$ recieves, decrypts, and authenticates $(\tau,d,\hat{S}, \pi_0)$ and $(\tau, d, \hat{S},  \langle s_{\alpha} \rangle, \pi)$ from dealer $d$ through the blockchain.
 
 1. Check that commitment $\hat{S}$ and proof $\pi$ open to $\langle s_{\alpha} \rangle$
-2. If the decryption or opening check fails, then initiate dispute process
-3. Else, the VSS has succeeded for node $i$. Sign and gossip the ready message $(\tau, d, \hat{S})$. (Alt: post to blockchain)
+2. Check that commitment $\hat{S} - [S(0)] G_1$ and proof $\pi_0$ opens to $0$ at $0$. 
+3. If the decryption or opening check fails, then initiate pre-success or post-success dispute process
+4. Else, the VSS has succeeded for node $i$. Sign and post the ready message $(\tau, d, \hat{S})$. 
 
-### Ready signature aggregation (if gossip used)
+### Pre-success dispute
 
-Once any helper network participant (not necessarily a node in the DKG) collects $W-t-f$ valid signatures of ready messages, BLS multi-signature aggregation is used to aggregate to one BLS signature $\Sigma_{\tau,d}$ of $(\tau,d,\hat{S})$. Along with a bitarray identifying the $W-t-f$ signers, $\Sigma_{\tau,d}$ is posted to the blockchain.
+In the case where the dealer $d$ posts an invalid distribution of shares, a node can initiate the pre-dispute process as long as no DKG has finalized using that VSS. A node $i$ signs and posts a message $(\text{dispute}, \tau, d, k, \pi)$ where $k$ is the shared ephemeral secret key used to encrypt the message from $d$ to $i$ and $\pi$ is the NIZK proof that it is the ephemeral key. The remaining nodes adjucate the dispute in favor of the dealer or complainer. In case the dealer is found to be faulty, that dealer's VSS is terminated. Additionally, penalties and rewards may be allocated.
 
 ### VSS finalization
 
-Once $\Sigma_{\tau,d}$ is posted, the VSS initiated by dealer $d$ in round $\tau$ with commitment $\hat{S}$ is considered succeeded. The remaining $t+f$ weight nodes can complete the VSS and initiate disputes later.
+To ensure the DKG results in an unbiased key, a new base $H_1 = \operatorname{HTC}(\text{DKG session} \tau)$ is used for every generated public key. 
+
+Once sufficient weight of signatures are posted, the dealer $d$ posts the public share $[S(0)] H_1$ along with a NIZK proof that $[S(0)] G_1$ and $[S(0)] H_1$ share the same discrete log. 
+
+Once these are posted and verified, the VSS initiated by dealer $d$ in round $\tau$ with commitment $\hat{S}$ is considered succeeded. 
+
+The remaining slow $t+f$ weight nodes can complete the VSS from information on the blockchain. In case those shares are invalid, the slow nodes can initiate the post-success dispute procedure.
+
+If the dealer fails to finalize its VSS session after a timeout period, then a new set of VSS instances of sufficient weight are initiated.
+
+### Post-success finalization
+
+A slow node may discover the dealer has distributed invalid shares after the relevant DKG has already been finalized, or alternatively been unable to post a dispute beforehand. The difficulty is that removing the troublesome VSS instance may change an actively used distributed key, but leaving the VSS instance in place reduces the resiliance of the network. Furthermore, the dispute process might publicly reveal valid shares of the VSS (for example, if a node receives some but not all valid shares from the dealer).
+
+Penalties and rewards can still be allocated for disputes posted after the validity of the distributed key expires, but this process also must happen in a defined window of time between the expiry of the key and the release of staked value for the DKG session.
 
 ### Proof sketch
 
@@ -158,39 +177,21 @@ The ideal scenario is that the fewest possible number of VSS instances are used,
 
 Since we need at least dealer total weight $p+1$ of VSS instances to finish, the dealer identities can be sorted by their weight such that the $\ell$ highest weighted dealers sum to total weight at least $p+1$ and $\ell$ is minimized.
 
-In the optimistic phase, if there are no faults that prevent these $\ell$ VSS instances from finishing, then these VSS instances are used in the DKG. This can be confirmed by $W-t-f$ weight signing a message indicating the optimistic phase succeeded along with the resulting public key. Since BLS signature aggregation can be used, this consumes $O(\log m)$ on-chain storage.
+In the optimistic phase, if there are no faults that prevent these $\ell$ VSS instances from being finalized, and no disputes against those dealers, then these VSS instances are used in the DKG. This can be confirmed by $W-t-f$ weight signing a message indicating the optimistic phase succeeded along with the resulting public key. Since BLS signature aggregation can be used, this consumes $O(\log m)$ on-chain storage.
 
 ### Pessimistic phase
 
-Assume the optimistic phase does not succeed before a timeout period expires. Then the DKG enters the pessimistic phase where an arbitrary set of VSS instances of total weight at least $t$ can be used for DKG. The nodes should go in order of decreasing weight of dealers to again minimize the total number of VSS instances that need to finish, and also to minimize the number of VSS instances a node spends computation on but remain unused. Every time a timeout period expires, more nodes should begin dealing VSS instances.
+Assume the optimistic phase does not succeed before a timeout period expires. Then the DKG enters the pessimistic phase where an arbitrary set of VSS instances of total weight at least $t$ can be used for DKG. The nodes should initiate additional VSS instances in order of decreasing weight of dealers to again minimize the total number of VSS instances that need to be dealt, and also to minimize the number of VSS instances a node spends computation to verify but remain unused. Every time a timeout period expires, more nodes should begin dealing VSS instances.
 
-In the pessimistic phase, as soon as $W-t-f$ weight of VSS instances succeed (as determined by ready signatures with no disputes), then the first sufficient subset of succeeded VSS instances is used for the DKG, as determined by the order that the ready signatures are posted to the blockchain. 
+In the pessimistic phase, as soon as $W-t-f$ weight of VSS instances finalize (as determined by ready signatures with no disputes and dealer finalization), then the first sufficient subset of finalized VSS instances is used for the DKG, as determined by the order that the finalization messages are posted. 
 
 ### Debiasing the final key
 
-The approach of Neji et al can be used to debias the final key as described exactly in the ETHDKG paper.
-
-### Dispute process
-
-The dispute process also follows the scheme described in the ETHDKG paper.
+The approach of Neji et al can be used to debias the final key. The public key $[s] H_1$ is the sum of all finalization values $[S(0)] H_1$ for all successful VSS instances, and the shared secret key is sharewise sum of all VSS shares.  
 
 ### Proof Sketch 
 
 TODO: proof sketch of resiliance in the appropriate model
-
-### Signature aggregation
-
-TODO - standard BLS multi-signature aggregation with rogue-key attack protection
-
-## Public key
-
-Once the DKG process is complete, nodes compute their shares of the public key. Let $P$ be a fixed generator, then the public key is $Q = sP$ where $s$ is the shared key generated by the DKG.
-
-## Hashing
-
-Let $\operatorname{HTC}: \{0,1\}^* \rightarrow \mathbb{G}_1$ be the hash to curve function as specified in RFC https://datatracker.ietf.org/doc/draft-irtf-cfrg-hash-to-curve/ 
-
-TODO: details of exact instantiation chosen
 
 ## Threshold signature
 
