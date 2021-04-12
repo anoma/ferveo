@@ -177,6 +177,7 @@ fn dkg() {
             weights.as_slice(),
         );
 
-        let shares = syncvss::sh::recv_dealing(&mut recv_context, msg).unwrap();
+        let shares =
+            syncvss::sh::recv_dealing(&mut recv_context, msg.0).unwrap();
     }
 }

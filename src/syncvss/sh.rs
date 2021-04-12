@@ -18,18 +18,18 @@ use num::Zero;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 //use serde::{Serialize, Deserialize};
-use ed25519_dalek as ed25519;
-use std::convert::TryFrom;
-
+use crate::syncvss::nizkp::NIZKP_BLS;
 use ark_poly::{
     polynomial::univariate::DensePolynomial, polynomial::UVPolynomial,
     EvaluationDomain, Polynomial, Radix2EvaluationDomain,
 };
+use ed25519_dalek as ed25519;
+use std::convert::TryFrom;
 
 use crate::dkg;
 use crate::syncvss::params::Params;
 
-type Scalar = Fr;
+pub type Scalar = Fr;
 
 pub type ShareCiphertext = Vec<u8>;
 
@@ -42,19 +42,31 @@ pub struct DealtShares {
     pub tau: u32,
     pub d: u32,
     pub commitment: G1Affine,
+    pub secret_commitment: G1Affine,
+    pub opening_proof: G1Affine,
     pub shares: Vec<ShareCiphertext>,
+}
+
+//#[derive(CanonicalSerialize, CanonicalDeserialize)]
+pub struct FinalizeMsg {
+    //pub rebased_secret: G1Affine,
+//pub proof: NIZKP_BLS,
 }
 
 pub fn deal_shares<R: rand::Rng + rand::CryptoRng + Sized>(
     rng: &mut R,
     s: Scalar,
     dkg: &dkg::Context,
-) -> Vec<u8> {
+) -> (Vec<u8>, FinalizeMsg) {
     let mut phi = DensePolynomial::<Scalar>::rand(dkg.params.t as usize, rng);
     phi.coeffs[0] = s;
     let evals = phi.evaluate_over_domain_by_ref(dkg.domain);
 
     let commitment = G1Affine::prime_subgroup_generator(); // TODO: Placeholder
+
+    let secret_commitment = G1Affine::prime_subgroup_generator().mul(s);
+
+    let opening_proof = G1Affine::prime_subgroup_generator(); // TODO: Placeholder
 
     let vss_shares = dkg
         .participants
@@ -80,12 +92,14 @@ pub fn deal_shares<R: rand::Rng + rand::CryptoRng + Sized>(
         tau: dkg.tau,
         d: dkg.my_index,
         commitment,
+        secret_commitment: secret_commitment.into(),
+        opening_proof,
         shares: vss_shares,
     };
-    dealt_shares.serialize(&mut msg_bytes);
+    dealt_shares.serialize(&mut msg_bytes).unwrap();
     let signature = dkg.my_signature_key.sign(&msg_bytes);
     msg_bytes.extend_from_slice(&signature.to_bytes());
-    msg_bytes
+    (msg_bytes, FinalizeMsg {})
 }
 
 #[derive(CanonicalSerialize, CanonicalDeserialize)]
@@ -105,11 +119,12 @@ pub fn encrypt(
         shares: shares.to_vec(),
         opening: *opening,
     }
-    .serialize(&mut msg);
+    .serialize(&mut msg)
+    .unwrap();
     //opening.serialize(&mut msg);
 
     let msg_box = crypto_box::ChaChaBox::new(&public_key, &secret_key);
-    let mut rng = rand::thread_rng();
+    //let mut rng = rand::thread_rng();
     let nonce = [0u8; 24]; //crypto_box::generate_nonce(&mut rng);
 
     msg_box.encrypt(&nonce.into(), &msg[..]).unwrap()
@@ -178,7 +193,7 @@ pub fn decrypt(
     secret_key: &crypto_box::SecretKey,
 ) -> Result<Vec<Scalar>, String> {
     let msg_box = crypto_box::ChaChaBox::new(&public_key, &secret_key);
-    let mut rng = rand::thread_rng();
+    //let mut rng = rand::thread_rng();
     let nonce = [0u8; 24]; //crypto_box::generate_nonce(&mut rng);
 
     let dec_share = msg_box.decrypt(&nonce.into(), enc_share).unwrap();
@@ -189,6 +204,8 @@ pub fn decrypt(
 
     Ok(node_shares.shares)
 }
+
+pub fn finalize_vss() {}
 
 #[test]
 fn test_encrypt_decrypt() {
