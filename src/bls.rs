@@ -4,8 +4,9 @@ BLS threshold signatures.
 
 use crate::hash_to_field::{hash_to_field, ExpandMsgXmd};
 use bls12_381::{
-    pairing, Gt, multi_miller_loop, G1Affine, G1Projective, G2Affine,
-    G2Projective, Scalar, G2Prepared};
+    multi_miller_loop, pairing, G1Affine, G1Projective, G2Affine,
+    G2Projective, Gt, Scalar,
+};
 
 fn hash_to_scalar(msg: &[u8], dst: &[u8]) -> Scalar {
     hash_to_field::<Scalar, ExpandMsgXmd<sha2::Sha256>>(msg, dst, 1)[0]
@@ -60,13 +61,12 @@ pub fn verify_g2(pk: &G1Affine, sig: &G2Affine, msg: &[u8]) -> bool {
 // verify a signature in G2 against a public key in G1 with one less
 // final exponentiation
 pub fn verify_g2_opt(pk: &G1Affine, sig: &G2Affine, msg: &[u8]) -> bool {
-    let ml = multi_miller_loop(&[(pk,
-				  &G2Prepared::from(hash_to_g2(msg))),
-				 (&-G1Affine::generator(),
-				  &G2Prepared::from(*sig))]);
+    let ml = multi_miller_loop(&[
+        (pk, &hash_to_g2(msg).into()),
+        (&-G1Affine::generator(), &(*sig).into()),
+    ]);
     Gt::identity() == ml.final_exponentiation()
 }
-
 
 #[derive(Eq, PartialEq)]
 pub struct Keypair {
@@ -249,7 +249,6 @@ impl Setup {
         }
     }
 
-    
     /* verify a threshold signature using a slightly more optimized
      * pairing computation, constructed from participants with the
      * given positions in the setup */
@@ -281,15 +280,12 @@ impl Setup {
                     hash_to_g2(&self.memkey_frag_msg(i)).into()
                 })
                 .into();
-	    // let sig_proj : G2Projective  = sig.into();
-	    // let mf_hash_sum_proj : G2Projective = mf_hash_sum.into();
-	    let ml = multi_miller_loop(&[
-		(&-G1Affine::generator(), &G2Prepared::from(*sig)),
-		(&appk, &G2Prepared::from(msg_hash)),
-		(apk, &G2Prepared::from(mf_hash_sum))
-	    ]);
-	    Gt::identity() == ml.final_exponentiation()
-	}
+            let ml = multi_miller_loop(&[
+                (&-G1Affine::generator(), &(*sig).into()),
+                (&appk, &msg_hash.into()),
+                (apk, &mf_hash_sum.into()),
+            ]);
+            Gt::identity() == ml.final_exponentiation()
+        }
     }
-    
 }
