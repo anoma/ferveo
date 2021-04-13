@@ -23,6 +23,16 @@ fn powers(x: Scalar, n: usize) -> Vec<Scalar> {
     res
 }
 
+// Scalar exponentiation by u64. `exp(x, y) = x^y`
+fn scalar_exp_u64(x: Scalar, y: u64) -> Scalar {
+    x.pow([u64::to_le(y)])
+}
+
+// Scalar exponentiation by usize. `exp(x, y) = x^y`
+fn scalar_exp_usize(x: Scalar, y: usize) -> Scalar {
+    scalar_exp_u64(x, y as u64)
+}
+
 // Univariate polynomial
 pub type Univar = DensePolynomial<Scalar>;
 
@@ -222,38 +232,25 @@ pub fn public(secret: &Secret) -> Public {
 }
 
 // Generate the `j`th secret share
-pub fn share(secret: &Secret, j: u32) -> Share {
-    secret.eval_fst(j.into())
-}
-
-// Scalar exponentiation by u64. `exp(x, y) = x^y`
-fn scalar_exp_u64(x: Scalar, y: u64) -> Scalar {
-    x.pow([u64::to_le(y)])
-}
-
-// Scalar exponentiation by usize. `exp(x, y) = x^y`
-fn scalar_exp_usize(x: Scalar, y: usize) -> Scalar {
-    scalar_exp_u64(x, y as u64)
+pub fn share(secret: &Secret, j: Scalar) -> Share {
+    secret.eval_fst(j)
 }
 
 // Verify that the given share with index `i` is consistent with the public polynomial.
-pub fn verify_share(p: &Public, s: &Share, i: u32) -> bool {
+pub fn verify_share(p: &Public, s: &Share, i: Scalar) -> bool {
     // ∀ l ∈ [0, t]. 1_{G1} * s_l = ∑_{j=0}^t (p_j_l * i^j)
     s.coeffs().iter().enumerate().all(|(l, s_l)| {
         let lhs = mul_g1proj(G1Projective::prime_subgroup_generator(), *s_l);
         let mut rhs = G1Projective::zero();
         for (j, pj) in p.iter().enumerate() {
-            rhs += mul_g1proj(pj[l].into(), scalar_exp_usize(i.into(), j))
+            rhs += mul_g1proj(pj[l].into(), scalar_exp_usize(i, j))
         }
         lhs == rhs
     })
 }
 
 // Verify that a given point from node `m` with index `i` is consistent with the public polynomial.
-pub fn verify_point(p: &Public, i: u32, m: u32, x: Scalar) -> bool {
-    let i = Scalar::from(i);
-    let m = Scalar::from(m);
-
+pub fn verify_point(p: &Public, i: Scalar, m: Scalar, x: Scalar) -> bool {
     // 1_{G1} * x = ∑_{j,l=0}^t (p_j_l * m^j * i^l)
     let lhs = mul_g1proj(G1Projective::prime_subgroup_generator(), x);
     let rhs: G1Projective = p
@@ -343,7 +340,7 @@ mod tests {
         let secret = random_secret(threshold, Scalar::rand(&mut rng), &mut rng);
         let public = public(&secret);
         for i in 0..(threshold * 2) {
-            assert!(verify_share(&public, &share(&secret, i), i))
+            assert!(verify_share(&public, &share(&secret, i.into()), i.into()))
         }
     }
 
@@ -354,10 +351,10 @@ mod tests {
         let secret = random_secret(threshold, Scalar::rand(&mut rng), &mut rng);
         let public = public(&secret);
         for i in 0..threshold {
-            let share = share(&secret, i);
+            let share = share(&secret, i.into());
             for j in 0..threshold {
                 let point = share.evaluate(&j.into());
-                assert!(verify_point(&public, j, i, point))
+                assert!(verify_point(&public, j.into(), i.into(), point))
             }
         }
     }

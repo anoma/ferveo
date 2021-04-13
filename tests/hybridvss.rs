@@ -23,7 +23,9 @@ impl Scheme {
     failure threshold `f`,
     threshold `t` */
     pub fn new(params: Params) -> Self {
-        let nodes = (0..params.n).map(|i| Context::init(params, i)).collect();
+        let nodes = (0..params.n())
+            .map(|i| Context::init(params.clone(), i))
+            .collect();
         Scheme { nodes, params }
     }
 
@@ -80,8 +82,9 @@ impl Scheme {
         echos: Vec<&Echo>,
         rng: &mut R,
     ) -> EchoResponse {
-        let Params { n, t, .. } = self.params;
-        let threshold = num::integer::div_ceil(n + t + 1, 2) as usize;
+        let t = self.params.t;
+        let W = self.params.total_weight();
+        let threshold = num::integer::div_ceil(W + t + 1, 2) as usize;
         let echos = echos.iter().enumerate().choose_multiple(rng, threshold);
         let mut response = None;
         for (m, echo) in echos {
@@ -96,7 +99,7 @@ impl Scheme {
         echos: Vec<Vec<Echo>>,
         rng: &mut R,
     ) -> Vec<EchoResponse> {
-        (0..self.params.n)
+        (0..self.params.n())
             .map(|i| {
                 let echos: Vec<&Echo> =
                     echos.iter().map(|echos_m| &echos_m[i as usize]).collect();
@@ -117,8 +120,9 @@ impl Scheme {
         ready_messages: Vec<&Ready>,
         rng: &mut R,
     ) -> ReadyResponse {
-        let Params { n, t, f, .. } = self.params;
-        let threshold = (n - t - f) as usize;
+        let Params { t, f, .. } = self.params;
+        let W = self.params.total_weight();
+        let threshold = (W - t - f) as usize;
         let ready_messages = ready_messages
             .iter()
             .enumerate()
@@ -136,7 +140,7 @@ impl Scheme {
         ready_messages: Vec<Vec<Ready>>,
         rng: &mut R,
     ) -> Vec<ReadyResponse> {
-        (0..self.params.n)
+        (0..self.params.n())
             .map(|i| {
                 let ready_messages: Vec<&Ready> = ready_messages
                     .iter()
@@ -149,10 +153,51 @@ impl Scheme {
 }
 
 #[test]
+// test verify_share for valid shares
+fn verify_share_valid() {
+    let mut rng = StdRng::seed_from_u64(0);
+    let w = vec![1; 6];
+    let params = Params::random_dealer(0, 4, w, &mut rng);
+    let mut scheme = Scheme::new(params);
+    let share = Share {
+        s: Scalar::rand(&mut rng),
+    };
+    let sends = scheme.dealer_share(share, &mut rng);
+
+    sends
+        .iter()
+        .enumerate()
+        .for_each(|(i, send)| assert!(scheme.nodes[i].verify_share(send)));
+}
+
+#[test]
+// test verify_share for invalid shares
+fn verify_share_invalid() {
+    let mut rng = StdRng::seed_from_u64(0);
+    let w = vec![1; 6];
+    let params = Params::random_dealer(0, 4, w, &mut rng);
+    let mut scheme = Scheme::new(params);
+    let share = Share {
+        s: Scalar::rand(&mut rng),
+    };
+    let sends = scheme.dealer_share(share, &mut rng);
+    /* Reverse the sends to make them all invalid.
+    This only works for an even, positive number of sends.
+    If there are an odd number of sends,
+    the midpoint send will remain valid. */
+    sends
+        .iter()
+        .rev()
+        .enumerate()
+        .for_each(|(i, send)| assert!(!scheme.nodes[i].verify_share(send)));
+}
+
+#[test]
 // test that all nodes echo with a valid send
 fn send_echo_valid() {
     let mut rng = StdRng::seed_from_u64(0);
-    let params = Params::random_dealer(0, 6, 4, &mut rng);
+    let w = vec![2; 6];
+    let params = Params::random_dealer(0, 4, w, &mut rng);
     let mut scheme = Scheme::new(params);
     let share = Share {
         s: Scalar::rand(&mut rng),
@@ -166,7 +211,8 @@ fn send_echo_valid() {
 // test that all nodes do not echo with an invalid send
 fn send_echo_invalid() {
     let mut rng = StdRng::seed_from_u64(0);
-    let params = Params::random_dealer(0, 6, 4, &mut rng);
+    let w = vec![1; 6];
+    let params = Params::random_dealer(0, 4, w, &mut rng);
     let mut scheme = Scheme::new(params);
     let share = Share {
         s: Scalar::rand(&mut rng),
@@ -174,10 +220,72 @@ fn send_echo_invalid() {
 
     let sends = scheme.dealer_share(share, &mut rng);
     /* Reverse the sends to make them all invalid.
-    nb. this only works for an even, positive number of sends */
-    let reversed_sends = sends.into_iter().rev().collect();
-    let responses = scheme.send_each(reversed_sends);
+    This only works for an even, positive number of sends.
+    If there are an odd number of sends,
+    the midpoint send will remain valid. */
+    let sends_rev = sends.into_iter().rev().collect();
+    let responses = scheme.send_each(sends_rev);
     assert!(responses.iter().all(|resp| resp.is_none()))
+}
+
+#[test]
+// test verify_point for valid echo points resulting from sends
+fn send_verify_point_valid() {
+    let mut rng = StdRng::seed_from_u64(0);
+    let n = 8;
+    let w = vec![1; n as usize];
+    let params = Params::random_dealer(0, 5, w, &mut rng);
+    let mut scheme = Scheme::new(params);
+    let share = Share {
+        s: Scalar::rand(&mut rng),
+    };
+
+    let sends = scheme.dealer_share(share, &mut rng);
+    let echos = scheme.send_valid_each(sends);
+    for i in 0..n {
+        echos.iter().enumerate().for_each(|(m, m_echos)| {
+            let Echo { C, alpha } = &m_echos[i];
+            assert!(scheme.nodes[i].verify_point(m as u32, C, alpha))
+        })
+    }
+}
+
+#[test]
+// test verify_point for invalid echo points resulting from sends
+fn send_verify_point_invalid() {
+    let mut rng = StdRng::seed_from_u64(0);
+    let n = 8;
+    let w = vec![1; n as usize];
+    let params = Params::random_dealer(0, 5, w, &mut rng);
+    let mut scheme = Scheme::new(params);
+    let share = Share {
+        s: Scalar::rand(&mut rng),
+    };
+
+    let sends = scheme.dealer_share(share, &mut rng);
+    let echos = scheme.send_valid_each(sends);
+    for i in 0..n {
+        echos.iter().enumerate().for_each(|(m, m_echos)| {
+            let Echo { C, alpha } = &m_echos[i];
+            // should fail with incorrect m
+            for not_m in 0..n {
+                if not_m != m {
+                    assert!(!scheme.nodes[i].verify_point(
+                        not_m as u32,
+                        C,
+                        alpha
+                    ))
+                }
+            }
+            // should fail with correct m and mismatched echo
+            for not_i in 0..n {
+                if not_i != i {
+                    let Echo { C, alpha } = &m_echos[not_i];
+                    assert!(!scheme.nodes[i].verify_point(m as u32, C, alpha))
+                }
+            }
+        })
+    }
 }
 
 #[test]
@@ -185,7 +293,8 @@ fn send_echo_invalid() {
 fn echo_ready_threshold() {
     let mut rng = StdRng::seed_from_u64(0);
     let n = 8;
-    let params = Params::random_dealer(0, n, 5, &mut rng);
+    let w = vec![1; n as usize];
+    let params = Params::random_dealer(0, 5, w, &mut rng);
     let mut scheme = Scheme::new(params);
     let share = Share {
         s: Scalar::rand(&mut rng),
@@ -204,12 +313,58 @@ fn echo_ready_threshold() {
             .enumerate()
             .for_each(|(count, (m, echo))| {
                 let echo_response = scheme.echo(i, m as u32, &echo);
-                if count == 7 - 1 {
+                if count >= 7 - 1 {
                     assert!(echo_response.is_some())
                 } else {
                     assert!(echo_response.is_none())
                 }
             })
+    }
+}
+
+#[test]
+// test verify_point for valid ready points resulting from echos
+fn echo_verify_point_valid() {
+    let mut rng = StdRng::seed_from_u64(0);
+    let f = 0;
+    let n = 8;
+    let t = 5;
+    let w = vec![1; n as usize];
+    let params = Params::random_dealer(f, t, w, &mut rng);
+    let scheme = Scheme::new(params);
+    let share = Share {
+        s: Scalar::rand(&mut rng),
+    };
+
+    let mut nodes = scheme.nodes;
+    let sends = nodes[scheme.params.d as usize].share(&mut rng, share);
+    let echos: Vec<Vec<Echo>> = nodes
+        .iter_mut()
+        .zip(sends)
+        .map(|(node, send)| node.send(send).unwrap())
+        .collect();
+    // generate ready messages based on a random selection of echos
+    let ready_messages: Vec<_> = nodes
+        .iter_mut()
+        .enumerate()
+        .map(|(i, node)| {
+            use rand::seq::IteratorRandom;
+            let mut res = None;
+            echos
+                .iter()
+                .map(|es| es[i].clone())
+                .enumerate()
+                .choose_multiple(&mut rng, 7)
+                .into_iter()
+                .for_each(|(m, echo)| res = node.echo(m as u32, &echo));
+            res.expect("Unexpected failure to generate ready message")
+        })
+        .collect();
+    for i in 0..n {
+        for (m, m_ready_messages) in ready_messages.iter().enumerate() {
+            let ready = &m_ready_messages[i];
+            assert!(nodes[i].verify_point(m as u32, &ready.C, &ready.alpha))
+        }
     }
 }
 
@@ -220,7 +375,8 @@ fn ready_shared_threshold() {
     let f = 0;
     let n = 8;
     let t = 5;
-    let params = Params::random_dealer(f, n, t, &mut rng);
+    let w = vec![1; n as usize];
+    let params = Params::random_dealer(f, t, w, &mut rng);
     let scheme = Scheme::new(params);
     let share = Share {
         s: Scalar::rand(&mut rng),
@@ -260,6 +416,7 @@ fn ready_shared_threshold() {
             .choose_multiple(&mut rng, (n - t - f) as usize)
             .into_iter()
             .for_each(|(m, ready)| {
+                assert!(node.verify_point(m as u32, &ready.C, &ready.alpha));
                 assert!(res.is_none());
                 res = node.ready(m as u32, &ready);
             });
@@ -275,8 +432,9 @@ fn reconstruct_share() {
     let f = 0;
     let n = 8;
     let t = 5;
-    let params = Params::random_dealer(f, n, t, &mut rng);
-    let scheme = Scheme::new(params);
+    let w = vec![1; n as usize];
+    let params = Params::random_dealer(f, t, w, &mut rng);
+    let scheme = Scheme::new(params.clone());
     let s = Scalar::rand(&mut rng);
     let mut nodes = scheme.nodes;
     let sends = nodes[scheme.params.d as usize].share(&mut rng, Share { s });
@@ -327,8 +485,9 @@ fn reconstruct_share() {
     let i = rng.gen_range(0, 8);
     let mut rec_node = {
         let C = (*shared_messages[i as usize].C).clone();
+        let domain = nodes[i].domain;
         let s = shared_messages[i as usize].s;
-        ferveo::hybridvss::rec::Context::init(params, C, s)
+        ferveo::hybridvss::rec::Context::init(params, C, domain, s)
     };
     // accept T + 1 shares
     let mut z_i = None;

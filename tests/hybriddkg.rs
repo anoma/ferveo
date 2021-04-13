@@ -28,21 +28,23 @@ struct Scheme {
 }
 
 impl Scheme {
-    /* Generate a fresh setup with `n` participants,
+    /* Generate a fresh setup with participant weights `w`,
     failure threshold `f`,
-    threshold `t` */
-    fn init<R: Rng>(n: u32, f: u32, t: u32, rng: &mut R) -> Self {
-        let l: u32 = rng.gen_range(0, n);
-        let params = Params { n, f, t, l };
-        let nodes = (0..n).map(|i| Context::init(params, i)).collect();
+    threshold `t`,
+    and a randomly selected leader */
+    fn init<R: Rng>(f: u32, t: u32, w: Vec<u32>, rng: &mut R) -> Self {
+        let params = Params::random_leader(f, t, w, rng);
+        let nodes = (0..params.n())
+            .map(|i| Context::init(params.clone(), i))
+            .collect();
         Scheme { params, nodes }
     }
 
     // run hybridvss_sh protocol for dealer `d`
     fn hybridvss_sh(&self, d: u32) -> Vec<Shared> {
         let mut rng = StdRng::seed_from_u64(0);
-        let Params { f, n, t, .. } = self.params;
-        let params = ferveo::hybridvss::Params { d, f, n, t };
+        let Params { f, t, w, .. } = self.params.clone();
+        let params = ferveo::hybridvss::Params { d, f, t, w };
         let mut scheme = hybridvss::Scheme::new(params);
 
         let share = ferveo::hybridvss::sh::Share {
@@ -72,10 +74,10 @@ impl Scheme {
     fn run_hybridvss_sh(&self) -> Vec<Vec<Shared>> {
         // shared messages for each dealer
         let shared_messages: Vec<_> =
-            (0..self.params.n).map(|d| self.hybridvss_sh(d)).collect();
+            (0..self.params.n()).map(|d| self.hybridvss_sh(d)).collect();
 
         // shared messages from each node
-        (0..self.params.n)
+        (0..self.params.n())
             .map(|i| {
                 shared_messages
                     .iter()
@@ -93,7 +95,8 @@ fn shared_send_valid() {
     let mut rng = rng();
     let n = 6;
     let t = 4u32;
-    let scheme = Scheme::init(n, 0, t, &mut rng);
+    let w = vec![1; n as usize];
+    let scheme = Scheme::init(0, t, w, &mut rng);
     let mut nodes = scheme.nodes;
     let l = scheme.params.l;
 
@@ -151,7 +154,8 @@ fn send_echo_valid() {
     let mut rng = rng();
     let n = 6;
     let t = 4u32;
-    let scheme = Scheme::init(n, 0, t, &mut rng);
+    let w = vec![1; n as usize];
+    let scheme = Scheme::init(0, t, w, &mut rng);
     let mut nodes = scheme.nodes;
     let l = scheme.params.l;
 
@@ -206,7 +210,8 @@ fn echo_ready_valid() {
     let mut rng = rng();
     let n = 6;
     let t = 4u32;
-    let scheme = Scheme::init(n, 0, t, &mut rng);
+    let w = vec![1; n as usize];
+    let scheme = Scheme::init(0, t, w, &mut rng);
     let mut nodes = scheme.nodes;
     let l = scheme.params.l;
 
@@ -280,7 +285,8 @@ fn ready_complete_valid() {
     let n = 6;
     let t = 4;
     let f = 0;
-    let scheme = Scheme::init(n, f, t, &mut rng);
+    let w = vec![1; n as usize];
+    let scheme = Scheme::init(f, t, w, &mut rng);
     let mut nodes = scheme.nodes;
     let l = scheme.params.l;
 
@@ -371,7 +377,8 @@ fn shared_output_finalize_valid() {
     let n = 6;
     let t = 4;
     let f = 0;
-    let mut scheme = Scheme::init(n, f, t, &mut rng);
+    let w = vec![1; n as usize];
+    let mut scheme = Scheme::init(f, t, w, &mut rng);
     let l = scheme.params.l;
 
     let shared_messages = scheme.run_hybridvss_sh();
