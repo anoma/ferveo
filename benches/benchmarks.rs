@@ -12,8 +12,8 @@ pub fn bench_public(c: &mut Criterion) {
     let mut rng = rand::rngs::StdRng::seed_from_u64(0);
 
     let mut gen_public = |threshold: u32| {
-        let secret = poly::random_secret(threshold, Scalar::rand(&mut
-        rng), &mut rng);
+        let secret =
+            poly::random_secret(threshold, Scalar::rand(&mut rng), &mut rng);
         let _public = poly::public(&secret);
     };
 
