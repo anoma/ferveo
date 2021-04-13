@@ -41,7 +41,7 @@ criterion = "0.3.3"
 bls12_381 = { git = 'https://github.com/A-Manning/bls12_381.git', branch = "ash/scalar-traits" }
 
 [[bench]]
-name = "benchmarks"
+name = "bls" # "benchmarks"
 harness = false
 
 # Optimizations are needed such that the tests run in a reasonable timeframe
