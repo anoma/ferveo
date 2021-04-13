@@ -1,15 +1,17 @@
 #![allow(clippy::many_single_char_names)]
 #![allow(non_snake_case)]
 
-use crate::poly;
+use crate::{fft, poly};
 
 use ark_bls12_381::{Fr, G1Affine};
-use ark_poly::Polynomial;
+use ark_ff::Field;
+use ark_poly::{Polynomial, Radix2EvaluationDomain};
 use ark_serialize::CanonicalSerialize;
 use either::Either;
 use num::integer::div_ceil;
 use num::Zero;
 use std::collections::{HashMap, HashSet};
+use std::convert::TryInto;
 use std::rc::Rc;
 
 use crate::hybridvss::params::Params;
@@ -19,29 +21,31 @@ type Scalar = Fr;
 pub struct Context {
     /* Map keyed by sha2-256 hashes of commitments.
     The values of the map are pairs of node indexes and scalars */
-    A: HashMap<[u8; 32], HashSet<(u32, Scalar)>>,
+    pub A: HashMap<[u8; 32], HashSet<(Scalar, Scalar)>>,
     /* Counters for `echo` messages.
     The keys of the map are sha2-256 hashes. */
-    e: HashMap<[u8; 32], u32>,
-    i: u32, // index of this node in the setup
+    pub e: HashMap<[u8; 32], u32>,
+    pub i: u32, // index of this node in the setup
+    pub share_indexes: Vec<usize>,
+    pub domain: Radix2EvaluationDomain<Fr>, // FFT domain (group_gen, log_size_of_group, size)
     /* Counters for `ready` messages.
     The keys of the map are sha2-256 hashes. */
-    params: Params,
-    r: HashMap<[u8; 32], u32>,
+    pub params: Params,
+    pub r: HashMap<[u8; 32], u32>,
 }
 
 #[derive(Clone)]
 /* An "echo" message */
 pub struct Echo {
-    C: Rc<poly::Public>,
-    alpha: Scalar,
+    pub C: Rc<poly::Public>,
+    pub alpha: Vec<Scalar>,
 }
 
 #[derive(Clone, Debug)]
 /* A "ready" message */
 pub struct Ready {
-    C: Rc<poly::Public>,
-    alpha: Scalar,
+    pub C: Rc<poly::Public>,
+    pub alpha: Vec<Scalar>,
 }
 
 pub type EchoResponse = Option<Vec<Ready>>;
@@ -50,8 +54,8 @@ pub type ReadyResponse = Option<Either<Vec<Ready>, Shared>>;
 
 /* A "send" message */
 pub struct Send {
-    C: Rc<poly::Public>,
-    a: poly::Share,
+    pub C: Rc<poly::Public>,
+    pub a: poly::Share,
 }
 
 pub type SendResponse = Option<Vec<Echo>>;
@@ -69,6 +73,16 @@ pub struct Shared {
     pub s: Scalar,
 }
 
+// Scalar exponentiation by u64. `exp(x, y) = x^y`
+fn scalar_exp_u64(x: Scalar, y: u64) -> Scalar {
+    x.pow([u64::to_le(y)])
+}
+
+// Scalar exponentiation by u64. `exp(x, y) = x^y`
+fn scalar_exp_u32(x: Scalar, y: u32) -> Scalar {
+    scalar_exp_u64(x, y.into())
+}
+
 // compute the sha2-256 hash of a public polynomial
 fn hash_public_poly(C: &poly::Public) -> [u8; 32] {
     use digest::Digest;
@@ -83,7 +97,6 @@ fn hash_public_poly(C: &poly::Public) -> [u8; 32] {
 }
 
 fn compress_G1Affine(p: &G1Affine) -> [u8; 48] {
-    use std::convert::TryInto;
     let mut buf = Vec::new();
     p.serialize(&mut buf).unwrap();
     buf.try_into().unwrap()
@@ -122,12 +135,12 @@ where
 }
 
 /* Increments the value at the given key */
-fn incr<K>(k: K, hm: &mut HashMap<K, u32>)
+fn incr<K>(k: K, hm: &mut HashMap<K, u32>, w: u32)
 where
     K: std::hash::Hash + std::cmp::Eq + Copy,
 {
     insert_if_none(k, 0, hm);
-    *hm.get_mut(&k).unwrap() += 1;
+    *hm.get_mut(&k).unwrap() += w;
 }
 
 impl Context {
@@ -139,7 +152,24 @@ impl Context {
         let e = HashMap::new();
         let r = HashMap::new();
 
-        Context { A, e, i, params, r }
+        let domain = fft::domain(params.total_weight() as usize);
+
+        let mut share_indexes = Vec::with_capacity(params.n() as usize);
+        let mut total = 0usize;
+        for weight in params.w.iter() {
+            share_indexes.push(total);
+            total += *weight as usize;
+        }
+
+        Context {
+            A,
+            domain,
+            e,
+            i,
+            params,
+            r,
+            share_indexes,
+        }
     }
 
     /* Respond to a "share" message.
@@ -151,18 +181,35 @@ impl Context {
     ) -> ShareResponse {
         let phi = poly::random_secret(self.params.t, s, rng);
         let C = Rc::new(poly::public(&phi));
-        (0..self.params.n)
-            .map(|j| poly::share(&phi, j))
+        (0..self.params.n())
+            .map(|j| {
+                poly::share(
+                    &phi,
+                    scalar_exp_u64(self.domain.group_gen, j as u64),
+                )
+            })
             .map(|a| Send { C: C.clone(), a })
             .collect()
     }
 
+    pub fn verify_share(&self, Send { C, a }: &Send) -> bool {
+        let i = scalar_exp_u32(self.domain.group_gen, self.i);
+        poly::verify_share(&C, &a, i)
+    }
+
     /* Respond to a "send" message.
     Should only be accepted from the dealer. */
-    pub fn send(&self, Send { C, a }: Send) -> SendResponse {
-        if poly::verify_share(&C, &a, self.i) {
-            let echos = (0..self.params.n)
-                .map(|j| a.evaluate(&j.into()))
+    pub fn send(&self, send: Send) -> SendResponse {
+        if self.verify_share(&send) {
+            let Send { C, a } = send;
+            let shares = a.evaluate_over_domain_by_ref(self.domain).evals;
+
+            let echos = (0usize..self.params.n() as usize)
+                .map(|j| {
+                    shares[self.share_indexes[j]
+                        ..self.share_indexes[j] + self.params.w[j] as usize]
+                        .to_vec()
+                })
                 .map(|alpha| Echo {
                     C: C.clone(),
                     alpha,
@@ -175,7 +222,10 @@ impl Context {
     }
 
     // return a mutable reference to A_C
-    fn get_mut_A_C(&mut self, C_hash: [u8; 32]) -> &mut HashSet<(u32, Scalar)> {
+    fn get_mut_A_C(
+        &mut self,
+        C_hash: [u8; 32],
+    ) -> &mut HashSet<(Scalar, Scalar)> {
         insert_if_none(C_hash, HashSet::new(), &mut self.A);
         self.A.get_mut(&C_hash).unwrap()
     }
@@ -183,36 +233,64 @@ impl Context {
     /* determine if the threshold has been met,
     in order to broadcast ready messages */
     fn echo_ready_threshold(&mut self, C_hash: [u8; 32]) -> bool {
-        let Params { n, t, .. } = self.params;
+        let t = self.params.t;
+        let W = self.params.total_weight();
         let e_C = *get_or_insert(C_hash, 0, &mut self.e);
         let r_C = *get_or_insert(C_hash, 0, &mut self.r);
-        e_C == div_ceil(n + t + 1, 2) && r_C < t + 1
+        e_C >= div_ceil(W + t + 1, 2) && r_C < t + 1
     }
 
     fn lagrange_interpolate_A_C(&self, C_hash: [u8; 32]) -> poly::Univar {
         let A_C = self.A.get(&C_hash).unwrap();
-        // the points to use for lagrange interpolation
-        let points = A_C.iter().map(|(m, a)| ((*m as u64).into(), *a));
-        poly::lagrange_interpolate(points)
+        poly::lagrange_interpolate(A_C.clone())
+    }
+
+    pub fn verify_point(
+        &self,
+        m: u32,
+        C: &poly::Public,
+        alpha: &Vec<Scalar>,
+    ) -> bool {
+        alpha.iter().enumerate().all(|(j, a)| {
+            poly::verify_point(
+                &C,
+                scalar_exp_u32(self.domain.group_gen, self.i),
+                scalar_exp_u64(self.domain.group_gen, (j as u64) + (m as u64)),
+                *a,
+            )
+        })
     }
 
     /* Respond to an "echo" message. */
     pub fn echo(&mut self, m: u32, Echo { C, alpha }: &Echo) -> EchoResponse {
-        if poly::verify_point(&C, self.i, m, *alpha) {
-            let C_hash = hash_public_poly(&C);
-            incr(C_hash, &mut self.e);
-            self.get_mut_A_C(C_hash).insert((m, *alpha));
+        if self.verify_point(m, C, alpha) {
+            let C_hash = hash_public_poly(C);
+            incr(C_hash, &mut self.e, self.params.w[m as usize]);
+
+            let domain_0 = self.domain.group_gen;
+            let A_C = self.get_mut_A_C(C_hash);
+            let mut i = scalar_exp_u32(domain_0, m);
+            for s in alpha.iter() {
+                A_C.insert((i, *s));
+                i *= domain_0;
+            }
 
             if self.echo_ready_threshold(C_hash) {
                 let a_bar = self.lagrange_interpolate_A_C(C_hash);
-                let ready_messages = (0..self.params.n)
-                    .map(|j| a_bar.evaluate(&j.into()))
+                let shares =
+                    a_bar.evaluate_over_domain_by_ref(self.domain).evals;
+                let ready_messages = (0usize..self.params.n() as usize)
+                    .map(|j| {
+                        shares[self.share_indexes[j]
+                            ..self.share_indexes[j] + self.params.w[j] as usize]
+                            .to_vec()
+                    })
                     .map(|alpha| Ready {
                         C: C.clone(),
                         alpha,
                     })
                     .collect::<Vec<Ready>>();
-                ready_messages.into()
+                Some(ready_messages)
             } else {
                 None
             }
@@ -224,18 +302,20 @@ impl Context {
     /* determine if the threshold has been met,
     in order to broadcast ready messages */
     fn ready_ready_threshold(&mut self, C_hash: [u8; 32]) -> bool {
-        let Params { n, t, .. } = self.params;
+        let t = self.params.t;
+        let W = self.params.total_weight();
         let e_C = *get_or_insert(C_hash, 0, &mut self.e);
         let r_C = *get_or_insert(C_hash, 0, &mut self.r);
-        e_C < div_ceil(n + t + 1, 2) && r_C == t + 1
+        e_C < div_ceil(W + t + 1, 2) && r_C == t + 1
     }
 
     /* determine if the threshold has been met,
     in order to broadcast shared messages */
     fn ready_shared_threshold(&mut self, C_hash: [u8; 32]) -> bool {
-        let Params { n, t, f, .. } = self.params;
+        let Params { t, f, .. } = self.params;
+        let W = self.params.total_weight();
         let r_C = *get_or_insert(C_hash, 0, &mut self.r);
-        r_C == n - t - f
+        r_C >= W - t - f
     }
 
     pub fn ready(
@@ -243,16 +323,31 @@ impl Context {
         m: u32,
         Ready { C, alpha }: &Ready,
     ) -> ReadyResponse {
-        if poly::verify_point(&C, self.i, m, *alpha) {
+        if self.verify_point(m, C, alpha) {
             let C_hash = hash_public_poly(&C);
-            incr(C_hash, &mut self.r);
-            self.get_mut_A_C(C_hash).insert((m, *alpha));
+            incr(C_hash, &mut self.r, self.params.w[m as usize]);
+
+            let domain_0 = self.domain.group_gen;
+            let A_C = self.get_mut_A_C(C_hash);
+            let mut i = scalar_exp_u32(domain_0, m);
+            for s in alpha.iter() {
+                A_C.insert((i, *s));
+                i *= domain_0;
+            }
 
             let a_bar = self.lagrange_interpolate_A_C(C_hash);
 
             if self.ready_ready_threshold(C_hash) {
-                let ready_messages = (0..self.params.n)
-                    .map(|j| a_bar.evaluate(&j.into()))
+                let shares =
+                    a_bar.evaluate_over_domain_by_ref(self.domain).evals;
+
+                let ready_messages = (0usize..self.params.n() as usize)
+                    .map(|j| {
+                        shares[self.share_indexes[j]
+                            ..self.share_indexes[j]
+                                + (self.params.w[j] as usize)]
+                            .to_vec()
+                    })
                     .map(|alpha| Ready {
                         C: C.clone(),
                         alpha,
