@@ -25,19 +25,19 @@ ark-poly = "0.2"
 #ark-ff = { git = "https://github.com/arkworks-rs/algebra" }
 #ark-serialize = { git = "https://github.com/arkworks-rs/algebra" }
 #ark-poly = { git = "https://github.com/arkworks-rs/algebra" }
-bls12_381 = "0.3.1"
+bls12_381 = "0.4"
 either = "1.6.1"
-ff = "0.8.0"
+ff = "0.9"
 hex = "0.4.2"
 miracl_core = "2.3.0"
-num = "0.3.1"
-rand = "0.7.3"
+num = "0.4"
+rand = "0.7"
 sha2 = "0.9.1"
 ed25519-dalek = "1.0.1"
-x25519-dalek = "1.1.0"
-curve25519-dalek = "3.0.2"
+x25519-dalek = { version = "1.1", features = ["serde"] }
+curve25519-dalek = { version = "3.0", features = ["serde"] }
 crypto_box = "0.5.0"
-serde = "1.0.124"
+serde = { version = "1.0", features = ["derive"] }
 blake2 = "0.9.1"
 rand_chacha = "0.3.0"
 blake2b_simd = "0.5.11"

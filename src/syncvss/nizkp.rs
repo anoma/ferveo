@@ -13,18 +13,12 @@ use ark_ec::AffineCurve;
 use ark_ff::FromBytes;
 
 use super::sh::Scalar;
+use serde::{Deserialize, Serialize};
 
-//#[derive(CanonicalSerialize, CanonicalDeserialize)]
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct NIZKP {
     pub c: [u8; 32],
     pub r: curve25519_dalek::scalar::Scalar,
-}
-
-//#[derive(CanonicalSerialize, CanonicalDeserialize)]
-pub struct Dispute {
-    pub hash: [u8; 32],
-    pub shared_secret: x25519_dalek::SharedSecret,
-    pub nizkp: NIZKP,
 }
 
 //TODO: use hash-to-field for both

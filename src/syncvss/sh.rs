@@ -50,7 +50,7 @@ pub struct DealtShares {
 //#[derive(CanonicalSerialize, CanonicalDeserialize)]
 pub struct FinalizeMsg {
     //pub rebased_secret: G1Affine,
-//pub proof: NIZKP_BLS,
+//  pub proof: NIZKP_BLS,
 }
 
 pub fn deal_shares<R: rand::Rng + rand::CryptoRng + Sized>(
