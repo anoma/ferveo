@@ -25,14 +25,14 @@ Under the asynchronous model, node clocks are not synchronized and messages can 
 In practice a weak synchrony assumption is needed to assure liveness.
 Under weak synchrony, the time difference $delay(T)$ between the time a message was sent ($T$) and the time it is received doesn't grow indefinitely over time.
 
-#### Tendermint 
+#### Tendermint
 Tendermint works under the partially synchronous model.
 In this model, there exist a point in time (GST - Global Stabilization Time) after which messages are delivered within a specific time bound.
 The GST and time bound are not known in advance.
 Tendermint tolerates a $t$-limited Byzantine adversary, with resilience  
 $n \ge 3t+1$
 
-#### Ferveo 
+#### Ferveo
 Ferveo's model and resilience will be the most restrictive of the above:  
 $n \ge 3t+1$ under the partially synchronous mode.
 
@@ -42,11 +42,11 @@ In addition, it is assumed that $2W/3$ weight nodes honestly follow the protocol
 
 The curve used is BLS12-381. $\mathbb{G}_1$ denotes the prime order subgroup of order $r$ and $\mathbb{F}_r$ is the scalar field of BLS12-381 with prime order $r$. The pairing operation is $e(P,Q) : \mathbb{G}_1 \times \mathbb{G}_2$ \rightarrow \mathbb{G}_T$. The generator of $\mathbb{G}_1$ and $\mathbb{G}_2$ are denoted $G_1$ and $G_2$ respectively.
 
-Let $\omega$ denote an $W$th root of unity in $\mathbb{F}_r$. 
+Let $\omega$ denote an $W$th root of unity in $\mathbb{F}_r$.
 
 #### Hashing
 
-Let $\operatorname{HTC}: \{0,1\}^* \rightarrow \mathbb{G}_1$ be the hash to curve function as specified in RFC https://datatracker.ietf.org/doc/draft-irtf-cfrg-hash-to-curve/ 
+Let $\operatorname{HTC}: \{0,1\}^* \rightarrow \mathbb{G}_1$ be the hash to curve function as specified in RFC https://datatracker.ietf.org/doc/draft-irtf-cfrg-hash-to-curve/
 
 TODO: details of exact instantiation chosen
 
@@ -86,7 +86,7 @@ Each DKG session begins by choosing a unique integer session id $\tau$. This can
 
 ## Staking phase
 
-Nodes that want to participate in the DKG and receive key shares can stake value tied to the session id. Using the consensus layer, all nodes should agree on a canonical ordering of $(pk_i, w_i)$ where $pk_i$ is the public key of the $i$th node participating in the DKG and $w_i$ is number of shares belonging to node $i$. The value $i$ is the integer id of the node with public key $pk_i$. 
+Nodes that want to participate in the DKG and receive key shares can stake value tied to the session id. Using the consensus layer, all nodes should agree on a canonical ordering of $(pk_i, w_i)$ where $pk_i$ is the public key of the $i$th node participating in the DKG and $w_i$ is number of shares belonging to node $i$. The value $i$ is the integer id of the node with public key $pk_i$.
 
 Let $\Psi_{i} = \{ a, a+1, \ldots, a+w_i} \}$ be a disjoint partition where $\cup_i \Psi_{i} =  \{0,1, \ldots, W-1\}$, and $\Omega_{i} = \{ \omega^k \ mid k \in \Psi_{i} \}$.
 
@@ -109,19 +109,19 @@ Additional performance enhancements from:
 1. The dealer $d$ chooses a uniformly random polynomial $S$ of degree $p$.
 2. KZG commit to $S$ to obtain $\hat{S}$
 3. KZG commit to $S(0)$ to obtain $[S(0)] G_1$
-4. Create an opening proof $\pi_0$ of commitment $\hat{S} - [S(0)] G_1$ opening to $0$ at $0$. 
-5. For all $i \in [1,n]$: 
-   - create an opening proof $\pi_i$ of commitment $\hat{S}$ at all points $\alpha \in \Omega_i$. 
+4. Create an opening proof $\pi_0$ of commitment $\hat{S} - [S(0)] G_1$ opening to $0$ at $0$.
+5. For all $i \in [1,n]$:
+   - create an opening proof $\pi_i$ of commitment $\hat{S}$ at all points $\alpha \in \Omega_i$.
    - compute $\hat{T_i} = \hat{R} - \hat{S}_i$ where $T_i = R - S_i$
 
 The dealer signs and posts $(\tau,d,\hat{S}, [S(0)] G_1, \pi_0)$ to the blockchain.
 
 For each node $i$, the dealer encrypts (with MAC) to $pk_i$ the message $(\tau, d, \langle S(\alpha) \mid \alpha \in \Omega_i \rangle, \pi_i)$ which consists of:
 
-* $\tau$, the round number 
+* $\tau$, the round number
 * $d$, the dealer id
 * $\hat{S}$, the KZG commitment to the share polynomial
-* $\langle S(\alpha) \mid \alpha \in \Omega_i\rangle$, the share evaluations belonging to node $i$. 
+* $\langle S(\alpha) \mid \alpha \in \Omega_i\rangle$, the share evaluations belonging to node $i$.
 * $\pi_{i}$, the opening proof of $\hat{S}$ at $\Omega_i$
 
 For all $i \in [1,n]$ the dealer posts the $i$th message to the blockchain.
@@ -137,9 +137,9 @@ Most of the dealer's computation can be done offline/precomputed, potentially sa
 Node $i$ recieves, decrypts, and authenticates $(\tau,d,\hat{S}, \pi_0)$ and $(\tau, d, \hat{S},  \langle s_{\alpha} \rangle, \pi)$ from dealer $d$ through the blockchain.
 
 1. Check that commitment $\hat{S}$ and proof $\pi$ open to $\langle s_{\alpha} \rangle$
-2. Check that commitment $\hat{S} - [S(0)] G_1$ and proof $\pi_0$ opens to $0$ at $0$. 
+2. Check that commitment $\hat{S} - [S(0)] G_1$ and proof $\pi_0$ opens to $0$ at $0$.
 3. If the decryption or opening check fails, then initiate pre-success or post-success dispute process
-4. Else, the VSS has succeeded for node $i$. Sign and post the ready message $(\tau, d, \hat{S})$. 
+4. Else, the VSS has succeeded for node $i$. Sign and post the ready message $(\tau, d, \hat{S})$.
 
 ### Pre-success dispute
 
@@ -147,11 +147,11 @@ In the case where the dealer $d$ posts an invalid distribution of shares, a node
 
 ### VSS finalization
 
-To ensure the DKG results in an unbiased key, a new base $H_1 = \operatorname{HTC}(\text{DKG session} \tau)$ is used for every generated public key. 
+To ensure the DKG results in an unbiased key, a new base $H_1 = \operatorname{HTC}(\text{DKG session} \tau)$ is used for every generated public key.
 
-Once sufficient weight of signatures are posted, the dealer $d$ posts the public share $[S(0)] H_1$ along with a NIZK proof that $[S(0)] G_1$ and $[S(0)] H_1$ share the same discrete log. 
+Once sufficient weight of signatures are posted, the dealer $d$ posts the public share $[S(0)] H_1$ along with a NIZK proof that $[S(0)] G_1$ and $[S(0)] H_1$ share the same discrete log.
 
-Once these are posted and verified, the VSS initiated by dealer $d$ in round $\tau$ with commitment $\hat{S}$ is considered succeeded. 
+Once these are posted and verified, the VSS initiated by dealer $d$ in round $\tau$ with commitment $\hat{S}$ is considered succeeded.
 
 The remaining slow $t+f$ weight nodes can complete the VSS from information on the blockchain. In case those shares are invalid, the slow nodes can initiate the post-success dispute procedure.
 
@@ -165,7 +165,7 @@ Penalties and rewards can still be allocated for disputes posted after the valid
 
 ### Proof sketch
 
-(TODO: sketch proof that changes to the VSS are OK) 
+(TODO: sketch proof that changes to the VSS are OK)
 
 ## DKG
 
@@ -183,13 +183,13 @@ In the optimistic phase, if there are no faults that prevent these $\ell$ VSS in
 
 Assume the optimistic phase does not succeed before a timeout period expires. Then the DKG enters the pessimistic phase where an arbitrary set of VSS instances of total weight at least $t$ can be used for DKG. The nodes should initiate additional VSS instances in order of decreasing weight of dealers to again minimize the total number of VSS instances that need to be dealt, and also to minimize the number of VSS instances a node spends computation to verify but remain unused. Every time a timeout period expires, more nodes should begin dealing VSS instances.
 
-In the pessimistic phase, as soon as $W-t-f$ weight of VSS instances finalize (as determined by ready signatures with no disputes and dealer finalization), then the first sufficient subset of finalized VSS instances is used for the DKG, as determined by the order that the finalization messages are posted. 
+In the pessimistic phase, as soon as $W-t-f$ weight of VSS instances finalize (as determined by ready signatures with no disputes and dealer finalization), then the first sufficient subset of finalized VSS instances is used for the DKG, as determined by the order that the finalization messages are posted.
 
 ### Debiasing the final key
 
 The approach of Neji et al can be used to debias the final key. The public key $[s] H_1$ is the sum of all finalization values $[S(0)] H_1$ for all successful VSS instances, and the shared secret key is sharewise sum of all VSS shares.  
 
-### Proof Sketch 
+### Proof Sketch
 
 TODO: proof sketch of resiliance in the appropriate model
 
@@ -201,24 +201,26 @@ TODO
 
 To produce $r_\lambda$, the randomness beacon at step $\lambda$, the nodes threshold sign the value $\operatorname{BLAKE2b}(\lambda \Vert r_{\lambda-1})$ to obtain signature $\sigma_\lambda$.
 
-The randomness beacon $r_\lambda = \operatorname{BLAKE2b}(\sigma_\lambda)$ is unpredictable and unbiased under the cryptographic assumptions. 
+The randomness beacon $r_\lambda = \operatorname{BLAKE2b}(\sigma_\lambda)$ is unpredictable and unbiased under the cryptographic assumptions.
 
 ## Threshold encryption
+Scheme based on "Simple and Efficient Threshold Cryptosystem from the Gap Diffie-Hellman Group"
 
-Messages should be encrypted with a symmetric cipher with authentication, for example ChaCha20.
-
-Scheme based on "Simple and Efficient Threshold Cryptosystem from the Gap Diffie-Hellman Group" 
-
-Let $k \in \{0,1\}^{256}$ be a symmetric key.
-Let $r \in \mathbb{F}_q$ be uniformly random.
-Let $V = \operatorname{BLAKE2b}(rQ) \oplus k$.
-The ciphertext $C = (rP, V, r \operatorname{HTC}(\operatorname{repr}(rQ), V))$
+Let $m$ be the plaintext.
+Denote ChaCha20 as $chacha20(msg, key)$.
+Let $AD$ denote "additional data" for which we need authentication but not encryption.
+Sample r as a random scalar from the scalar field.
+Then set:
+* $U = rG_1$
+* $V = chacha20(m, BLAKE2b(rY))$
+* $W = rHTC(U, V, AD)$  
+The ciphertext $C = (U, V, W)$.
 
 ## Threshold decryption
 
 ### Generation of decryption shares
 
-Given a ciphertext $C = (U,V,W)$, check $e(P,W) = e(U, \operatorname{HTC}(U,V))$.
+Given a ciphertext $C = (U,V,W)$, check $e(G_1, W) = e(U, HTC(U,V, AD))$.
 
 If so, if $S_i = \{k, k+1, \ldots, k+w_i\}$, then output $(i, [s_k]U, [s_{k+1}]U, \ldots, [s_{k+w_i}]U)$
 
@@ -228,15 +230,15 @@ If so, if $S_i = \{k, k+1, \ldots, k+w_i\}$, then output $(i, [s_k]U, [s_{k+1}]U
 
 ### Combination of decryption shares
 
-Shares of the decrypted symmetric key $k$ can be verifiably recovered from $p+1$ shares.
-
-TODO
+To obtain the plaintext we need to combine at least $t$ decryption shares $\{U_i\}_{i \in \Phi}$. Using lagrange intepolation we get
+$rY = \sum_{i \in \Phi}{\lambda_{0,i}U_i}$
+and then $m = chacha20(V, BLAKE2b(rY))$
 
 ## Dispute procedures
 
 ### VSS dealer dispute
 
-Dispute in the VSS protocol is based on the ETHSKG method, https://eprint.iacr.org/2019/985. 
+Dispute in the VSS protocol is based on the ETHSKG method, https://eprint.iacr.org/2019/985.
 
 Nodes are incentivized to perform the VSS protocol properly though penalties for VSS failure and rewards for reporting VSS failure.
 
@@ -254,7 +256,7 @@ There is an alternative threshold decryption scheme which is plausibly disputabl
 
 ### Key refresh
 
-It is possible to refresh a key (also called proactive secret sharing) to change all the issued key shares without changing the actual public key. 
+It is possible to refresh a key (also called proactive secret sharing) to change all the issued key shares without changing the actual public key.
 
 The primary purpose is to limit vulnerability windows for key shares to leak or compromise. Instead of compromising sufficient key shares of the distributed key, an attacker must compromise those key shares within the refresh window. The secondary purpose may be to invalidate and/or issue new key shares of the same key to adjust for dynamic weights (e.g. change in stake) without changing the public key.
 
