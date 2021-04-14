@@ -53,6 +53,7 @@ pub fn sign_with_mk_g2(secret: Scalar, mk: G2Affine, msg: &[u8]) -> G2Affine {
 
 // verify a signature in G2 against a public key in G1
 pub fn verify_g2(pk: &G1Affine, sig: &G2Affine, msg: &[u8]) -> bool {
+    // TODO check subgroup and non-zero sig and pk ?
     let lhs = pairing(pk, &hash_to_g2(msg));
     let rhs = pairing(&G1Affine::generator(), sig);
     lhs == rhs
@@ -61,6 +62,7 @@ pub fn verify_g2(pk: &G1Affine, sig: &G2Affine, msg: &[u8]) -> bool {
 // verify a signature in G2 against a public key in G1 with one less
 // final exponentiation
 pub fn verify_g2_opt(pk: &G1Affine, sig: &G2Affine, msg: &[u8]) -> bool {
+    // TODO check subgroup and non-zero sig and pk ?
     let ml = multi_miller_loop(&[
         (pk, &hash_to_g2(msg).into()),
         (&-G1Affine::generator(), &(*sig).into()),
@@ -238,6 +240,7 @@ impl Setup {
         positions: &[usize],
         msg: &[u8],
     ) -> bool {
+	// TODO check subgroup and non-zero sig and pk ?
         // sort and deduplicate positions
         let mut positions = positions.to_vec();
         positions.sort();
