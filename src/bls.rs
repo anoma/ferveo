@@ -202,11 +202,27 @@ impl Setup {
         verify_g2(self.apk(), &mk, &self.memkey_frag_msg(i))
     }
 
+    // verify the `i`th membership key with `verify_g2_opt`
+    fn verify_memkey_opt(&self, i: usize, mk: &G2Affine) -> bool {
+        verify_g2_opt(self.apk(), &mk, &self.memkey_frag_msg(i))
+    }
+
     // Attempt to construct the `i`th membership key from its fragments
     pub fn memkey(&self, i: usize, frags: &[G2Affine]) -> Option<G2Affine> {
         let mk = frags.iter().sum_by(G2Projective::from).into();
 
         if self.verify_memkey(i, &mk) {
+            Some(mk)
+        } else {
+            None
+        }
+    }
+
+    // Attempt to construct the `i`th membership key from its fragments
+    pub fn memkey_opt(&self, i: usize, frags: &[G2Affine]) -> Option<G2Affine> {
+        let mk = frags.iter().sum_by(G2Projective::from).into();
+
+        if self.verify_memkey_opt(i, &mk) {
             Some(mk)
         } else {
             None
