@@ -4,7 +4,7 @@ extern crate criterion;
 use bls12_381::{G1Affine, G2Affine, G2Projective, Scalar};
 use criterion::Criterion;
 use ferveo::bls::*;
-use rand::{seq::IteratorRandom, SeedableRng, Rng};
+use rand::{seq::IteratorRandom, Rng, SeedableRng};
 
 // Fixed seed for reproducability
 fn rng() -> rand::rngs::StdRng {
@@ -95,31 +95,41 @@ pub fn bench_multiple_threshold_sig_verification(c: &mut Criterion) {
     let msg: &[u8] = b"Lorem ipsum, dolor sit amet";
     let (secrets, setup, mk_frags, memkeys) = threshold_setup(n);
 
-    let pos_and_sigs : Vec<(Vec<usize>, G2Affine)> = (0..nb).map(|i| {
-	let mut rng = rand::thread_rng();
-	let m = rng.gen_range(0,n);
-	random_sign(m, n, &secrets, &memkeys, &setup, msg)
-    }).collect();
+    let pos_and_sigs: Vec<(Vec<usize>, G2Affine)> = (0..nb)
+        .map(|i| {
+            let mut rng = rand::thread_rng();
+            let m = rng.gen_range(0, n);
+            random_sign(m, n, &secrets, &memkeys, &setup, msg)
+        })
+        .collect();
 
     println!("len = {}", pos_and_sigs.len());
-    
+
     pos_and_sigs.iter().map(|pos_sig| {
-	assert!(setup.verify_threshold(pos_sig.0.len(), &pos_sig.1,
-				       &pos_sig.0, msg));
+        assert!(setup.verify_threshold(
+            pos_sig.0.len(),
+            &pos_sig.1,
+            &pos_sig.0,
+            msg
+        ));
     });
 
     println!("THIS BENCH IS NOT WORKING\n\n\n\n");
-    
+
     let mut group = c.benchmark_group("Signature");
     group.bench_function("One-by-one threshold sigs verification", |b| {
-        b.iter(||
-	       pos_and_sigs.iter().map(|pos_sig| {
-		   setup.verify_threshold(pos_sig.0.len(), &pos_sig.1,
-					  &pos_sig.0,  msg)
-	       }))
+        b.iter(|| {
+            pos_and_sigs.iter().map(|pos_sig| {
+                setup.verify_threshold(
+                    pos_sig.0.len(),
+                    &pos_sig.1,
+                    &pos_sig.0,
+                    msg,
+                )
+            })
+        })
     });
     group.measurement_time(core::time::Duration::new(10, 0));
-
 }
 
 pub fn bench_multi_sig_verification(c: &mut Criterion) {}
