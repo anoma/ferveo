@@ -1,16 +1,128 @@
 #[macro_use]
 extern crate criterion;
 
+use bls12_381::{G1Affine, G2Affine, G2Projective, Scalar};
 use criterion::Criterion;
-
-use bls12_381::{G2Affine, G2Projective, Scalar};
 use ferveo::bls::*;
+use rand::{seq::IteratorRandom, SeedableRng, Rng};
 
 // Fixed seed for reproducability
 fn rng() -> rand::rngs::StdRng {
-    use rand::SeedableRng;
     rand::rngs::StdRng::seed_from_u64(0)
 }
+
+pub fn bench_single_sig_verification(c: &mut Criterion) {
+    let rng = rng();
+    let kp: Keypair = <Scalar as ff::Field>::random(rng).into();
+    let (sk, pk) = (kp.secret, kp.pubkey);
+    let msg: &[u8] = b"Lorem ipsum, dolor sit amet";
+    let sig = sign_g2(sk, &msg);
+
+    let mut group = c.benchmark_group("Signature");
+    group.sample_size(10);
+    group.bench_function("Single signature verification", |b| {
+        b.iter(|| verify_g2(&pk, &sig, msg))
+    });
+    group.measurement_time(core::time::Duration::new(10, 0));
+}
+
+pub fn threshold_setup(
+    n: usize,
+) -> (Vec<Scalar>, Setup, Vec<Vec<G2Affine>>, Vec<G2Affine>) {
+    let mut rng = rng();
+    let mut keypairs: Vec<Keypair> = (0..n)
+        .map(|_| <Scalar as ff::Field>::random(&mut rng).into())
+        .collect();
+    keypairs.sort();
+    let (secrets, pubkeys): (Vec<_>, Vec<_>) =
+        keypairs.iter().map(|kp| (kp.secret, kp.pubkey)).unzip();
+    let setup: Setup = pubkeys.into_iter().collect();
+    let mk_frags: Vec<Vec<G2Affine>> = keypairs
+        .into_iter()
+        .map(|kp| setup.memkey_frags(&kp))
+        .collect();
+    let memkey = |i: usize| {
+        let frags: Vec<_> = mk_frags.iter().map(|cs| cs[i]).collect();
+        setup.memkey(i, &frags)
+    };
+    let memkeys = (0..n).map(memkey).map(Option::unwrap).collect();
+    (secrets, setup, mk_frags, memkeys)
+}
+
+pub fn random_sign(
+    m: usize,
+    n: usize,
+    secrets: &Vec<Scalar>,
+    memkeys: &Vec<G2Affine>,
+    setup: &Setup,
+    msg: &[u8],
+) -> (Vec<usize>, G2Affine) {
+    assert!(m <= n);
+    let mut rng = rng();
+    let mut positions = (0..n).choose_multiple(&mut rng, m).to_vec();
+    positions.sort();
+    let signatures = positions.iter().map(|i| {
+        sign_with_mk_g2(secrets[*i], memkeys[*i], &*setup.prefix_apk(msg))
+    });
+    (
+        positions.clone(),
+        signatures
+            .map(G2Projective::from)
+            .sum::<G2Projective>()
+            .into(),
+    )
+}
+
+pub fn bench_threshold_sig_verification(c: &mut Criterion) {
+    let n = 10;
+    let (secrets, setup, mk_frags, memkeys) = threshold_setup(n);
+    let m = 7; // threshold value
+    let msg: &[u8] = b"Lorem ipsum, dolor sit amet";
+    let (positions, sig) = random_sign(m, n, &secrets, &memkeys, &setup, msg);
+    assert!(setup.verify_threshold(m, &sig, &positions, msg));
+
+    let mut group = c.benchmark_group("Signature");
+    group.bench_function("Threshold signature verification", |b| {
+        b.iter(|| setup.verify_threshold(m, &sig, &positions, msg))
+    });
+    group.measurement_time(core::time::Duration::new(10, 0));
+}
+
+pub fn bench_multiple_threshold_sig_verification(c: &mut Criterion) {
+    let n = 10;
+    let nb = 12;
+    // We use only one setup here and sign always the same message
+    let msg: &[u8] = b"Lorem ipsum, dolor sit amet";
+    let (secrets, setup, mk_frags, memkeys) = threshold_setup(n);
+
+    let pos_and_sigs : Vec<(Vec<usize>, G2Affine)> = (0..nb).map(|i| {
+	let mut rng = rand::thread_rng();
+	let m = rng.gen_range(0,n);
+	random_sign(m, n, &secrets, &memkeys, &setup, msg)
+    }).collect();
+
+    println!("len = {}", pos_and_sigs.len());
+    
+    pos_and_sigs.iter().map(|pos_sig| {
+	assert!(setup.verify_threshold(pos_sig.0.len(), &pos_sig.1,
+				       &pos_sig.0, msg));
+    });
+
+    println!("THIS BENCH IS NOT WORKING\n\n\n\n");
+    
+    let mut group = c.benchmark_group("Signature");
+    group.bench_function("One-by-one threshold sigs verification", |b| {
+        b.iter(||
+	       pos_and_sigs.iter().map(|pos_sig| {
+		   setup.verify_threshold(pos_sig.0.len(), &pos_sig.1,
+					  &pos_sig.0,  msg)
+	       }))
+    });
+    group.measurement_time(core::time::Duration::new(10, 0));
+
+}
+
+pub fn bench_multi_sig_verification(c: &mut Criterion) {}
 
 pub fn bench_signature_verification(c: &mut Criterion) {
     // create three secret keys and the associated public keys
@@ -117,5 +229,10 @@ pub fn bench_signature_verification(c: &mut Criterion) {
     group.measurement_time(core::time::Duration::new(10, 0));
 }
 
-criterion_group!(benches, bench_signature_verification);
+criterion_group!(
+    benches,
+    // bench_single_sig_verification,
+    // bench_threshold_sig_verification,
+    bench_multiple_threshold_sig_verification
+);
 criterion_main!(benches);
