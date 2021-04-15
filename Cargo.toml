@@ -13,22 +13,28 @@ authors = ["Metastate AG <hello@metastate.dev>"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+anyhow = "1.0.32"
 ark-std = "0.2.0"
 ark-serialize = "0.2.0"
 ark-ec = "0.2.0"
 ark-poly = "0.2.0"
 ark-bls12-381 = "0.2.0"
 ark-ff = "0.2.0"
-
 bls12_381 = "0.3.1"
+dusk-bls12_381 = "0.3.0"
 either = "1.6.1"
 ff = "0.8.0"
+group = "0.8.0"
 hex = "0.4.2"
 miracl_core = "2.3.0"
+ndarray = "0.14.0"
 num = "0.3.1"
 rand = "0.7.3"
+rand_chacha = "0.2"
+rayon = "1.3.0"
 sha2 = "0.9.1"
-itertools = "0.10"
+thiserror = "1.0"
+
 
 [dependencies.digest]
 version = "0.9.0"
@@ -37,8 +43,12 @@ features = ["alloc"]
 [dev-dependencies]
 criterion = "0.3.3"
 
+# local override for ark-{ec, ff, serialize}
 # local override for bls12-381
 [patch.crates-io]
+ark-ec = { git = 'https://github.com/arkworks-rs/algebra.git' }
+ark-ff = { git = 'https://github.com/arkworks-rs/algebra.git' }
+ark-serialize = { git = 'https://github.com/arkworks-rs/algebra.git' }
 bls12_381 = { git = 'https://github.com/A-Manning/bls12_381.git', branch = "ash/scalar-traits" }
 
 [[bench]]
