@@ -1,11 +1,12 @@
 /*
 BLS threshold signatures.
-*/
+ */
+
 
 use crate::hash_to_field::{hash_to_field, ExpandMsgXmd};
 use bls12_381::{
     multi_miller_loop, pairing, G1Affine, G1Projective, G2Affine,
-    G2Projective, Gt, Scalar,
+    G2Projective, G2Prepared, Gt, Scalar,
 };
 
 fn hash_to_scalar(msg: &[u8], dst: &[u8]) -> Scalar {
@@ -231,6 +232,92 @@ impl Setup {
         }
     }
 
+    pub fn prepare_verification(&self,
+				threshold: usize,
+				positions: &[usize],
+				msg: &[u8],
+				res_appk: &mut G1Affine,
+				res_msg_hash: &mut G2Affine,
+				res_apk: &mut G1Affine,
+				res_mf_hash_sum: &mut G2Affine,
+    ) -> bool {
+	// sort and deduplicate positions
+        let mut positions = positions.to_vec();
+        positions.sort();
+        positions.dedup();
+        if positions.len() < threshold {
+            false
+        } else {
+            *res_apk = self.apk;
+            let pubkeys = &self.pubkeys;
+            // compute the aggregated participant pubkey
+            let ppks = positions.iter().map(|i| pubkeys[*i]);
+            *res_appk = ppks.sum_by(G1Projective::from).into();
+            // the hash of the message prefixed by the compressed apk
+            *res_msg_hash = hash_to_g2(&self.prefix_apk(msg));
+            // the sum of the hashes of memkey fragment messages
+            *res_mf_hash_sum = positions
+                .into_iter()
+                .sum_by(|i: usize| -> G2Projective {
+                    hash_to_g2(&self.memkey_frag_msg(i)).into()
+                })
+                .into();
+            true
+	}
+    }
+
+    /* verify a threshold signature,
+    constructed from participants with the given positions in the setup */
+    pub fn verify_threshold_new(
+        &self,
+        threshold: usize,
+        sig: &G2Affine,
+        positions: &[usize],
+        msg: &[u8],
+    ) -> bool {
+	let mut appk = G1Affine::identity();
+	let mut msg_hash = G2Affine::identity();
+	let mut apk = G1Affine::identity();
+	let mut mf_hash_sum = G2Affine::identity();
+	let foo: bool = self.prepare_verification(threshold,
+						  positions,
+						  msg,
+						  &mut appk, &mut msg_hash,
+						  &mut apk, &mut mf_hash_sum,
+	);
+	let lhs = pairing(&G1Affine::generator(), sig);
+        let rhs = pairing(&appk, &msg_hash) + pairing(&apk, &mf_hash_sum);
+        foo && lhs == rhs
+    }
+
+    /* verify a threshold signature using a slightly more optimized
+     * pairing computation, constructed from participants with the
+     * given positions in the setup */
+    pub fn verify_threshold_opt_new(
+        &self,
+        threshold: usize,
+        sig: &G2Affine,
+        positions: &[usize],
+        msg: &[u8],
+    ) -> bool {
+	let mut appk = G1Affine::identity();
+	let mut msg_hash = G2Affine::identity();
+	let mut apk = G1Affine::identity();
+	let mut mf_hash_sum = G2Affine::identity();
+	let foo: bool = self.prepare_verification(threshold,
+						  positions,
+						  msg,
+						  &mut appk, &mut msg_hash,
+						  &mut apk, &mut mf_hash_sum,
+	);
+	let ml = multi_miller_loop(&[
+            (&-G1Affine::generator(), &(*sig).into()),
+            (&appk, &msg_hash.into()),
+            (&apk, &mf_hash_sum.into()),
+        ]);
+        foo && Gt::identity() == ml.final_exponentiation()
+    }
+
     /* verify a threshold signature,
     constructed from participants with the given positions in the setup */
     pub fn verify_threshold(
@@ -307,4 +394,113 @@ impl Setup {
             Gt::identity() == ml.final_exponentiation()
         }
     }
+}
+
+
+/*
+ * Verify multiple aggregated signatures from different setups in 2*n+1
+ * pairing computations instead of 3*n
+ */
+pub fn verify_multiple_sig_opt_new(
+    setups: &[&Setup],
+    thresholds: &[usize],
+    sigs: &[G2Affine],
+    positions: &[&[usize]],
+    msgs: &[&[u8]],
+) -> bool {    
+    let n = (*setups).len();
+    assert_eq!(n, thresholds.len());
+    assert_eq!(n, sigs.len());
+    assert_eq!(n, positions.len());
+    assert_eq!(n, msgs.len());
+
+    let sig: G2Affine =
+	sigs.into_iter().sum_by(G2Projective::from).into();
+    
+    let mut ml_g1 = vec![G1Affine::identity(); 2*n+1];
+    let mut ml_g2 = vec![G2Affine::identity().into();2*n+1];
+    
+    ml_g1[0] = -G1Affine::generator();
+    ml_g2[0] = sig.into();
+
+    for i in 0..n {
+	// sort and deduplicate positions
+	let mut positions = positions[i].to_vec();
+	positions.sort();
+	positions.dedup();
+	if positions.len() < thresholds[i] {
+            return false;
+	} else {
+            let apk = &(*setups)[i].apk;
+            let pubkeys = &(*setups)[i].pubkeys;
+            // compute the aggregated participant pubkey
+            let ppks = positions.iter().map(|i| pubkeys[*i]);
+            let appk = ppks.sum_by(G1Projective::from).into();
+            // the hash of the message prefixed by the compressed apk
+            let msg_hash = hash_to_g2(&(*setups)[i].prefix_apk(msgs[i]));
+            // the sum of the hashes of memkey fragment messages
+            let mf_hash_sum: G2Affine = positions
+		.into_iter()
+		.sum_by(|j: usize| -> G2Projective {
+                    hash_to_g2(&(*setups)[i].memkey_frag_msg(j)).into()
+		})
+		.into();
+     	    ml_g1[2*i+1] = appk;
+	    ml_g2[2*i+1] = msg_hash.into();
+	    ml_g1[2*i+2] = *apk;
+	    ml_g2[2*i+2] = mf_hash_sum.into();
+	}
+    }
+
+    Gt::identity() == multi_miller_loop(&ml_g1.iter().zip(ml_g2.iter()).collect::<Vec<(&G1Affine, &G2Prepared)>>()).final_exponentiation()
+}
+
+/*
+ * Verify multiple aggregated signatures from different setups in 2*n+1
+ * pairing computations instead of 3*n
+ */
+pub fn verify_multiple_sig_opt(
+    setups: &[&Setup],
+    thresholds: &[usize],
+    sigs: &[G2Affine],
+    positions: &[&[usize]],
+    msgs: &[&[u8]],
+) -> bool {    
+    let n = (*setups).len();
+    assert_eq!(n, thresholds.len());
+    assert_eq!(n, sigs.len());
+    assert_eq!(n, positions.len());
+    assert_eq!(n, msgs.len());
+
+    let sig: G2Affine =
+	sigs.into_iter().sum_by(G2Projective::from).into();
+    
+    let mut ml_g1 = vec![G1Affine::identity(); 2*n+1];
+    let mut ml_g2 = vec![G2Affine::identity().into();2*n+1];
+    
+    ml_g1[0] = -G1Affine::generator();
+    ml_g2[0] = sig.into();
+
+    let mut appk = G1Affine::identity();
+    let mut msg_hash = G2Affine::identity();
+    let mut apk = G1Affine::identity();
+    let mut mf_hash_sum = G2Affine::identity();
+    let mut foo: bool = true;
+
+    for i in 0..n {
+	foo = foo && setups[i]
+	    .prepare_verification(thresholds[i], positions[i], msgs[i],
+				  &mut appk, &mut msg_hash,
+				  &mut apk, &mut mf_hash_sum,
+	    );
+	ml_g1[2*i+1] = appk;
+	ml_g2[2*i+1] = msg_hash.into();
+	ml_g1[2*i+2] = apk;
+	ml_g2[2*i+2] = mf_hash_sum.into();
+    }
+    
+    foo &&
+	Gt::identity() == multi_miller_loop(
+	    &ml_g1.iter().zip(ml_g2.iter()
+	    ).collect::<Vec<_>>()).final_exponentiation()	
 }
