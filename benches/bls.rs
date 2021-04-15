@@ -30,20 +30,12 @@ pub fn bench_signature_verification(c: &mut Criterion) {
     let sig1 = sign_g2(secrets[1], &msg);
     // check
     assert!(verify_g2(&pubkeys[1], &sig1, msg));
-    assert!(verify_g2_opt(&pubkeys[1], &sig1, msg));
-    assert!(verify_g2_opt_new(&pubkeys[1], &sig1, msg));
 
     let mut group = c.benchmark_group("Signature");
     group.sample_size(10);
     // bench of the verification
     group.bench_function("Signature verification", |b| {
         b.iter(|| verify_g2(&pubkeys[1], &sig1, msg))
-    });
-    group.measurement_time(core::time::Duration::new(10, 0));
-
-    // bench of the optimized verification
-    group.bench_function("Optimized signature verification", |b| {
-        b.iter(|| verify_g2_opt(&pubkeys[1], &sig1, msg))
     });
     group.measurement_time(core::time::Duration::new(10, 0));
 
@@ -76,16 +68,19 @@ pub fn bench_signature_verification(c: &mut Criterion) {
     let sig: G2Affine = (ts1 + ts2).into();
 
     // check
-    assert!(setup.verify_threshold_new(2, &sig, &[1, 2], msg1));
-    assert!(setup.verify_threshold_opt(2, &sig, &[1, 2], msg1));
+    assert!(setup.verify_threshold(2, &sig, &[1, 2], msg1));
 
     // bench of the optimized threshold verification
-    group.bench_function("Optimized threshold signature verification", |b| {
-        b.iter(|| setup.verify_threshold_opt(2, &sig, &[1, 2], msg1))
+    group.bench_function("Threshold signature verification", |b| {
+        b.iter(|| setup.verify_threshold(2, &sig, &[1, 2], msg1))
     });
     group.measurement_time(core::time::Duration::new(10, 0));
 
-    // example with two participants among three.
+    //
+    // Multi threshold verification
+    //
+
+    // Another example with two participants among three.
     let setup2: &Setup = &setup;
     let msg2: &[u8] = b"bonjour";
     let s0 = secrets[0];
@@ -98,17 +93,8 @@ pub fn bench_signature_verification(c: &mut Criterion) {
 
     // check
     assert!((*setup2).verify_threshold(2, &sig_prime, &[0, 1], msg2));
-    assert!((*setup2).verify_threshold_opt(2, &sig_prime, &[0, 1], msg2));
 
-    assert!(verify_multiple_sig_opt(
-        &[&setup, setup2],
-        &[2, 2],
-        &[sig, sig_prime],
-        &[&[1, 2], &[0, 1]],
-        &[msg1, msg2]
-    ));
-
-    assert!(verify_multiple_sig_opt_new(
+    assert!(verify_multiple_sig(
         &[&setup, setup2],
         &[2, 2],
         &[sig, sig_prime],
@@ -117,38 +103,17 @@ pub fn bench_signature_verification(c: &mut Criterion) {
     ));
 
     // bench of the multi signature verification
-    group.bench_function(
-        "Two threshold signature verification with a trick",
-        |b| {
-            b.iter(|| {
-                verify_multiple_sig_opt(
-                    &[&setup, setup2],
-                    &[2, 2],
-                    &[sig, sig_prime],
-                    &[&[1, 2], &[0, 1]],
-                    &[msg1, msg2],
-                )
-            })
-        },
-    );
-    group.measurement_time(core::time::Duration::new(10, 0));
-
-    // bench of the multi signature verification
-    group.bench_function(
-        "Two threshold signature verification with a
-    trick (new)",
-        |b| {
-            b.iter(|| {
-                verify_multiple_sig_opt_new(
-                    &[&setup, setup2],
-                    &[2, 2],
-                    &[sig, sig_prime],
-                    &[&[1, 2], &[0, 1]],
-                    &[msg1, msg2],
-                )
-            })
-        },
-    );
+    group.bench_function("Multi threshold signature verification", |b| {
+        b.iter(|| {
+            verify_multiple_sig(
+                &[&setup, setup2],
+                &[2, 2],
+                &[sig, sig_prime],
+                &[&[1, 2], &[0, 1]],
+                &[msg1, msg2],
+            )
+        })
+    });
     group.measurement_time(core::time::Duration::new(10, 0));
 }
 
