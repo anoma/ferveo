@@ -241,9 +241,10 @@ impl Setup {
         }
     }
 
-    /* verify a threshold signature using a slightly more optimized
-     * pairing computation, constructed from participants with the
-     * given positions in the setup */
+    /* Verify a threshold signature constructed from participants with the
+     * given positions in the setup
+     * See the AMS of section 4.3 of the eprint 2018/483.
+     */
     pub fn verify_threshold(
         &self,
         threshold: usize,
