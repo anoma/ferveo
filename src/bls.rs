@@ -94,11 +94,11 @@ impl From<Scalar> for Keypair {
 
 // The setup information for a threshold bls scheme
 pub struct Setup {
-    pubkeys: Vec<G1Affine>,
+    pub pubkeys: Vec<G1Affine>,
     // The coefficients for each public key
-    coeffs: Vec<Scalar>,
+    pub coeffs: Vec<Scalar>,
     // The aggregate public key for all participants
-    apk: G1Affine,
+    pub apk: G1Affine,
 }
 
 impl std::iter::FromIterator<G1Affine> for Setup {
@@ -206,7 +206,7 @@ impl Setup {
         }
     }
 
-    pub fn prepare_verification(
+    pub fn prepare_threshold_verification(
         &self,
         threshold: usize,
         positions: &[usize],
@@ -245,13 +245,13 @@ impl Setup {
     /* verify a signature `sig` from `m` participants of the group
      * defined in the setup.
      */
-    // pub fn verify_aggregated(
-    //     &self,
-    //     sig: &G2Affine,
-    //     msg: &[u8],
-    // ) -> bool {
-    // 	verify_g2(self.apk, sig, msg)
-    // }
+    pub fn verify_aggregated(
+        &self,
+        sig: &G2Affine,
+        msg: &[u8],
+    ) -> bool {
+    	verify_g2(&self.apk, sig, msg)
+    }
 
     /* Verify a threshold signature constructed from participants with the
      * given positions in the setup
@@ -268,7 +268,7 @@ impl Setup {
         let mut msg_hash = G2Affine::identity();
         let mut apk = G1Affine::identity();
         let mut mf_hash_sum = G2Affine::identity();
-        let foo: bool = self.prepare_verification(
+        let foo: bool = self.prepare_threshold_verification(
             threshold,
             positions,
             msg,
@@ -326,7 +326,7 @@ pub fn verify_multiple_sig(
             let mut apk = G1Affine::identity();
             let mut mf_hash_sum = G2Affine::identity();
             foo1 = foo1
-                && (*setups)[i].prepare_verification(
+                && (*setups)[i].prepare_threshold_verification(
                     positions.len(),
                     &positions,
                     msgs[i],
@@ -354,34 +354,33 @@ pub fn verify_multiple_sig(
     foo1 && foo2
 }
 
-// pub fn verify_multi_aggregated(
-// 	setups: &[&Setup],
-// 	sigs: &[&G2Affine],
-// 	msgs: &[&[u8]],
-// ) -> bool {
-//     let n = setups.len();
-//     assert_eq!(n, sigs.len());
-//     assert_eq!(n, msgs.len());
+pub fn verify_multi_aggregated(
+    setups: &[&Setup],
+    sigs: &[G2Affine],
+    poss: &[&[usize]],
+    msgs: &[&[u8]],
+) -> bool {
+    let n = poss.len();
+    assert_eq!(n, sigs.len());
+    assert_eq!(n, msgs.len());
+    
+    let sig: G2Affine = sigs.into_iter().sum_by(G2Projective::from).into();
+    
+    let mut ml_g1 = vec![G1Affine::identity(); n + 1];
+    let mut ml_g2 = vec![G2Affine::identity().into(); n + 1];
+    
+    ml_g1[0] = -G1Affine::generator();
+    ml_g2[0] = sig.into();
 
-//     let sig: G2Affine = sigs.into_iter().sum_by(G2Projective::from).into();
+    for i in 0..n {
+	ml_g1[i+1] = setups[i].apk;
+	ml_g2[i+1] = hash_to_g2(msgs[i]).into();
+    }
 
-//     let mut ml_g1 = vec![G1Affine::identity(); n + 1];
-//     let mut ml_g2 = vec![G2Affine::identity().into(); n + 1];
-
-//     ml_g1[0] = -G1Affine::generator();
-//     ml_g2[0] = sig.into();
-
-//     let mut foo1: bool = true;
-
-//     for i in 0..n {
-// 	ml_g1[i+1] = setups[i].apk;
-// 	ml_g2[i+1] = hash_to_g2(msgs[i]);
-//     }
-
-//     Gt::identity()
-//         == multi_miller_loop(
-// 	    &ml_g1.iter().zip(ml_g2.iter())
-//                 .collect::<Vec<(&G1Affine, &G2Prepared)>>(),
-//         )
-//         .final_exponentiation()
-// }
+    Gt::identity()
+        == multi_miller_loop(
+	    &ml_g1.iter().zip(ml_g2.iter())
+	                   .collect::<Vec<(&G1Affine, &G2Prepared)>>(),
+        )
+        .final_exponentiation()
+}
