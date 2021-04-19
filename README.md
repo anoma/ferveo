@@ -18,17 +18,12 @@ An implementation of a DKG protocol for front-running protection on public block
   the timings are not really significative: hashes to G2 is expensive
   and the pairing is not the most expensive part of the verification.
   
------------------------------------
-| verification of | timing (in ms) |
------------------------------------
+| verification of |               timing (in ms) |
+|-----------------------------------|------------|
 | a single signature | 3.8963 |
---------------------------------
 | a (7-10)-threshold signature | 18.150 |
---------------------------------
 | twenty (rand-10)-threshold signatures | 294.31 |
---------------------------------
 | a 20-multi-signature | 264.68|
---------------------------------
 
 **Next step:** look at aggregated signatures instead of signatures in
 order to see if the multi-verification is useful.
