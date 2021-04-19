@@ -211,6 +211,7 @@ pub fn bench_aggregated_sig_verification(c: &mut Criterion) {
     group.measurement_time(core::time::Duration::new(10, 0));
 }
 
+// computes 2*nb miller loops and 2*nb final exponentiations.
 pub fn bench_serie_aggregated_sig_verification(c: &mut Criterion) {
     let n = 10;
     let nb = 20;
@@ -237,6 +238,7 @@ pub fn bench_serie_aggregated_sig_verification(c: &mut Criterion) {
     group.measurement_time(core::time::Duration::new(10, 0));
 }
 
+// computes (nb + 1) miller loops and one final exponentiation
 pub fn bench_multi_aggregated_sig_verification(c: &mut Criterion) {
     let n = 10;
     let nb = 20;
