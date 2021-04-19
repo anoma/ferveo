@@ -53,7 +53,6 @@ pub fn sign_with_mk_g2(secret: Scalar, mk: G2Affine, msg: &[u8]) -> G2Affine {
 
 // verify a signature in G2 against a public key in G1
 pub fn verify_g2(pk: &G1Affine, sig: &G2Affine, msg: &[u8]) -> bool {
-    // TODO check subgroup and non-zero sig and pk ?
     let ml = multi_miller_loop(&[
         (pk, &hash_to_g2(msg).into()),
         (&-G1Affine::generator(), &(*sig).into()),
@@ -242,17 +241,6 @@ impl Setup {
         }
     }
 
-    /* verify a signature `sig` from `m` participants of the group
-     * defined in the setup.
-     */
-    pub fn verify_aggregated(
-        &self,
-        sig: &G2Affine,
-        msg: &[u8],
-    ) -> bool {
-    	verify_g2(&self.apk, sig, msg)
-    }
-
     /* Verify a threshold signature constructed from participants with the
      * given positions in the setup
      * See the AMS of section 4.3 of the eprint 2018/483.
@@ -283,6 +271,13 @@ impl Setup {
             (&apk, &mf_hash_sum.into()),
         ]);
         foo && Gt::identity() == ml.final_exponentiation()
+    }
+
+    /* verify a signature `sig` from `m` participants of the group
+     * defined in the setup.
+     */
+    pub fn verify_aggregated(&self, sig: &G2Affine, msg: &[u8]) -> bool {
+        verify_g2(&self.apk, sig, &self.prefix_apk(msg))
     }
 }
 
@@ -357,30 +352,31 @@ pub fn verify_multiple_sig(
 pub fn verify_multi_aggregated(
     setups: &[&Setup],
     sigs: &[G2Affine],
-    poss: &[&[usize]],
     msgs: &[&[u8]],
 ) -> bool {
-    let n = poss.len();
+    let n = setups.len();
     assert_eq!(n, sigs.len());
     assert_eq!(n, msgs.len());
-    
+
     let sig: G2Affine = sigs.into_iter().sum_by(G2Projective::from).into();
-    
+
     let mut ml_g1 = vec![G1Affine::identity(); n + 1];
     let mut ml_g2 = vec![G2Affine::identity().into(); n + 1];
-    
+
     ml_g1[0] = -G1Affine::generator();
     ml_g2[0] = sig.into();
 
     for i in 0..n {
-	ml_g1[i+1] = setups[i].apk;
-	ml_g2[i+1] = hash_to_g2(msgs[i]).into();
+        ml_g1[i + 1] = setups[i].apk;
+        ml_g2[i + 1] = hash_to_g2(&setups[i].prefix_apk(msgs[i])).into();
     }
 
     Gt::identity()
         == multi_miller_loop(
-	    &ml_g1.iter().zip(ml_g2.iter())
-	                   .collect::<Vec<(&G1Affine, &G2Prepared)>>(),
+            &ml_g1
+                .iter()
+                .zip(ml_g2.iter())
+                .collect::<Vec<(&G1Affine, &G2Prepared)>>(),
         )
         .final_exponentiation()
 }

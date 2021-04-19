@@ -26,18 +26,6 @@ pub fn bench_single_sig_verification(c: &mut Criterion) {
     group.measurement_time(core::time::Duration::new(10, 0));
 }
 
-pub fn aggregation_setup(n: usize) -> (Vec<Scalar>, Setup) {
-    let mut rng = rng();
-    let mut keypairs: Vec<Keypair> = (0..n)
-        .map(|_| <Scalar as ff::Field>::random(&mut rng).into())
-        .collect();
-    keypairs.sort();
-    let (secrets, pubkeys): (Vec<_>, Vec<_>) =
-        keypairs.iter().map(|kp| (kp.secret, kp.pubkey)).unzip();
-    let setup: Setup = pubkeys.into_iter().collect();
-    (secrets, setup)
-}
-
 pub fn threshold_setup(n: usize) -> (Vec<Scalar>, Setup, Vec<G2Affine>) {
     let mut rng = rng();
     let mut keypairs: Vec<Keypair> = (0..n)
@@ -57,25 +45,6 @@ pub fn threshold_setup(n: usize) -> (Vec<Scalar>, Setup, Vec<G2Affine>) {
     };
     let memkeys = (0..n).map(memkey).map(Option::unwrap).collect();
     (secrets, setup, memkeys)
-}
-
-pub fn random_aggregated_sign(
-    m: usize,
-    n: usize,
-    secrets: &Vec<Scalar>,
-    setup: &Setup,
-    msg: &[u8],
-) -> (Vec<usize>, G2Affine) {
-    let mut rng = rng();
-    let mut positions = (0..n).choose_multiple(&mut rng, m).to_vec();
-    positions.sort();
-    let signatures = positions.iter().map(|i| {
-	sign_g2(secrets[*i] * (*setup).coeffs[*i], &*setup.prefix_apk(msg))
-    });
-    (
-	positions.clone(),
-	signatures.map(G2Projective::from).sum::<G2Projective>().into(),
-    )
 }
 
 pub fn random_threshold_sign(
@@ -196,6 +165,78 @@ pub fn bench_multi_sig_verification(c: &mut Criterion) {
     group.measurement_time(core::time::Duration::new(10, 0));
 }
 
+///////////////////////////////////////////////////////////////
+
+pub fn aggregation_setup(n: usize) -> (Vec<Scalar>, Setup) {
+    let mut rng = rng();
+    let mut keypairs: Vec<Keypair> = (0..n)
+        .map(|_| <Scalar as ff::Field>::random(&mut rng).into())
+        .collect();
+    keypairs.sort();
+    let (secrets, pubkeys): (Vec<_>, Vec<_>) =
+        keypairs.iter().map(|kp| (kp.secret, kp.pubkey)).unzip();
+    let setup: Setup = pubkeys.into_iter().collect();
+    (secrets, setup)
+}
+
+pub fn aggregated_sign(
+    n: usize,
+    secrets: &Vec<Scalar>,
+    setup: &Setup,
+    msg: &[u8],
+) -> G2Affine {
+    let signatures: Vec<G2Affine> = (0..n)
+        .map(|i| {
+            sign_g2(secrets[i] * (*setup).coeffs[i], &*setup.prefix_apk(msg))
+        })
+        .collect();
+    signatures
+        .iter()
+        .map(G2Projective::from)
+        .sum::<G2Projective>()
+        .into()
+}
+
+pub fn bench_aggregated_sig_verification(c: &mut Criterion) {
+    let n = 10;
+    let (secrets, setup) = aggregation_setup(n);
+    let msg: &[u8] = b"Lorem ipsum, dolor sit amet";
+    let sig = aggregated_sign(n, &secrets, &setup, msg);
+    assert!(setup.verify_aggregated(&sig, msg));
+
+    let mut group = c.benchmark_group("Signature");
+    group.bench_function("Threshold signature verification", |b| {
+        b.iter(|| setup.verify_aggregated(&sig, msg))
+    });
+    group.measurement_time(core::time::Duration::new(10, 0));
+}
+
+pub fn bench_serie_aggregated_sig_verification(c: &mut Criterion) {
+    let n = 10;
+    let nb = 20;
+    // We use only one setup here and sign always the same message but
+    // this won't change the benchmarks.
+    let msg: &[u8] = b"Lorem ipsum, dolor sit amet";
+    let msgs: Vec<&[u8]> = (0..nb).map(|_| msg).collect();
+    let (secrets, setup) = aggregation_setup(n);
+    let setups: Vec<&Setup> = (0..nb).map(|_| &setup).collect();
+
+    let sigs: Vec<G2Affine> = msgs
+        .iter()
+        .map(|msg| aggregated_sign(n, &secrets, &setup, msg))
+        .collect();
+
+    let mut group = c.benchmark_group("Signature");
+    group.bench_function("Aggregated sig verification", |b| {
+        b.iter(|| {
+            for i in 0..nb {
+                assert!(setups[i].verify_aggregated(&sigs[i], msgs[i]));
+            }
+        })
+    });
+    group.measurement_time(core::time::Duration::new(10, 0));
+}
+
 pub fn bench_multi_aggregated_sig_verification(c: &mut Criterion) {
     let n = 10;
     let nb = 20;
@@ -206,32 +247,15 @@ pub fn bench_multi_aggregated_sig_verification(c: &mut Criterion) {
     let (secrets, setup) = aggregation_setup(n);
     let setups: Vec<&Setup> = (0..nb).map(|_| &setup).collect();
 
-    let pos_and_sigs: Vec<(Vec<usize>, G2Affine)> = (0..nb)
-        .map(|_| {
-            let mut rng = rand::thread_rng();
-            let m = rng.gen_range(1, n);
-            random_aggregated_sign(m, n, &secrets, &setup, msg)
-        })
+    let sigs: Vec<G2Affine> = msgs
+        .iter()
+        .map(|msg| aggregated_sign(n, &secrets, &setup, msg))
         .collect();
-    let (_poss, sigs): (Vec<_>, Vec<_>) = pos_and_sigs.iter().cloned().unzip();
 
-    let poss: Vec<&[_]> = _poss.iter().map(|pos| pos.as_slice()).collect();
-
-    println!("VERIFICATION DOES NOT WORK !\n\n\n\n\n");
-
-    assert!(verify_multi_aggregated(&setups, &sigs, &poss, &msgs));
-    
     let mut group = c.benchmark_group("Signature");
     group.bench_function("Aggregated sig verification", |b| {
         b.iter(|| {
-	    1+1
-            // assert!(verify_multiple_sig(
-            //     &setups,
-            //     &thresholds,
-            //     &sigs,
-            //     &poss,
-            //     &msgs,
-            // ));
+            assert!(verify_multi_aggregated(&setups, &sigs, &msgs,));
         })
     });
     group.measurement_time(core::time::Duration::new(10, 0));
@@ -243,6 +267,8 @@ criterion_group!(
     // bench_threshold_sig_verification,
     // bench_multiple_threshold_sig_verification,
     // bench_multi_sig_verification
+    //bench_aggregated_sig_verification,
+    bench_serie_aggregated_sig_verification,
     bench_multi_aggregated_sig_verification
 );
 criterion_main!(benches);
