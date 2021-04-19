@@ -22,11 +22,15 @@ An implementation of a DKG protocol for front-running protection on public block
 |-----------------------------------|------------|
 | a single signature | 4.49 |
 | a (7-10)-threshold signature | 20.56 |
-| twenty (rand-10)-threshold signatures | 348.79 |
-| a 20-multi-signature | 331.13|
+| twenty (rand-10)-threshold signatures | *348.79* |
+| a 20-multi-signature | *331.13* |
 | a 10-aggregated signature| 4.96 |
-| twenty 10-aggregated signatures | 95.44 |
-| a 20-multi-aggregated signature | 56.37 |
+| twenty 10-aggregated signatures | *95.44* |
+| a 20-multi-aggregated signature | *56.37* |
 
-**Next step:** look at aggregated signatures instead of signatures in
-order to see if the multi-verification is useful.
+* The multi-threshold sig verification is not very efficient because
+  it needs to compute key fragments and hashing to G2 is expensive.
+* The multi-aggregated sig verification leads to an efficient
+  verification, as shown in the last rows above. We compute the
+  verification in `N+1` miller loops (`ML`) and `1` final exponentiation
+  (`FE`), instead of `2N ML + 2N FE` with the series of verifications.
