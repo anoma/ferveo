@@ -87,7 +87,7 @@ pub fn bench_threshold_sig_verification(c: &mut Criterion) {
     group.measurement_time(core::time::Duration::new(10, 0));
 }
 
-pub fn bench_multiple_threshold_sig_verification(c: &mut Criterion) {
+pub fn bench_serie_threshold_sig_verification(c: &mut Criterion) {
     // computes nb * 3 * ML + nb * FE
     let n = 10;
     let nb = 20;
@@ -120,7 +120,7 @@ pub fn bench_multiple_threshold_sig_verification(c: &mut Criterion) {
     group.measurement_time(core::time::Duration::new(10, 0));
 }
 
-pub fn bench_multi_sig_verification(c: &mut Criterion) {
+pub fn bench_multi_threshold_sig_verification(c: &mut Criterion) {
     // computes (nb+1) * ML + 1 * FE
     let n = 10;
     let nb = 20;
@@ -205,7 +205,7 @@ pub fn bench_aggregated_sig_verification(c: &mut Criterion) {
     assert!(setup.verify_aggregated(&sig, msg));
 
     let mut group = c.benchmark_group("Signature");
-    group.bench_function("Threshold signature verification", |b| {
+    group.bench_function("Aggregated signature verification", |b| {
         b.iter(|| setup.verify_aggregated(&sig, msg))
     });
     group.measurement_time(core::time::Duration::new(10, 0));
@@ -228,7 +228,7 @@ pub fn bench_serie_aggregated_sig_verification(c: &mut Criterion) {
         .collect();
 
     let mut group = c.benchmark_group("Signature");
-    group.bench_function("Aggregated sig verification", |b| {
+    group.bench_function("Serie of aggregated sigs verification", |b| {
         b.iter(|| {
             for i in 0..nb {
                 assert!(setups[i].verify_aggregated(&sigs[i], msgs[i]));
@@ -255,7 +255,7 @@ pub fn bench_multi_aggregated_sig_verification(c: &mut Criterion) {
         .collect();
 
     let mut group = c.benchmark_group("Signature");
-    group.bench_function("Aggregated sig verification", |b| {
+    group.bench_function("Multi-aggregated sig verification", |b| {
         b.iter(|| {
             assert!(verify_multi_aggregated(&setups, &sigs, &msgs,));
         })
@@ -265,11 +265,11 @@ pub fn bench_multi_aggregated_sig_verification(c: &mut Criterion) {
 
 criterion_group!(
     benches,
-    // bench_single_sig_verification,
-    // bench_threshold_sig_verification,
-    // bench_multiple_threshold_sig_verification,
-    // bench_multi_sig_verification
-    //bench_aggregated_sig_verification,
+    bench_single_sig_verification,
+    bench_threshold_sig_verification,
+    bench_serie_threshold_sig_verification,
+    bench_multi_threshold_sig_verification,
+    bench_aggregated_sig_verification,
     bench_serie_aggregated_sig_verification,
     bench_multi_aggregated_sig_verification
 );
