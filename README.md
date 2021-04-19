@@ -20,10 +20,13 @@ An implementation of a DKG protocol for front-running protection on public block
   
 | verification of |               timing (in ms) |
 |-----------------------------------|------------|
-| a single signature | 3.8963 |
-| a (7-10)-threshold signature | 18.150 |
-| twenty (rand-10)-threshold signatures | 294.31 |
-| a 20-multi-signature | 264.68|
+| a single signature | 4.49 |
+| a (7-10)-threshold signature | 20.56 |
+| twenty (rand-10)-threshold signatures | 348.79 |
+| a 20-multi-signature | 331.13|
+| a 10-aggregated signature| 4.96 |
+| twenty 10-aggregated signatures | 95.44 |
+| a 20-multi-aggregated signature | 56.37 |
 
 **Next step:** look at aggregated signatures instead of signatures in
 order to see if the multi-verification is useful.
