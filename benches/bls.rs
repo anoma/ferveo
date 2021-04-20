@@ -265,11 +265,11 @@ pub fn bench_multi_aggregated_sig_verification(c: &mut Criterion) {
 
 criterion_group!(
     benches,
-    // bench_single_sig_verification,
-    // bench_threshold_sig_verification,
-    // bench_serie_threshold_sig_verification,
-    // bench_multi_threshold_sig_verification,
-    // bench_aggregated_sig_verification,
+    bench_single_sig_verification,
+    bench_threshold_sig_verification,
+    bench_serie_threshold_sig_verification,
+    bench_multi_threshold_sig_verification,
+    bench_aggregated_sig_verification,
     bench_serie_aggregated_sig_verification,
     bench_multi_aggregated_sig_verification
 );
