@@ -1,6 +1,6 @@
 #![allow(clippy::many_single_char_names)]
 #![allow(non_snake_case)]
-#![feature(bindings_after_at)]
+//#![feature(bindings_after_at)]
 
 use ark_bls12_381::Fr;
 use ark_ff::UniformRand;

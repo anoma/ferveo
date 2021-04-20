@@ -6,103 +6,397 @@
 use ark_bls12_381::{Fr, G1Affine};
 use num::integer::div_ceil;
 use rand::Rng;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::rc::Rc;
 type Scalar = Fr;
+use crate::msg::{Message, MessagePayload, SignedMessage};
+use crate::syncvss;
+use crate::syncvss::dh;
+use anyhow::anyhow;
 use ark_poly::{
     polynomial::univariate::DensePolynomial, polynomial::UVPolynomial,
     EvaluationDomain, Polynomial,
 };
-use std::collections::BTreeMap;
-//use ed25519_dalek::{Signature, Signer, PublicKey, Verifier};
-use crate::syncvss;
 use ed25519_dalek as ed25519;
 
 // DKG parameters
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct Params {
-    pub f: u32, // failure threshold
-    //pub n: u32, // number of participants
-    pub t: u32, // threshold
+    pub failure_threshold: u32,  // failure threshold
+    pub security_threshold: u32, // threshold
+    pub total_weight: u32,       // total weight
 }
 
-#[derive(Copy, Clone, PartialEq)]
-pub struct ParticipantKeys {
-    pub signing_key: ed25519::PublicKey,
-    pub encryption_key: crypto_box::PublicKey,
+#[derive(Debug)]
+pub struct ParticipantBuilder {
+    pub ed_key: ed25519::PublicKey,
+    pub dh_key: dh::AsymmetricPublicKey,
+    pub stake: f64,
 }
+
+#[derive(Clone, Debug)]
 pub struct Participant {
-    pub keys: ParticipantKeys,
+    pub ed_key: ed25519::PublicKey,
+    pub dh_key: dh::AsymmetricPublicKey,
     pub weight: u32,
-    pub share_index: usize,
+    pub share_range: std::ops::Range<usize>,
     pub share_domain: Option<Vec<Scalar>>, // Not every share domain needs to be generated, necessarily
+}
+
+impl Participant {
+    pub fn init_share_domain(
+        &mut self,
+        domain: &ark_poly::Radix2EvaluationDomain<Scalar>,
+    ) {
+        if self.share_domain == None {
+            use ark_ff::Field;
+            let mut share_domain = Vec::with_capacity(self.share_range.len());
+            let omega = domain.group_gen.pow(&[self.share_range.start as u64]);
+            let mut domain_element = omega;
+            for _ in 0..self.share_range.len() {
+                share_domain.push(domain_element);
+                domain_element *= omega;
+            }
+            self.share_domain = Some(share_domain);
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum State {
+    Init {
+        participants: Vec<ParticipantBuilder>,
+    },
+    Sharing {
+        finalized_weight: u32,
+    },
+    Success,
+    Failure,
 }
 
 pub struct Context {
     pub tau: u32,
-    pub my_index: u32,
-    pub my_encryption_key: crypto_box::SecretKey,
-    pub my_signature_key: ed25519::Keypair,
+    pub dh_key: dh::AsymmetricKeypair,
+    pub ed_key: ed25519::Keypair,
     pub params: Params,
     pub participants: Vec<Participant>,
+    pub vss: BTreeMap<u32, syncvss::sh::Context>,
     pub domain: ark_poly::Radix2EvaluationDomain<Scalar>,
-    pub recv_dealings: HashMap<[u8; 32], syncvss::sh::DealtShares>,
-    pub recv_shares: BTreeMap<u32, syncvss::Share>,
-    pub recv_weight: u32,
+    pub state: State,
+    pub me: usize,
 }
 
 impl Context {
-    pub fn new(
-        me: &ParticipantKeys,
-        my_encryption_key: crypto_box::SecretKey,
-        my_signature_key: ed25519::Keypair,
+    pub fn new<R: rand::Rng + rand::CryptoRng + Sized>(
         tau: u32,
-        params: Params,
-        weights: &[(ParticipantKeys, u32)],
+        ed_key: ed25519::Keypair,
+        params: &Params,
+        rng: &mut R,
     ) -> Context {
-        let mut rng = rand::thread_rng();
-        //let my_encryption_key = crypto_box::SecretKey::generate(&mut rng);
-        let total_weight: u32 = weights.iter().map(|(_, i)| *i).sum();
         let domain = ark_poly::Radix2EvaluationDomain::<Scalar>::new(
-            total_weight as usize,
+            params.total_weight as usize,
         )
         .unwrap();
 
-        let mut participants = vec![];
-        let mut share_element = Scalar::from(1u64);
-        let mut share_index = 0usize;
-        let mut my_index = None;
-        for (i, (keys, weight)) in weights.iter().enumerate() {
-            if *keys == *me {
-                my_index = Some(i as u32);
-            }
-            let mut share_domain = vec![];
-            for _share in 0..*weight as usize {
-                share_domain.push(share_element);
-                share_element *= domain.group_gen;
-            }
-            let share_domain = Some(share_domain);
-            participants.push(Participant {
-                keys: *keys,
-                weight: *weight,
-                share_index,
-                share_domain,
-            });
-            share_index += *weight as usize;
-        }
-        let my_index = my_index.unwrap();
-
         Context {
             tau,
-            my_index,
-            my_encryption_key,
-            my_signature_key,
-            params,
-            participants,
+            dh_key: dh::AsymmetricKeypair::new(rng),
+            ed_key,
+            params: *params,
+            participants: vec![],
+            vss: BTreeMap::new(),
             domain,
-            recv_dealings: HashMap::new(),
-            recv_shares: BTreeMap::new(),
-            recv_weight: 0u32,
+            state: State::Init {
+                participants: vec![],
+            },
+            me: 0, // TODO: invalid value
+        }
+    }
+    pub fn final_key(&self) -> G1Affine {
+        use crate::syncvss::sh::State as VSSState;
+        use ark_ff::Zero;
+        self.vss
+            .iter()
+            .filter_map(|(_, vss)| {
+                if let VSSState::Success { final_secret } = vss.state {
+                    Some(final_secret)
+                } else {
+                    None
+                }
+            })
+            // .sum() //TODO: it would be nice to use Sum trait here, but not implemented for G1Affine
+            .fold(G1Affine::zero(), |i, j| i + j)
+    }
+
+    pub fn announce(&mut self, stake: u64) -> SignedMessage {
+        /*if let State::Init { participants } = &mut self.state {
+            participants.push(ParticipantBuilder {
+                ed_key: self.ed_key.public,
+                dh_key: self.dh_key.public(),
+                stake: stake as f64,
+            });
+        }*/
+        SignedMessage::new(
+            &Message {
+                tau: self.tau,
+                payload: MessagePayload::Announce {
+                    stake,
+                    dh_key: self.dh_key.public(),
+                },
+            },
+            &self.ed_key,
+        )
+    }
+    pub fn deal_if_turn<R: rand::Rng + rand::CryptoRng + Sized>(
+        &mut self,
+        rng: &mut R,
+    ) -> Option<SignedMessage> {
+        let mut initial_phase_weight = 0u32;
+        for (i, p) in self.participants.iter().enumerate() {
+            initial_phase_weight += p.weight;
+            if initial_phase_weight
+                >= self.params.total_weight - self.params.security_threshold
+            {
+                if i >= self.me {
+                    return Some(self.deal(rng));
+                } else {
+                    return None;
+                }
+            }
+        }
+        None
+    }
+
+    pub fn deal<R: rand::Rng + rand::CryptoRng + Sized>(
+        &mut self,
+        rng: &mut R,
+    ) -> SignedMessage {
+        use ark_std::UniformRand;
+
+        let vss = crate::syncvss::sh::Context::new_send(
+            &Scalar::rand(rng),
+            &self,
+            rng,
+        );
+
+        let encrypted_shares = vss.encrypted_shares.clone();
+        self.vss.insert(self.me as u32, vss);
+
+        SignedMessage::new(
+            &Message {
+                tau: self.tau,
+                payload: MessagePayload::EncryptedShares(encrypted_shares),
+            },
+            &self.ed_key,
+        )
+    }
+    pub fn partition_domain(&mut self) {
+        if let State::Init { participants } = &mut self.state {
+            // Sort participants from greatest to least stake
+            participants.sort_by(|a, b| b.stake.partial_cmp(&a.stake).unwrap());
+        }
+        //TODO: the borrow checker demands this immutable borrow
+        if let State::Init { participants } = &self.state {
+            // Compute the total amount staked
+            let total_stake: f64 =
+                participants.iter().map(|p| p.stake).sum::<f64>().into();
+
+            // Compute the weight of each participant rounded down
+            let mut weights: Vec<u32> = participants
+                .iter()
+                .map(|p| {
+                    ((self.params.total_weight as f64) * p.stake / total_stake)
+                        .floor() as u32
+                })
+                .collect();
+
+            // Add any excess weight to the largest weight participants
+            let adjust_weight = self
+                .params
+                .total_weight
+                .checked_sub(weights.iter().sum())
+                .unwrap() as usize;
+            for i in &mut weights[0..adjust_weight] {
+                *i += 1;
+            }
+
+            // total_weight is allocated among all participants
+            assert_eq!(weights.iter().sum::<u32>(), self.params.total_weight);
+
+            let mut allocated_weight = 0usize;
+            for (participant, weight) in participants.iter().zip(weights) {
+                self.participants.push(Participant {
+                    ed_key: participant.ed_key,
+                    dh_key: participant.dh_key,
+                    weight,
+                    share_range: allocated_weight
+                        ..allocated_weight + weight as usize,
+                    share_domain: None,
+                });
+                allocated_weight =
+                    allocated_weight.checked_add(weight as usize).unwrap();
+            }
+            self.me = self
+                .participants
+                .iter()
+                .position(|p| p.ed_key == self.ed_key.public)
+                .unwrap(); //TODO: can unwrap fail?
+            self.participants
+                .get_mut(self.me)
+                .unwrap()
+                .init_share_domain(&self.domain);
+        }
+    }
+    pub fn finish_announce(&mut self) {
+        self.partition_domain();
+        self.state = State::Sharing {
+            finalized_weight: 0u32,
+        };
+    }
+
+    pub fn handle_message(
+        &mut self,
+        msg: &crate::msg::SignedMessage,
+    ) -> Result<Option<SignedMessage>, anyhow::Error> {
+        use crate::msg::MessagePayload;
+        let signer = msg.signer;
+        let msg = msg.verify()?;
+
+        if msg.tau != self.tau {
+            return Err(anyhow!(
+                "wrong tau={}, expected tau={}",
+                msg.tau,
+                self.tau
+            ));
+        }
+        match msg.payload {
+            MessagePayload::Announce { stake, dh_key } => {
+                if let State::Init { participants } = &mut self.state {
+                    participants.push(ParticipantBuilder {
+                        ed_key: signer,
+                        dh_key,
+                        stake: stake as f64,
+                    });
+                }
+                Ok(None)
+            }
+            MessagePayload::EncryptedShares(encrypted_shares) => {
+                if signer == self.ed_key.public {
+                    //
+                    return Ok(Some(SignedMessage::new(
+                        &Message {
+                            tau: self.tau,
+                            payload: MessagePayload::Ready(
+                                crate::syncvss::sh::ReadyMsg {
+                                    dealer: self.me as u32,
+                                    commitment: self.vss[&(self.me as u32)]
+                                        .encrypted_shares
+                                        .commitment,
+                                },
+                            ),
+                        },
+                        &self.ed_key,
+                    )));
+                }
+                if let State::Sharing { finalized_weight } = self.state {
+                    let dealer = self
+                        .participants
+                        .iter()
+                        .position(|p| p.ed_key == signer)
+                        .unwrap() as u32; //TODO: unwrap can fail; also this is not a good workaround for finding dealer from ed_key
+                    if self.vss.contains_key(&dealer) {
+                        return Err(anyhow!("Repeat dealer {}", dealer));
+                    }
+                    let mut vss = crate::syncvss::sh::Context::new_recv(
+                        dealer,
+                        &encrypted_shares,
+                        self,
+                    )?;
+                    let commitment = vss.encrypted_shares.commitment.clone();
+                    self.vss.insert(dealer, vss);
+                    return Ok(Some(SignedMessage::new(
+                        &Message {
+                            tau: self.tau,
+                            payload: MessagePayload::Ready(
+                                crate::syncvss::sh::ReadyMsg {
+                                    dealer,
+                                    commitment,
+                                },
+                            ),
+                        },
+                        &self.ed_key,
+                    )));
+                }
+                Ok(None)
+            }
+            MessagePayload::Ready(ready) => {
+                if let State::Sharing { finalized_weight } = self.state {
+                    if let Some(vss) = self.vss.get_mut(&ready.dealer) {
+                        let signer_weight = self
+                            .participants
+                            .iter()
+                            .find(|p| p.ed_key == signer)
+                            .unwrap()
+                            .weight; //TODO: unwrap can fail; also this is not a good workaround for finding signer from ed_key
+
+                        let new_weight =
+                            vss.handle_ready(&signer, &ready, signer_weight)?;
+                        if new_weight
+                            >= self.params.total_weight
+                                //- self.params.failure_threshold
+                                - self.params.security_threshold
+                        {
+                            if let Some(finalize) = vss.finalize_msg {
+                                vss.finalize_msg = None;
+                                return Ok(Some(SignedMessage::new(
+                                    &Message {
+                                        tau: self.tau,
+                                        payload: MessagePayload::Finalize(
+                                            finalize,
+                                        ),
+                                    },
+                                    &self.ed_key,
+                                )));
+                            }
+                        }
+                    }
+                }
+                Ok(None)
+            }
+            MessagePayload::Finalize(finalize) => {
+                if let State::Sharing { finalized_weight } = self.state {
+                    let dealer = self
+                        .participants
+                        .iter()
+                        .position(|p| p.ed_key == signer)
+                        .unwrap() as u32; //TODO: unwrap can fail; also this is not a good workaround for finding dealer from ed_key
+
+                    if let Some(context) = self.vss.get_mut(&dealer) {
+                        let minimum_ready_weight = self.params.total_weight
+                            //- self.params.failure_threshold
+                            - self.params.security_threshold;
+                        context
+                            .handle_finalize(&finalize, minimum_ready_weight)?;
+                        // Finalize succeeded
+                        let finalized_weight = finalized_weight
+                            + self.participants[dealer as usize].weight;
+                        if finalized_weight >= minimum_ready_weight {
+                            self.state = State::Success;
+                        } else {
+                            self.state = State::Sharing { finalized_weight };
+                        }
+                    }
+                }
+                Ok(None)
+            }
+            MessagePayload::Dispute(dispute) => {
+                use crate::syncvss::dispute;
+                match dispute::handle_dispute(self, &dispute) {
+                    // TODO: Do something important with dispute result
+                    dispute::DisputeResolution::DealerFault => Ok(None),
+                    dispute::DisputeResolution::ComplainerFault => Ok(None),
+                }
+            }
         }
     }
 }
@@ -110,74 +404,106 @@ impl Context {
 #[test]
 fn dkg() {
     let mut rng = rand::thread_rng();
+    use syncvss::dh;
 
+    let params = Params {
+        failure_threshold: 1,
+        security_threshold: 33,
+        total_weight: 100,
+    };
     for _ in 0..10 {
-        let mut secret_participants_x = vec![];
-        for _ in 0..7 {
-            secret_participants_x
-                .push(crypto_box::SecretKey::generate(&mut rng));
+        let mut contexts = vec![];
+        for _ in 0..10 {
+            contexts.push(Context::new(
+                0u32, //tau
+                ed25519::Keypair::generate(&mut rng),
+                &params,
+                &mut rng,
+            ));
         }
+        use std::collections::VecDeque;
+        let mut messages = VecDeque::new();
 
-        let mut participants_ed = vec![];
-        for _ in 0..7 {
-            participants_ed.push(ed25519::Keypair::generate(&mut rng));
-        }
-
-        let sender = ed25519::Keypair::generate(&mut rng);
-        let receiver = ed25519::Keypair::generate(&mut rng);
-
-        let sender_x = crypto_box::SecretKey::generate(&mut rng);
-        let receiver_x = crypto_box::SecretKey::generate(&mut rng);
-
-        let mut participant_keys = vec![
-            ParticipantKeys {
-                signing_key: sender.public,
-                encryption_key: crypto_box::PublicKey::from(&sender_x.clone()),
-            },
-            ParticipantKeys {
-                signing_key: receiver.public,
-                encryption_key: crypto_box::PublicKey::from(
-                    &receiver_x.clone(),
-                ),
-            },
+        let stake = vec![
+            10u64, 20u64, 30u64, 40u64, 50u64, 60u64, 70u64, 80u64, 90u64,
+            100u64,
         ];
-
-        for i in 2..9 {
-            participant_keys.push(ParticipantKeys {
-                signing_key: participants_ed[i - 2].public,
-                encryption_key: crypto_box::PublicKey::from(
-                    &secret_participants_x[i - 2].clone(),
-                ),
-            });
-        }
-        let mut weights = vec![];
-        for pk in &participant_keys {
-            weights.push((*pk, 5))
+        for (participant, stake) in contexts.iter_mut().zip(stake.iter()) {
+            let announce = participant.announce(*stake);
+            messages.push_back(announce);
         }
 
-        let mut send_context = Context::new(
-            &participant_keys[0],
-            sender_x,
-            sender,
-            0u32,
-            Params { f: 1, t: 3 * 5 },
-            weights.as_slice(),
-        );
+        let msg_loop =
+            |contexts: &mut Vec<Context>,
+             messages: &mut VecDeque<SignedMessage>| loop {
+                if messages.is_empty() {
+                    break;
+                }
+                let message = messages.pop_front().unwrap();
+                for node in contexts.iter_mut() {
+                    let new_msg = node.handle_message(&message).unwrap();
+                    if let Some(new_msg) = new_msg {
+                        messages.push_back(new_msg);
+                    }
+                }
+            };
+
+        msg_loop(&mut contexts, &mut messages);
+
+        for participant in contexts.iter_mut() {
+            participant.finish_announce();
+        }
+
+        msg_loop(&mut contexts, &mut messages);
+
+        for participant in contexts.iter_mut() {
+            let msg = participant.deal_if_turn(&mut rng);
+            if let Some(msg) = msg {
+                messages.push_back(msg);
+            }
+        }
 
         use ark_ff::Zero;
-        let msg =
-            syncvss::sh::deal_shares(&mut rng, Scalar::zero(), &send_context);
+        let mut final_secret = G1Affine::zero();
+        for c in contexts.iter() {
+            for v in c.vss.values() {
+                if let Some(finalize_msg) = v.finalize_msg {
+                    final_secret = final_secret + finalize_msg.rebased_secret;
+                }
+            }
+        }
+        let final_secret: G1Affine = final_secret.into();
+        //dbg!(&final_secret);
 
-        let mut recv_context = Context::new(
-            &participant_keys[1],
-            receiver_x,
-            receiver,
-            0u32,
-            Params { f: 1, t: 3 * 5 },
-            weights.as_slice(),
-        );
+        msg_loop(&mut contexts, &mut messages);
 
-        let shares =
-            syncvss::sh::recv_dealing(&mut recv_context, msg.0).unwrap();
+        /*for (i, vss) in contexts[0].vss.iter() {
+            if let crate::syncvss::sh::State::Success { final_secret } =
+                vss.state
+            {
+                dbg!(i);
+                //dbg!(&final_secret.x);
+            }
+        }
+
+        for (i, vss) in contexts[1].vss.iter() {
+            if let crate::syncvss::sh::State::Success { final_secret } =
+                vss.state
+            {
+                dbg!(i);
+                //dbg!(&final_secret.x);
+            }
+        }*/
+        for participant in contexts.iter() {
+            //dbg!(&participant.state);
+            assert!(matches!(participant.state, State::Success));
+        }
+        let final_keys = contexts
+            .iter()
+            .map(|c| c.final_key())
+            .collect::<Vec<G1Affine>>();
+
+        //dbg!(&final_keys);
+        assert!(final_keys.iter().all(|&key| key == final_secret));
     }
 }

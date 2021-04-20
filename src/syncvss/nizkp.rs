@@ -3,7 +3,6 @@
 use crate::dkg;
 use ark_serialize::*;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-//use blake2::{Blake2b, Digest};
 use blake2b_simd::{Params, State};
 use rand::{CryptoRng, RngCore};
 use std::convert::TryInto;
@@ -89,9 +88,11 @@ impl NIZKP {
     }
 }
 
-#[derive(CanonicalSerialize, CanonicalDeserialize)]
+#[derive(Serialize, Deserialize, Copy, Clone)]
 pub struct NIZKP_BLS {
+    #[serde(with = "crate::ark_serde")]
     pub c: Scalar,
+    #[serde(with = "crate::ark_serde")]
     pub r: Scalar,
 }
 impl NIZKP_BLS {
@@ -114,7 +115,7 @@ impl NIZKP_BLS {
         params.hash_length(32);
         let mut hasher = params.to_state();
 
-        let c: Scalar;
+        let c: Scalar; //TODO: use hash to field
         loop {
             let mut buf = Vec::new();
             x_1.write(&mut buf);
@@ -129,6 +130,7 @@ impl NIZKP_BLS {
                 break;
             }
         }
+
         let r = w - *alpha * c;
 
         NIZKP_BLS { c, r }
