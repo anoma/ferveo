@@ -58,16 +58,15 @@ pub fn sign_with_mk_g2(secret: Scalar, mk: G2Affine, msg: &[u8]) -> G2Affine {
 // verify a signature in G2 against a public key in G1
 pub fn verify_g2(pk: &G1Affine, sig: &G2Affine, msg: &[u8]) -> bool {
     if !validate_pubkey(pk) {
-	false
-    }
-    else {
-	let ml = multi_miller_loop(&[
+        false
+    } else {
+        let ml = multi_miller_loop(&[
             (pk, &hash_to_g2(msg).into()),
             (&-G1Affine::generator(), &(*sig).into()),
-	]);
-	*pk != G1Affine::identity() &&
-	    *sig != G2Affine::identity() &&
-	    Gt::identity() == ml.final_exponentiation()
+        ]);
+        *pk != G1Affine::identity()
+            && *sig != G2Affine::identity()
+            && Gt::identity() == ml.final_exponentiation()
     }
 }
 #[derive(Eq, PartialEq)]
@@ -283,19 +282,18 @@ impl Setup {
         foo && Gt::identity() == ml.final_exponentiation()
     }
 
-    /* 
+    /*
      * verify a signature `sig` from the participants of the group
      * defined in the setup.
      */
-    pub fn verify_aggregated(&self, sig: &G2Affine, msg: &[u8]) ->
-	bool {
-	    // key validation
-	    let mut foo: bool = true;
-	    for pk in self.pubkeys.iter() {
-		foo = foo && validate_pubkey(&pk);
-	    }
-	    foo && verify_g2(&self.apk, sig, &self.prefix_apk(msg))
-	}
+    pub fn verify_aggregated(&self, sig: &G2Affine, msg: &[u8]) -> bool {
+        // key validation
+        let mut foo: bool = true;
+        for pk in self.pubkeys.iter() {
+            foo = foo && validate_pubkey(&pk);
+        }
+        foo && verify_g2(&self.apk, sig, &self.prefix_apk(msg))
+    }
 }
 
 /*
@@ -310,7 +308,7 @@ pub fn verify_multi_threshold_sig(
     msgs: &[&[u8]],
 ) -> bool {
     let n = (*setups).len();
-    assert!(n>0);
+    assert!(n > 0);
     assert_eq!(n, thresholds.len());
     assert_eq!(n, sigs.len());
     assert_eq!(n, positions.len());
@@ -347,7 +345,7 @@ pub fn verify_multi_threshold_sig(
                     &mut msg_hash,
                     &mut apk,
                     &mut mf_hash_sum,
-		);
+                );
             ml_g1[2 * i + 1] = appk;
             ml_g2[2 * i + 1] = msg_hash.into();
             ml_g1[2 * i + 2] = apk;
@@ -379,30 +377,29 @@ pub fn verify_multi_aggregated_sig(
     // key validation
     let mut foo: bool = true;
     for i in 0..n {
-	for pk in setups[i].pubkeys.iter() {
-	    foo = foo && validate_pubkey(&pk);
-	}
+        for pk in setups[i].pubkeys.iter() {
+            foo = foo && validate_pubkey(&pk);
+        }
     }
     if !foo {
-	false
-    }
-    else {
-	let sig: G2Affine = sigs.into_iter().sum_by(G2Projective::from).into();
+        false
+    } else {
+        let sig: G2Affine = sigs.into_iter().sum_by(G2Projective::from).into();
 
-	let mut ml_g1 = vec![G1Affine::identity(); n + 1];
-	let mut ml_g2 = vec![G2Affine::identity().into(); n + 1];
-	
-	ml_g1[0] = -G1Affine::generator();
-	ml_g2[0] = sig.into();
-	
-	for i in 0..n {
+        let mut ml_g1 = vec![G1Affine::identity(); n + 1];
+        let mut ml_g2 = vec![G2Affine::identity().into(); n + 1];
+
+        ml_g1[0] = -G1Affine::generator();
+        ml_g2[0] = sig.into();
+
+        for i in 0..n {
             ml_g1[i + 1] = setups[i].apk;
             ml_g2[i + 1] = hash_to_g2(&setups[i].prefix_apk(msgs[i])).into();
-	}
-	
-	Gt::identity()
+        }
+
+        Gt::identity()
             == multi_miller_loop(
-		&ml_g1
+                &ml_g1
                     .iter()
                     .zip(ml_g2.iter())
                     .collect::<Vec<(&G1Affine, &G2Prepared)>>(),
