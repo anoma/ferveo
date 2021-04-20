@@ -142,7 +142,7 @@ pub fn bench_multi_threshold_sig_verification(c: &mut Criterion) {
     let msgs: Vec<&[u8]> = (0..nb).map(|_| msg).collect();
 
     let poss: Vec<&[_]> = _poss.iter().map(|pos| pos.as_slice()).collect();
-    assert!(verify_multiple_sig(
+    assert!(verify_multi_threshold_sig(
         &setups,
         &thresholds,
         &sigs,
@@ -153,7 +153,7 @@ pub fn bench_multi_threshold_sig_verification(c: &mut Criterion) {
     let mut group = c.benchmark_group("Signature");
     group.bench_function("Mutli threshold sigs verification", |b| {
         b.iter(|| {
-            assert!(verify_multiple_sig(
+            assert!(verify_multi_threshold_sig(
                 &setups,
                 &thresholds,
                 &sigs,
@@ -214,7 +214,7 @@ pub fn bench_aggregated_sig_verification(c: &mut Criterion) {
 // computes 2*nb miller loops and 2*nb final exponentiations.
 pub fn bench_serie_aggregated_sig_verification(c: &mut Criterion) {
     let n = 10;
-    let nb = 20;
+    let nb = 50;
     // We use only one setup here and sign always the same message but
     // this won't change the benchmarks.
     let msg: &[u8] = b"Lorem ipsum, dolor sit amet";
@@ -241,7 +241,7 @@ pub fn bench_serie_aggregated_sig_verification(c: &mut Criterion) {
 // computes (nb + 1) miller loops and one final exponentiation
 pub fn bench_multi_aggregated_sig_verification(c: &mut Criterion) {
     let n = 10;
-    let nb = 20;
+    let nb = 50;
     // We use only one setup here and sign always the same message but
     // this won't change the benchmarks.
     let msg: &[u8] = b"Lorem ipsum, dolor sit amet";
@@ -257,7 +257,7 @@ pub fn bench_multi_aggregated_sig_verification(c: &mut Criterion) {
     let mut group = c.benchmark_group("Signature");
     group.bench_function("Multi-aggregated sig verification", |b| {
         b.iter(|| {
-            assert!(verify_multi_aggregated(&setups, &sigs, &msgs,));
+            assert!(verify_multi_aggregated_sig(&setups, &sigs, &msgs,));
         })
     });
     group.measurement_time(core::time::Duration::new(10, 0));
@@ -265,11 +265,11 @@ pub fn bench_multi_aggregated_sig_verification(c: &mut Criterion) {
 
 criterion_group!(
     benches,
-    bench_single_sig_verification,
-    bench_threshold_sig_verification,
-    bench_serie_threshold_sig_verification,
-    bench_multi_threshold_sig_verification,
-    bench_aggregated_sig_verification,
+    // bench_single_sig_verification,
+    // bench_threshold_sig_verification,
+    // bench_serie_threshold_sig_verification,
+    // bench_multi_threshold_sig_verification,
+    // bench_aggregated_sig_verification,
     bench_serie_aggregated_sig_verification,
     bench_multi_aggregated_sig_verification
 );
