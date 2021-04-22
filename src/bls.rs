@@ -406,3 +406,26 @@ pub fn verify_multi_aggregated_sig(
             .final_exponentiation()
     }
 }
+
+pub fn dealer_gen_keys(n: usize) {
+    
+    // compute a secret s, secret shares s_i, and the public key
+    // associated for verifying a (complete) sig
+}
+
+pub fn partial_sign() {
+    // sign a message with a secret share s_i
+}
+
+pub fn sign() {
+    // produce a signature from partial sigs
+}
+
+pub fn verify() {
+    // verify a (partial or not) sig, given a public key
+}
+
+#[test]
+pub fn test_aaa() {
+    assert_eq!(1+1,2);
+}
