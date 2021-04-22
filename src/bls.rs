@@ -69,6 +69,7 @@ pub fn verify_g2(pk: &G1Affine, sig: &G2Affine, msg: &[u8]) -> bool {
             && Gt::identity() == ml.final_exponentiation()
     }
 }
+
 #[derive(Eq, PartialEq)]
 pub struct Keypair {
     pub secret: Scalar,
@@ -385,10 +386,8 @@ pub fn verify_multi_aggregated_sig(
         false
     } else {
         let sig: G2Affine = sigs.into_iter().sum_by(G2Projective::from).into();
-
         let mut ml_g1 = vec![G1Affine::identity(); n + 1];
         let mut ml_g2 = vec![G2Affine::identity().into(); n + 1];
-
         ml_g1[0] = -G1Affine::generator();
         ml_g2[0] = sig.into();
 
