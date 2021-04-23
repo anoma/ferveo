@@ -8,12 +8,7 @@ use bls12_381::{
     G2Projective, Gt, Scalar,
 };
 
-use rand::{Rng, thread_rng, SeedableRng, seq::IteratorRandom};
-
-// Fixed seed for reproducability
-fn rng() -> rand::rngs::StdRng {
-    rand::rngs::StdRng::seed_from_u64(0)
-}
+use rand::{seq::IteratorRandom, thread_rng, Rng, SeedableRng};
 
 pub fn random_scalar<R: Rng>(rng: &mut R) -> Scalar {
     let mut buf = [0; 64];
@@ -199,78 +194,80 @@ impl Setup {
     }
 }
 
-pub fn verify_multi_aggregated_sig(
-    setups: &[&Setup],
+// verify multi signatures for a single group
+// signtures are build from `build_group_signature`
+pub fn verify_multi_sigs(
     sigs: &[G2Affine],
+    group_pubkey: G1Affine,
     msgs: &[&[u8]],
 ) -> bool {
-    let n = setups.len();
-    assert_eq!(n, sigs.len());
-    assert_eq!(n, msgs.len());
-
-    // key validation
-    let mut foo: bool = true;
-    for i in 0..n {
-        for pk in setups[i].pubkeys.iter() {
-            foo = foo && validate_pubkey(&pk);
-        }
-    }
-    if !foo {
+    if !validate_pubkey(&group_pubkey) {
         false
     } else {
+        let n = sigs.len();
+        assert_eq!(n, msgs.len());
         let sig: G2Affine = sigs.into_iter().sum_by(G2Projective::from).into();
-        let mut ml_g1 = vec![G1Affine::identity(); n + 1];
-        let mut ml_g2 = vec![G2Affine::identity().into(); n + 1];
-        ml_g1[0] = -G1Affine::generator();
-        ml_g2[0] = sig.into();
-
-        for i in 0..n {
-            ml_g1[i + 1] = setups[i].apk;
-            ml_g2[i + 1] = hash_to_g2(&setups[i].prefix_apk(msgs[i])).into();
+        let mut sum_hash_msgs = G2Projective::identity();
+        for msg in msgs.iter() {
+            sum_hash_msgs = sum_hash_msgs + hash_to_g2(msg);
         }
-
-        Gt::identity()
-            == multi_miller_loop(
-                &ml_g1
-                    .iter()
-                    .zip(ml_g2.iter())
-                    .collect::<Vec<(&G1Affine, &G2Prepared)>>(),
-            )
-            .final_exponentiation()
+        let sum_hash_msgs_aff: G2Affine = sum_hash_msgs.into();
+        let ml = multi_miller_loop(&[
+            (&group_pubkey, &sum_hash_msgs_aff.into()),
+            (&-G1Affine::generator(), &sig.into()),
+        ]);
+        Gt::identity() == ml.final_exponentiation()
     }
 }
 
-pub fn dealer_gen_keys(n: usize) {
-    
-    // compute a secret s, secret shares s_i, and the public key
-    // associated for verifying a (complete) sig
+pub fn verify_partial_sigs(
+    partial_sigs: &[G2Affine],
+    pubkeys: &[G1Affine],
+    msg: &[u8],
+) -> bool {
+    for pubkey in pubkeys.iter() {
+        if !validate_pubkey(pubkey) {
+            return false;
+        }
+    }
+    let mut sigma = G2Projective::identity();
+    let mut pk = G1Projective::identity();
+    for (sig, pubkey) in partial_sigs.iter().zip(pubkeys.iter()) {
+        sigma = sigma + sig;
+        pk = pk + pubkey;
+    }
+    verify_g2(&pk.into(), &sigma.into(), msg)
 }
 
-pub fn sign(
+pub fn build_group_sign(
     partial_sigs: &[G2Affine],
-    positions: &[usize]
+    positions: &[usize],
 ) -> G2Affine {
     // Compute the lagrange coefficients in O(t²) using a naive algorithm
     let mut tmp = Scalar::one();
     let mut inv = Scalar::one();
-    let lagrange_0 : Vec<Scalar> = positions.iter().map(|j| {
-	tmp = Scalar::one();
-	for k in positions.iter() {
-	    if *k != *j {
-		tmp = tmp * Scalar::from(*k as u32);
-		inv = Scalar::invert(
-		    &(Scalar::from(*k as u32) - Scalar::from(*j as u32))
-		).unwrap();
-		tmp = tmp * inv;
-	    }
-	}
-	tmp
-    }).collect();
-    
+    let lagrange_0: Vec<Scalar> = positions
+        .iter()
+        .map(|j| {
+            tmp = Scalar::one();
+            for k in positions.iter() {
+                if *k != *j {
+                    tmp = tmp * Scalar::from(*k as u32);
+                    inv = Scalar::invert(
+                        &(Scalar::from(*k as u32) - Scalar::from(*j as u32)),
+                    )
+                    .unwrap();
+                    tmp = tmp * inv;
+                }
+            }
+            tmp
+        })
+        .collect();
+
     // Compute the signature from the partial signatures `partial_sigs`
     let mut sig = G2Projective::identity();
     for (j, sigma) in (*partial_sigs).iter().enumerate() {
-    	sig = sig + (sigma * lagrange_0[j]);
+        sig = sig + (sigma * lagrange_0[j]);
     }
     sig.into()
 }
@@ -278,36 +275,47 @@ pub fn sign(
 pub fn eval(poly: &[Scalar], x: Scalar) -> Scalar {
     let mut res = Scalar::zero();
     for coeff in poly.iter().rev() {
-	res = res * x + coeff;
+        res = res * x + coeff;
     }
     res
 }
 
-
 #[test]
 pub fn test1() {
-    let n = 5;
-    let t = 3;
+    let n = 10;
+    let t = 8;
+
+    // Fixed seed for reproducability
+    fn rng() -> rand::rngs::StdRng {
+        rand::rngs::StdRng::seed_from_u64(0)
+    }
     let mut rng = rng();
+
     let mut rng_scalar = thread_rng();
-    let poly : Vec<Scalar> = (0..t)
-	.map(|i| random_scalar(&mut rng_scalar)).collect();
-    let secret = eval(&poly, Scalar::zero());
-    let secret_shares : Vec<Scalar> = (0..n)
-	.map(|i| eval(&poly, Scalar::from(i as u32))).collect();
-    
+    let poly: Vec<Scalar> =
+        (0..t).map(|_| random_scalar(&mut rng_scalar)).collect();
+    let group_secret = eval(&poly, Scalar::zero());
+    let group_pubkey = pubkey(&group_secret);
+
+    let secret_shares: Vec<Scalar> = (0..n)
+        .map(|i| eval(&poly, Scalar::from(i as u32)))
+        .collect();
+    let pubkeys: Vec<G1Affine> =
+        secret_shares.iter().map(|s| pubkey(&s)).collect();
+
     let msg = b"lorem ipsum";
     let mut positions = (0..n).choose_multiple(&mut rng, t);
     positions.sort();
-    
-    let mut sk = Scalar::zero();
-    let mut sigs: Vec<G2Affine> = vec![G2Affine::identity(); t];
-    for (cpt,i) in positions.iter().enumerate() {
-	sk = secret_shares[*i];
-	sigs[cpt] = sign_g2(sk, msg);
-    }
 
-    let sig = sign(&sigs, &positions);
-    assert!(verify_g2(&(G1Affine::generator() * secret).into(), &sig,
-		      msg));
+    let used_pubkeys: Vec<G1Affine> =
+        positions.iter().map(|i| pubkeys[*i]).collect();
+
+    let mut sigs: Vec<G2Affine> = vec![G2Affine::identity(); t];
+    for (cpt, i) in positions.iter().enumerate() {
+        sigs[cpt] = sign_g2(secret_shares[*i], msg);
+    }
+    assert!(verify_partial_sigs(&sigs, &used_pubkeys, msg));
+
+    let sig = build_group_sign(&sigs, &positions);
+    assert!(verify_g2(&group_pubkey, &sig, msg));
 }
