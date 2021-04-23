@@ -2,9 +2,9 @@
 BLS threshold signatures.
  */
 
-use crate::hash_to_field::{hash_to_field, ExpandMsgXmd};
+//use crate::hash_to_field::{hash_to_field, ExpandMsgXmd};
 use bls12_381::{
-    multi_miller_loop, G1Affine, G1Projective, G2Affine, G2Prepared,
+    multi_miller_loop, G1Affine, G1Projective, G2Affine, //G2Prepared,
     G2Projective, Gt, Scalar,
 };
 
@@ -16,14 +16,14 @@ pub fn random_scalar<R: Rng>(rng: &mut R) -> Scalar {
     Scalar::from_bytes_wide(&buf)
 }
 
-fn hash_to_scalar(msg: &[u8], dst: &[u8]) -> Scalar {
-    hash_to_field::<Scalar, ExpandMsgXmd<sha2::Sha256>>(msg, dst, 1)[0]
-}
+// fn hash_to_scalar(msg: &[u8], dst: &[u8]) -> Scalar {
+//     hash_to_field::<Scalar, ExpandMsgXmd<sha2::Sha256>>(msg, dst, 1)[0]
+// }
 
-fn dst() -> Vec<u8> {
-    // FIXME: change this out
-    b"dst".to_vec()
-}
+// fn dst() -> Vec<u8> {
+//     // FIXME: change this out
+//     b"dst".to_vec()
+// }
 
 fn hash_to_g2(msg: &[u8]) -> G2Affine {
     crate::hash_to_curve::htp_bls12381_g2(msg)
@@ -106,41 +106,10 @@ impl From<Scalar> for Keypair {
 
 // The setup information for a threshold bls scheme
 pub struct Setup {
+    // Public keys of the participants
     pub pubkeys: Vec<G1Affine>,
-    // The coefficients for each public key
-    pub coeffs: Vec<Scalar>,
-    // The aggregate public key for all participants
-    pub apk: G1Affine,
-}
-
-impl std::iter::FromIterator<G1Affine> for Setup {
-    fn from_iter<I: IntoIterator<Item = G1Affine>>(iter: I) -> Self {
-        let mut pubkeys = Vec::from_iter(iter);
-        // sort pubkeys by their compressed bytes
-        pubkeys.sort_by_key(compressed_bytevec);
-        // deduplicate
-        pubkeys.dedup();
-
-        // concatenation of all compressed pubkey bytes
-        let concat_cpks: Vec<u8> =
-            pubkeys.iter().flat_map(compressed_bytevec).collect();
-
-        // compute the coefficient for a given public key
-        let coeff = |pk: &G1Affine| -> Scalar {
-            let msg = [&pk.to_compressed()[..], &concat_cpks[..]].concat();
-            hash_to_scalar(&msg, &dst())
-        };
-
-        let coeffs: Vec<Scalar> = pubkeys.iter().map(coeff).collect();
-
-        let apk = pubkeys.iter().zip(&coeffs).sum_by(|(pk, c)| pk * c).into();
-
-        Setup {
-            pubkeys,
-            coeffs,
-            apk,
-        }
-    }
+    // Group public key
+    pub group_pubkey: G1Affine,
 }
 
 impl Setup {
@@ -153,6 +122,10 @@ impl Setup {
         &self.pubkeys
     }
 
+    pub fn pubkey(&self) -> &G1Affine {
+	&self.group_pubkey
+    }
+
     // The position of a public key in the setup
     pub fn pos(&self, pk: &G1Affine) -> Result<usize, usize> {
         let cpk_bytes = compressed_bytevec(&pk);
@@ -160,116 +133,82 @@ impl Setup {
             .binary_search_by_key(&cpk_bytes, compressed_bytevec)
     }
 
-    pub fn coeffs(&self) -> &Vec<Scalar> {
-        &self.coeffs
+    pub fn verify_partial_sigs(
+    	&self,
+    	partial_sigs: &[G2Affine],
+    	positions: &[usize],
+    	msg: &[u8],
+    ) -> bool {
+    	for pk in positions.iter().map(|i| self.pubkeys[*i]).into_iter() {
+	    if !validate_pubkey(&pk) {
+    		return false;
+	    }
+    	}
+    	let mut sigma = G2Projective::identity();
+    	let mut pk = G1Projective::identity();
+    	for (sig, pubkey) in partial_sigs.iter().zip(positions.iter().map(|i| self.pubkeys[*i]).into_iter()) {
+            sigma = sigma + sig;
+            pk = pk + pubkey;
+    	}
+    	verify_g2(&pk.into(), &sigma.into(), msg)
     }
 
-    // The coefficient for a public key in the setup
-    pub fn coeff(&self, pk: &G1Affine) -> Result<Scalar, usize> {
-        self.pos(pk).map(|pos| self.coeffs[pos])
+    pub fn build_group_signature(
+    	&self,
+    	partial_sigs: &[G2Affine],
+    	positions: &[usize],
+    ) -> G2Affine {
+    	// Compute the lagrange coefficients in O(t²) using a naive algorithm
+    	let mut tmp = Scalar::one();
+    	let mut inv = Scalar::one();
+    	let lagrange_0: Vec<Scalar> = positions
+            .iter()
+            .map(|j| {
+    		tmp = Scalar::one();
+    		for k in positions.iter() {
+                    if *k != *j {
+    			tmp = tmp * Scalar::from(*k as u32);
+    			inv = Scalar::invert(
+                            &(Scalar::from(*k as u32) - Scalar::from(*j as u32)),
+    			)
+    			    .unwrap();
+    			tmp = tmp * inv;
+                    }
+    		}
+    		tmp
+            })
+            .collect();
+        // Compute the signature from the partial signatures `partial_sigs`
+    	let mut sig = G2Projective::identity();
+    	for (j, sigma) in (*partial_sigs).iter().enumerate() {
+            sig = sig + (sigma * lagrange_0[j]);
+    	}
+    	sig.into()
     }
-
-    pub fn apk(&self) -> &G1Affine {
-        &self.apk
-    }
-
-    // prefix a message with the compressed apk bytes
-    pub fn prefix_apk(&self, msg: &[u8]) -> Vec<u8> {
-        // compressed apk bytes
-        let capk_bytes = self.apk().to_compressed();
-        [&capk_bytes[..], &msg[..]].concat()
-    }
-
-    /*
-     * verify a signature `sig` from the participants of the group
-     * defined in the setup.
-     */
-    pub fn verify_aggregated(&self, sig: &G2Affine, msg: &[u8]) -> bool {
-        // key validation
-        let mut foo: bool = true;
-        for pk in self.pubkeys.iter() {
-            foo = foo && validate_pubkey(&pk);
-        }
-        foo && verify_g2(&self.apk, sig, &self.prefix_apk(msg))
-    }
-}
-
-// verify multi signatures for a single group
-// signtures are build from `build_group_signature`
-pub fn verify_multi_sigs(
-    sigs: &[G2Affine],
-    group_pubkey: G1Affine,
-    msgs: &[&[u8]],
-) -> bool {
-    if !validate_pubkey(&group_pubkey) {
-        false
-    } else {
-        let n = sigs.len();
-        assert_eq!(n, msgs.len());
-        let sig: G2Affine = sigs.into_iter().sum_by(G2Projective::from).into();
-        let mut sum_hash_msgs = G2Projective::identity();
-        for msg in msgs.iter() {
-            sum_hash_msgs = sum_hash_msgs + hash_to_g2(msg);
-        }
-        let sum_hash_msgs_aff: G2Affine = sum_hash_msgs.into();
-        let ml = multi_miller_loop(&[
-            (&group_pubkey, &sum_hash_msgs_aff.into()),
-            (&-G1Affine::generator(), &sig.into()),
-        ]);
-        Gt::identity() == ml.final_exponentiation()
-    }
-}
-
-pub fn verify_partial_sigs(
-    partial_sigs: &[G2Affine],
-    pubkeys: &[G1Affine],
-    msg: &[u8],
-) -> bool {
-    for pubkey in pubkeys.iter() {
-        if !validate_pubkey(pubkey) {
-            return false;
-        }
-    }
-    let mut sigma = G2Projective::identity();
-    let mut pk = G1Projective::identity();
-    for (sig, pubkey) in partial_sigs.iter().zip(pubkeys.iter()) {
-        sigma = sigma + sig;
-        pk = pk + pubkey;
-    }
-    verify_g2(&pk.into(), &sigma.into(), msg)
-}
-
-pub fn build_group_sign(
-    partial_sigs: &[G2Affine],
-    positions: &[usize],
-) -> G2Affine {
-    // Compute the lagrange coefficients in O(t²) using a naive algorithm
-    let mut tmp = Scalar::one();
-    let mut inv = Scalar::one();
-    let lagrange_0: Vec<Scalar> = positions
-        .iter()
-        .map(|j| {
-            tmp = Scalar::one();
-            for k in positions.iter() {
-                if *k != *j {
-                    tmp = tmp * Scalar::from(*k as u32);
-                    inv = Scalar::invert(
-                        &(Scalar::from(*k as u32) - Scalar::from(*j as u32)),
-                    )
-                    .unwrap();
-                    tmp = tmp * inv;
-                }
+    
+    pub fn verify_multi_signatures(
+    	&self,
+    	sigs: &[G2Affine],
+    	msgs: &[&[u8]]
+    ) -> bool {
+    	if !validate_pubkey(&self.group_pubkey) {
+            false
+    	} else {
+            let n = sigs.len();
+            assert_eq!(n, msgs.len());
+            let sig: G2Affine = sigs.into_iter().sum_by(G2Projective::from).into();
+            let mut sum_hash_msgs = G2Projective::identity();
+            for msg in msgs.iter() {
+    		sum_hash_msgs = sum_hash_msgs + hash_to_g2(msg);
             }
-            tmp
-        })
-        .collect();
-
-    // Compute the signature from the partial signatures `partial_sigs`
-    let mut sig = G2Projective::identity();
-    for (j, sigma) in (*partial_sigs).iter().enumerate() {
-        sig = sig + (sigma * lagrange_0[j]);
+            let sum_hash_msgs_aff: G2Affine = sum_hash_msgs.into();
+            let ml = multi_miller_loop(&[
+    		(&self.group_pubkey, &sum_hash_msgs_aff.into()),
+    		(&-G1Affine::generator(), &sig.into()),
+            ]);
+            Gt::identity() == ml.final_exponentiation()
+    	}
     }
-    sig.into()
 }
 
 pub fn eval(poly: &[Scalar], x: Scalar) -> Scalar {
@@ -295,27 +234,29 @@ pub fn test1() {
     let poly: Vec<Scalar> =
         (0..t).map(|_| random_scalar(&mut rng_scalar)).collect();
     let group_secret = eval(&poly, Scalar::zero());
-    let group_pubkey = pubkey(&group_secret);
+    let group_pk = pubkey(&group_secret);
 
     let secret_shares: Vec<Scalar> = (0..n)
         .map(|i| eval(&poly, Scalar::from(i as u32)))
         .collect();
-    let pubkeys: Vec<G1Affine> =
+    let pks: Vec<G1Affine> =
         secret_shares.iter().map(|s| pubkey(&s)).collect();
+
+    let setup = Setup {pubkeys: pks.clone(), group_pubkey: group_pk.clone()};
 
     let msg = b"lorem ipsum";
     let mut positions = (0..n).choose_multiple(&mut rng, t);
     positions.sort();
 
-    let used_pubkeys: Vec<G1Affine> =
-        positions.iter().map(|i| pubkeys[*i]).collect();
+    let sigs: Vec<G2Affine> = positions.iter()
+	.map(|i| sign_g2(secret_shares[*i], msg)).collect();
+    assert!(setup.verify_partial_sigs(&sigs, &positions, msg));
 
-    let mut sigs: Vec<G2Affine> = vec![G2Affine::identity(); t];
-    for (cpt, i) in positions.iter().enumerate() {
-        sigs[cpt] = sign_g2(secret_shares[*i], msg);
-    }
-    assert!(verify_partial_sigs(&sigs, &used_pubkeys, msg));
+    let sig = setup.build_group_signature(&sigs, &positions);
+    assert!(verify_g2(&group_pk, &sig, msg));
 
-    let sig = build_group_sign(&sigs, &positions);
-    assert!(verify_g2(&group_pubkey, &sig, msg));
+    
+
+
+
 }
