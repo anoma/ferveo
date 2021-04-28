@@ -40,7 +40,7 @@ In addition, it is assumed that $2W/3$ weight nodes honestly follow the protocol
 
 ### Curve
 
-The curve used is BLS12-381. $\mathbb{G}_1$ denotes the prime order subgroup of order $r$ and $\mathbb{F}_r$ is the scalar field of BLS12-381 with prime order $r$. The pairing operation is $e(P,Q) : \mathbb{G}_1 \times \mathbb{G}_2$ \rightarrow \mathbb{G}_T$. The generator of $\mathbb{G}_1$ and $\mathbb{G}_2$ are denoted $G_1$ and $G_2$ respectively.
+The curve used is BLS12-381. $\mathbb{G}_1$ denotes the prime order subgroup of order $r$ and $\mathbb{F}_r$ is the scalar field of BLS12-381 with prime order $r$. The pairing operation is $e(P,Q) : \mathbb{G}_1 \times \mathbb{G}_2 \rightarrow \mathbb{G}_T$. The generator of $\mathbb{G}_1$ and $\mathbb{G}_2$ are denoted $G_1$ and $G_2$ respectively.
 
 Let $\omega$ denote an $W$th root of unity in $\mathbb{F}_r$.
 
@@ -88,7 +88,7 @@ Each DKG session begins by choosing a unique integer session id $\tau$. This can
 
 Nodes that want to participate in the DKG and receive key shares can stake value tied to the session id. Using the consensus layer, all nodes should agree on a canonical ordering of $(pk_i, w_i)$ where $pk_i$ is the public key of the $i$th node participating in the DKG and $w_i$ is number of shares belonging to node $i$. The value $i$ is the integer id of the node with public key $pk_i$.
 
-Let $\Psi_{i} = \{ a, a+1, \ldots, a+w_i} \}$ be a disjoint partition where $\cup_i \Psi_{i} =  \{0,1, \ldots, W-1\}$, and $\Omega_{i} = \{ \omega^k \ mid k \in \Psi_{i} \}$.
+Let $\Psi_{i} = \{ a, a+1, \ldots, a+w_i \}$ be a disjoint partition where $\cup_i \Psi_{i} =  \{0,1, \ldots, W-1\}$, and $\Omega_{i} = \{ \omega^k \ mid k \in \Psi_{i} \}$.
 
 ## VSS
 
