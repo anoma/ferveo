@@ -16,16 +16,7 @@ pub fn random_scalar<R: Rng>(rng: &mut R) -> Scalar {
     Scalar::from_bytes_wide(&buf)
 }
 
-// fn hash_to_scalar(msg: &[u8], dst: &[u8]) -> Scalar {
-//     hash_to_field::<Scalar, ExpandMsgXmd<sha2::Sha256>>(msg, dst, 1)[0]
-// }
-
-// fn dst() -> Vec<u8> {
-//     // FIXME: change this out
-//     b"dst".to_vec()
-// }
-
-fn hash_to_g2(msg: &[u8]) -> G2Affine {
+pub fn hash_to_g2(msg: &[u8]) -> G2Affine {
     crate::hash_to_curve::htp_bls12381_g2(msg)
 }
 
