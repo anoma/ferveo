@@ -4,11 +4,16 @@ BLS threshold signatures.
 
 //use crate::hash_to_field::{hash_to_field, ExpandMsgXmd};
 use bls12_381::{
-    multi_miller_loop, G1Affine, G1Projective, G2Affine, //G2Prepared,
-    G2Projective, Gt, Scalar,
+    multi_miller_loop,
+    G1Affine,
+    G1Projective,
+    G2Affine, //G2Prepared,
+    G2Projective,
+    Gt,
+    Scalar,
 };
 
-use rand::{seq::IteratorRandom, thread_rng, Rng, SeedableRng};
+use rand::Rng;
 
 pub fn random_scalar<R: Rng>(rng: &mut R) -> Scalar {
     let mut buf = [0; 64];
@@ -114,7 +119,7 @@ impl Setup {
     }
 
     pub fn pubkey(&self) -> &G1Affine {
-	&self.group_pubkey
+        &self.group_pubkey
     }
 
     // The position of a public key in the setup
@@ -125,80 +130,85 @@ impl Setup {
     }
 
     pub fn verify_partial_sigs(
-    	&self,
-    	partial_sigs: &[G2Affine],
-    	positions: &[usize],
-    	msg: &[u8],
+        &self,
+        partial_sigs: &[G2Affine],
+        positions: &[usize],
+        msg: &[u8],
     ) -> bool {
-    	for pk in positions.iter().map(|i| self.pubkeys[*i]).into_iter() {
-	    if !validate_pubkey(&pk) {
-    		return false;
-	    }
-    	}
-    	let mut sigma = G2Projective::identity();
-    	let mut pk = G1Projective::identity();
-    	for (sig, pubkey) in partial_sigs.iter().zip(positions.iter().map(|i| self.pubkeys[*i]).into_iter()) {
+        for pk in positions.iter().map(|i| self.pubkeys[*i]).into_iter() {
+            if !validate_pubkey(&pk) {
+                return false;
+            }
+        }
+        let mut sigma = G2Projective::identity();
+        let mut pk = G1Projective::identity();
+        for (sig, pubkey) in partial_sigs
+            .iter()
+            .zip(positions.iter().map(|i| self.pubkeys[*i]).into_iter())
+        {
             sigma = sigma + sig;
             pk = pk + pubkey;
-    	}
-    	verify_g2(&pk.into(), &sigma.into(), msg)
+        }
+        verify_g2(&pk.into(), &sigma.into(), msg)
     }
 
     pub fn build_group_signature(
-    	&self,
-    	partial_sigs: &[G2Affine],
-    	positions: &[usize],
+        &self,
+        partial_sigs: &[G2Affine],
+        positions: &[usize],
     ) -> G2Affine {
-    	// Compute the lagrange coefficients in O(t²) using a naive algorithm
-    	let mut tmp = Scalar::one();
-    	let mut inv = Scalar::one();
-    	let lagrange_0: Vec<Scalar> = positions
+        // Compute the lagrange coefficients in O(t²) using a naive algorithm
+        let mut tmp = Scalar::one();
+        let mut inv = Scalar::one();
+        let lagrange_0: Vec<Scalar> = positions
             .iter()
             .map(|j| {
-    		tmp = Scalar::one();
-    		for k in positions.iter() {
+                tmp = Scalar::one();
+                for k in positions.iter() {
                     if *k != *j {
-    			tmp = tmp * Scalar::from(*k as u32);
-    			inv = Scalar::invert(
-                            &(Scalar::from(*k as u32) - Scalar::from(*j as u32)),
-    			)
-    			    .unwrap();
-    			tmp = tmp * inv;
+                        tmp = tmp * Scalar::from(*k as u32);
+                        inv = Scalar::invert(
+                            &(Scalar::from(*k as u32)
+                                - Scalar::from(*j as u32)),
+                        )
+                        .unwrap();
+                        tmp = tmp * inv;
                     }
-    		}
-    		tmp
+                }
+                tmp
             })
             .collect();
         // Compute the signature from the partial signatures `partial_sigs`
-    	let mut sig = G2Projective::identity();
-    	for (j, sigma) in (*partial_sigs).iter().enumerate() {
+        let mut sig = G2Projective::identity();
+        for (j, sigma) in (*partial_sigs).iter().enumerate() {
             sig = sig + (sigma * lagrange_0[j]);
-    	}
-    	sig.into()
+        }
+        sig.into()
     }
-    
+
     pub fn verify_multi_signatures(
-    	&self,
-    	sigs: &[G2Affine],
-    	msgs: &[&[u8]]
+        &self,
+        sigs: &[G2Affine],
+        msgs: &[&[u8]],
     ) -> bool {
-    	if !validate_pubkey(&self.group_pubkey) {
+        if !validate_pubkey(&self.group_pubkey) {
             false
-    	} else {
+        } else {
             let n = sigs.len();
             assert_eq!(n, msgs.len());
-            let sig: G2Affine = sigs.into_iter().sum_by(G2Projective::from).into();
+            let sig: G2Affine =
+                sigs.into_iter().sum_by(G2Projective::from).into();
             let mut sum_hash_msgs = G2Projective::identity();
             for msg in msgs.iter() {
-    		sum_hash_msgs = sum_hash_msgs + hash_to_g2(msg);
+                sum_hash_msgs = sum_hash_msgs + hash_to_g2(msg);
             }
             let sum_hash_msgs_aff: G2Affine = sum_hash_msgs.into();
             let ml = multi_miller_loop(&[
-    		(&self.group_pubkey, &sum_hash_msgs_aff.into()),
-    		(&-G1Affine::generator(), &sig.into()),
+                (&self.group_pubkey, &sum_hash_msgs_aff.into()),
+                (&-G1Affine::generator(), &sig.into()),
             ]);
             Gt::identity() == ml.final_exponentiation()
-    	}
+        }
     }
 }
 
@@ -211,7 +221,9 @@ pub fn eval(poly: &[Scalar], x: Scalar) -> Scalar {
 }
 
 #[test]
-pub fn test1() {
+pub fn test_bls() {
+    use rand::{seq::IteratorRandom, thread_rng, SeedableRng};
+
     let n = 10;
     let t = 8;
 
@@ -230,24 +242,23 @@ pub fn test1() {
     let secret_shares: Vec<Scalar> = (0..n)
         .map(|i| eval(&poly, Scalar::from(i as u32)))
         .collect();
-    let pks: Vec<G1Affine> =
-        secret_shares.iter().map(|s| pubkey(&s)).collect();
+    let pks: Vec<G1Affine> = secret_shares.iter().map(|s| pubkey(&s)).collect();
 
-    let setup = Setup {pubkeys: pks.clone(), group_pubkey: group_pk.clone()};
+    let setup = Setup {
+        pubkeys: pks.clone(),
+        group_pubkey: group_pk.clone(),
+    };
 
     let msg = b"lorem ipsum";
     let mut positions = (0..n).choose_multiple(&mut rng, t);
     positions.sort();
 
-    let sigs: Vec<G2Affine> = positions.iter()
-	.map(|i| sign_g2(secret_shares[*i], msg)).collect();
+    let sigs: Vec<G2Affine> = positions
+        .iter()
+        .map(|i| sign_g2(secret_shares[*i], msg))
+        .collect();
     assert!(setup.verify_partial_sigs(&sigs, &positions, msg));
 
     let sig = setup.build_group_signature(&sigs, &positions);
     assert!(verify_g2(&group_pk, &sig, msg));
-
-    
-
-
-
 }
