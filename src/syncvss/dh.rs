@@ -1,9 +1,11 @@
 use super::nizkp;
 use super::sh::Scalar;
-use ark_bls12_381::{Fr, G1Affine};
+use ark_bls12_381::G1Affine;
 use ark_ec::AffineCurve;
+use chacha20poly1305::aead::{generic_array::GenericArray, NewAead};
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
+
 pub type PublicKey = G1Affine;
 
 #[derive(Serialize, Deserialize, Copy, Clone, Debug)]
@@ -37,7 +39,6 @@ pub struct SharedSecret {
 impl SharedSecret {
     pub fn to_key(&self) -> [u8; 32] {
         use ark_ff::ToBytes;
-        //use blake2b_simd::State;
         let mut params = blake2b_simd::Params::new();
         params.hash_length(32);
         let mut hasher = params.to_state();
@@ -152,8 +153,6 @@ impl AsymmetricKeypair {
         &self,
         encrypter: &AsymmetricPublicKey,
     ) -> chacha20poly1305::XChaCha20Poly1305 {
-        use chacha20poly1305::aead::{generic_array::GenericArray, NewAead};
-
         let shared_secret = self.decrypt_key(&encrypter);
         chacha20poly1305::XChaCha20Poly1305::new(&GenericArray::from_slice(
             &shared_secret,
@@ -164,8 +163,6 @@ impl AsymmetricKeypair {
         &self,
         decrypter: &AsymmetricPublicKey,
     ) -> chacha20poly1305::XChaCha20Poly1305 {
-        use chacha20poly1305::aead::{generic_array::GenericArray, NewAead};
-
         let shared_secret = self.encrypt_key(&decrypter);
         chacha20poly1305::XChaCha20Poly1305::new(&GenericArray::from_slice(
             &shared_secret,

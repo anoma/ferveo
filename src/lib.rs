@@ -9,3 +9,5 @@ pub mod poly;
 pub mod syncvss;
 
 pub use msg::ark_serde;
+pub mod fastkzg;
+pub mod fastpoly;

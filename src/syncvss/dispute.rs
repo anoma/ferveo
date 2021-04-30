@@ -61,11 +61,11 @@ pub fn handle_dispute(
             };
             let ciphertext =
                 &vss.encrypted_shares.shares[dispute.dealee as usize];
-            dealee.init_share_domain(&dkg.domain); // TODO: lazy evalutate share_domain in a nicer way
+            //dealee.init_share_domain(&dkg.domain); // TODO: lazy evalutate share_domain in a nicer way
             let plaintext = crate::syncvss::sh::decrypt(
                 &ciphertext,
                 &vss.encrypted_shares.commitment,
-                &dealee.share_domain.as_ref().unwrap(), // TODO: lazy evaluate instead of unwrap
+                &dealee.share_domain,
                 &chacha20poly1305::XChaCha20Poly1305::new(
                     &GenericArray::from_slice(&dispute.shared_secret.to_key()),
                 ),

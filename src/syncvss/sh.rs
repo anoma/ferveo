@@ -212,10 +212,7 @@ impl Context {
         let local_shares = decrypt(
             &encrypted_local_shares,
             &encrypted_shares.commitment,
-            dkg.participants[dkg.me as usize]
-                .share_domain
-                .as_ref()
-                .unwrap(),
+            &dkg.participants[dkg.me as usize].share_domain,
             &dkg.dh_key
                 .decrypt_cipher(&dkg.participants[dealer as usize].dh_key),
         )?;

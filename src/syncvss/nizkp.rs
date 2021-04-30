@@ -1,5 +1,5 @@
 #![allow(unused_imports)]
-
+#![allow(non_camel_case_types)]
 use crate::dkg;
 use ark_serialize::*;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};

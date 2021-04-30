@@ -2,13 +2,13 @@
 #![allow(non_snake_case)]
 #![allow(unused_imports)]
 
-//use crate::poly;
 use ark_bls12_381::{Fr, G1Affine};
 use num::integer::div_ceil;
 use rand::Rng;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::rc::Rc;
 type Scalar = Fr;
+use crate::fastpoly;
 use crate::msg::{Message, MessagePayload, SignedMessage};
 use crate::syncvss;
 use crate::syncvss::dh;
@@ -40,26 +40,9 @@ pub struct Participant {
     pub dh_key: dh::AsymmetricPublicKey,
     pub weight: u32,
     pub share_range: std::ops::Range<usize>,
-    pub share_domain: Option<Vec<Scalar>>, // Not every share domain needs to be generated, necessarily
-}
-
-impl Participant {
-    pub fn init_share_domain(
-        &mut self,
-        domain: &ark_poly::Radix2EvaluationDomain<Scalar>,
-    ) {
-        if self.share_domain == None {
-            use ark_ff::Field;
-            let mut share_domain = Vec::with_capacity(self.share_range.len());
-            let omega = domain.group_gen.pow(&[self.share_range.start as u64]);
-            let mut domain_element = omega;
-            for _ in 0..self.share_range.len() {
-                share_domain.push(domain_element);
-                domain_element *= omega;
-            }
-            self.share_domain = Some(share_domain);
-        }
-    }
+    pub share_domain: Vec<Scalar>,
+    pub a_i: fastpoly::SubproductTree, // subproduct tree of polynomial with zeros at share_domain
+    pub a_i_prime: DensePolynomial<Fr>, // derivative of a_i
 }
 
 #[derive(Debug)]
@@ -129,13 +112,6 @@ impl Context {
     }
 
     pub fn announce(&mut self, stake: u64) -> SignedMessage {
-        /*if let State::Init { participants } = &mut self.state {
-            participants.push(ParticipantBuilder {
-                ed_key: self.ed_key.public,
-                dh_key: self.dh_key.public(),
-                stake: stake as f64,
-            });
-        }*/
         SignedMessage::new(
             &Message {
                 tau: self.tau,
@@ -191,6 +167,7 @@ impl Context {
         )
     }
     pub fn partition_domain(&mut self) {
+        use ark_ff::Field;
         if let State::Init { participants } = &mut self.state {
             // Sort participants from greatest to least stake
             participants.sort_by(|a, b| b.stake.partial_cmp(&a.stake).unwrap());
@@ -225,13 +202,26 @@ impl Context {
 
             let mut allocated_weight = 0usize;
             for (participant, weight) in participants.iter().zip(weights) {
+                let share_range =
+                    allocated_weight..allocated_weight + weight as usize;
+                let mut share_domain = Vec::with_capacity(weight as usize);
+                let omega =
+                    self.domain.group_gen.pow(&[share_range.start as u64]);
+                let mut domain_element = omega;
+                for _ in 0..weight {
+                    share_domain.push(domain_element);
+                    domain_element *= omega;
+                }
+                let a_i = fastpoly::subproduct_tree(&share_domain);
+                let a_i_prime = fastpoly::derivative(&a_i.M);
                 self.participants.push(Participant {
                     ed_key: participant.ed_key,
                     dh_key: participant.dh_key,
                     weight,
-                    share_range: allocated_weight
-                        ..allocated_weight + weight as usize,
-                    share_domain: None,
+                    share_range,
+                    share_domain,
+                    a_i,
+                    a_i_prime,
                 });
                 allocated_weight =
                     allocated_weight.checked_add(weight as usize).unwrap();
@@ -241,10 +231,10 @@ impl Context {
                 .iter()
                 .position(|p| p.ed_key == self.ed_key.public)
                 .unwrap(); //TODO: can unwrap fail?
-            self.participants
-                .get_mut(self.me)
-                .unwrap()
-                .init_share_domain(&self.domain);
+                           /*self.participants
+                           .get_mut(self.me)
+                           .unwrap()
+                           .init_share_domain(&self.domain);*/
         }
     }
     pub fn finish_announce(&mut self) {
@@ -473,29 +463,10 @@ fn dkg() {
             }
         }
         let final_secret: G1Affine = final_secret.into();
-        //dbg!(&final_secret);
 
         msg_loop(&mut contexts, &mut messages);
 
-        /*for (i, vss) in contexts[0].vss.iter() {
-            if let crate::syncvss::sh::State::Success { final_secret } =
-                vss.state
-            {
-                dbg!(i);
-                //dbg!(&final_secret.x);
-            }
-        }
-
-        for (i, vss) in contexts[1].vss.iter() {
-            if let crate::syncvss::sh::State::Success { final_secret } =
-                vss.state
-            {
-                dbg!(i);
-                //dbg!(&final_secret.x);
-            }
-        }*/
         for participant in contexts.iter() {
-            //dbg!(&participant.state);
             assert!(matches!(participant.state, State::Success));
         }
         let final_keys = contexts
@@ -503,7 +474,6 @@ fn dkg() {
             .map(|c| c.final_key())
             .collect::<Vec<G1Affine>>();
 
-        //dbg!(&final_keys);
         assert!(final_keys.iter().all(|&key| key == final_secret));
     }
 }

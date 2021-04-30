@@ -1,9 +1,9 @@
 use ed25519_dalek as ed25519;
-use ed25519_dalek::Signature;
+//use ed25519_dalek::Signature;
 use ed25519_dalek::Signer;
 
 use crate::syncvss;
-use ark_bls12_381::G1Affine;
+//use ark_bls12_381::G1Affine;
 use serde::{Deserialize, Serialize};
 
 pub mod ark_serde {
@@ -75,18 +75,18 @@ pub struct SignedMessage {
 
 #[test]
 fn test_ark_serde() {
-    use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-
+    use ark_bls12_381::G1Affine;
+    //use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
     #[derive(Serialize, Deserialize)]
-    struct test {
+    struct Test {
         #[serde(with = "ark_serde")]
         pub p: G1Affine,
     }
     use ark_ec::AffineCurve;
     let p = G1Affine::prime_subgroup_generator();
-    let t = test { p };
+    let t = Test { p };
     let m = serde_json::to_string(&t).unwrap();
-    let t2: test = serde_json::from_str(&m).unwrap();
+    let t2: Test = serde_json::from_str(&m).unwrap();
     let m = bincode::serialize(&t).unwrap();
-    let t2: test = bincode::deserialize(&m).unwrap();
+    let t2: Test = bincode::deserialize(&m).unwrap();
 }
