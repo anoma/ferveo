@@ -245,7 +245,7 @@ For checking the plaintext's validity we first extract the message digest placed
 
 Since one decryption request will involved many ciphertexts, we use an optimization to reduce the number of pairing calculations.
 For $n$ ciphertexts we can perform the following validity check:
-$\prod_{i=1}^{n}{e(G_1,W_i)} * \prod_{}^{}{e(U_i, HTC(U_i,V_i,AD_i)} ?= 1 \implies e(G_1, \sum_{i=1}^{n}{W_i}) * \prod_{}^{}{e(U_i, HTC(U_i,V_i,AD_i)} ?= 1$
+$\prod_{i=1}^{n}{e(G_1,W_i)} * \prod_{i=1}^{n}{e(U_i, HTC(U_i,V_i,AD_i)} = 1 \implies e(G_1, \sum_{i=1}^{n}{W_i}) * \prod_{i=1}^{n}{e(U_i, HTC(U_i,V_i,AD_i)} = 1$
 
 ### 
 ## Dispute procedures
