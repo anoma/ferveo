@@ -221,9 +221,11 @@ The ciphertext $C = (U, V, W)$.
 
 ## Threshold decryption
 
+For all pairing product calculation we employ an optimization where we only need to calculate the final exponentiation once for the whole product and not for each pairing individually.
+
 ### Generation of decryption shares
 
-Given a ciphertext $C = (U,V,W)$, check if $e(G_1, W) * e(U, HTC(U,V, AD)) = 1$.
+Given a ciphertext $C = (U,V,W)$, check if $e(G_1, W) * e(U, HTC(U,V,AD)) = 1$.
 
 If so, if $S_i = \{k, k+1, \ldots, k+w_i\}$, then output $(i, [s_k]U, [s_{k+1}]U, \ldots, [s_{k+w_i}]U)$
 
@@ -233,11 +235,17 @@ If so, if $S_i = \{k, k+1, \ldots, k+w_i\}$, then output $(i, [s_k]U, [s_{k+1}]U
 
 ### Combination of decryption shares
 
+We first perform ciphertext validation: $e(G1, W) * e(U, HTC(U,V,AD)) = 1$.
+
 To obtain the plaintext we need to combine at least $t$ decryption shares $\{U_i\}_{i \in \Phi}$. Using lagrange intepolation we get
 $rY = \sum_{i \in \Phi}{\lambda_{0,i}U_i}$
 and then $m' = chacha20(V, BLAKE2b(rY))$
 
 For checking the plaintext's validity we first extract the message digest placed in the first 32 bytes of $m'$ and compare it to the decrypted message digest.
+
+Since one decryption request will involved many ciphertexts, we use an optimization to reduce the number of pairing calculations.
+For $n$ ciphertexts we can perform the following validity check:
+$\prod_{i=1}^{n}{e(G_1,W_i)} * \prod_{}^{}{e(U_i, HTC(U_i,V_i,AD_i)} ?= 1 \implies e(G_1, \sum_{i=1}^{n}{W_i}) * \prod_{}^{}{e(U_i, HTC(U_i,V_i,AD_i)} ?= 1$
 
 ### 
 ## Dispute procedures
