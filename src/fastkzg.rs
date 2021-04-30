@@ -705,6 +705,7 @@ fn test_all() {
                 &evals,
                 &openings,
                 &A_I,
+                None,
             );
 
             /*for i in share_domain.iter() {

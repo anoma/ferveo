@@ -167,7 +167,7 @@ impl Context {
         )
     }
     pub fn partition_domain(&mut self) {
-        use ark_ff::Field;
+        use ark_ff::{Field, One};
         if let State::Init { participants } = &mut self.state {
             // Sort participants from greatest to least stake
             participants.sort_by(|a, b| b.stake.partial_cmp(&a.stake).unwrap());
@@ -201,16 +201,14 @@ impl Context {
             assert_eq!(weights.iter().sum::<u32>(), self.params.total_weight);
 
             let mut allocated_weight = 0usize;
+            let mut domain_element = Fr::one();
             for (participant, weight) in participants.iter().zip(weights) {
                 let share_range =
                     allocated_weight..allocated_weight + weight as usize;
                 let mut share_domain = Vec::with_capacity(weight as usize);
-                let omega =
-                    self.domain.group_gen.pow(&[share_range.start as u64]);
-                let mut domain_element = omega;
                 for _ in 0..weight {
                     share_domain.push(domain_element);
-                    domain_element *= omega;
+                    domain_element *= self.domain.group_gen;
                 }
                 let a_i = fastpoly::subproduct_tree(&share_domain);
                 let a_i_prime = fastpoly::derivative(&a_i.M);
