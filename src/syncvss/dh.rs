@@ -1,5 +1,5 @@
 use super::nizkp;
-use super::sh::Scalar;
+use crate::Scalar;
 use ark_bls12_381::G1Affine;
 use ark_ec::AffineCurve;
 use chacha20poly1305::aead::{generic_array::GenericArray, NewAead};

@@ -11,7 +11,7 @@ use ark_bls12_381::{Fr, G1Affine};
 use ark_ec::AffineCurve;
 use ark_ff::FromBytes;
 
-use super::sh::Scalar;
+use crate::Scalar;
 use serde::{Deserialize, Serialize};
 
 #[derive(serde::Serialize, serde::Deserialize)]

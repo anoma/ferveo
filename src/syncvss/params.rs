@@ -3,7 +3,7 @@
 use rand::Rng;
 
 use ark_bls12_381::{Fr, G1Affine};
-type Scalar = Fr;
+//type Scalar = Fr;
 use ark_poly::{
     polynomial::univariate::DensePolynomial, polynomial::UVPolynomial,
     EvaluationDomain, Polynomial, Radix2EvaluationDomain,

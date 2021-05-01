@@ -2,16 +2,18 @@
 #![allow(non_snake_case)]
 #![allow(unused_imports)]
 
-use ark_bls12_381::{Fr, G1Affine};
+use ark_bls12_381::{Fr, G1Affine, G2Affine};
+use ark_poly_commit::kzg10::{Powers, VerifierKey};
 use num::integer::div_ceil;
 use rand::Rng;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::rc::Rc;
-type Scalar = Fr;
+
 use crate::fastpoly;
 use crate::msg::{Message, MessagePayload, SignedMessage};
 use crate::syncvss;
 use crate::syncvss::dh;
+use crate::{Curve, Scalar};
 use anyhow::anyhow;
 use ark_poly::{
     polynomial::univariate::DensePolynomial, polynomial::UVPolynomial,
@@ -42,7 +44,7 @@ pub struct Participant {
     pub share_range: std::ops::Range<usize>,
     pub share_domain: Vec<Scalar>,
     pub a_i: fastpoly::SubproductTree, // subproduct tree of polynomial with zeros at share_domain
-    pub a_i_prime: DensePolynomial<Fr>, // derivative of a_i
+    pub a_i_prime: DensePolynomial<Scalar>, // derivative of a_i
 }
 
 #[derive(Debug)]
@@ -67,6 +69,11 @@ pub struct Context {
     pub domain: ark_poly::Radix2EvaluationDomain<Scalar>,
     pub state: State,
     pub me: usize,
+    pub powers_of_g: Rc<Vec<G1Affine>>,
+    pub powers_of_h: Rc<Vec<G2Affine>>,
+    pub beta_h: G2Affine,
+    //pub ck: Rc<Powers<Curve>>,
+    //pub vk: Rc<VerifierKey<Curve>>,
 }
 
 impl Context {
@@ -74,6 +81,9 @@ impl Context {
         tau: u32,
         ed_key: ed25519::Keypair,
         params: &Params,
+        powers_of_g: Rc<Vec<G1Affine>>,
+        powers_of_h: Rc<Vec<G2Affine>>,
+        beta_h: G2Affine,
         rng: &mut R,
     ) -> Context {
         let domain = ark_poly::Radix2EvaluationDomain::<Scalar>::new(
@@ -93,6 +103,9 @@ impl Context {
                 participants: vec![],
             },
             me: 0, // TODO: invalid value
+            powers_of_g,
+            powers_of_h,
+            beta_h,
         }
     }
     pub fn final_key(&self) -> G1Affine {
@@ -363,8 +376,11 @@ impl Context {
                         let minimum_ready_weight = self.params.total_weight
                             //- self.params.failure_threshold
                             - self.params.security_threshold;
-                        context
-                            .handle_finalize(&finalize, minimum_ready_weight)?;
+                        context.handle_finalize(
+                            &finalize,
+                            minimum_ready_weight,
+                            &self.powers_of_g[0],
+                        )?;
                         // Finalize succeeded
                         let finalized_weight = finalized_weight
                             + self.participants[dealer as usize].weight;
@@ -391,7 +407,7 @@ impl Context {
 
 #[test]
 fn dkg() {
-    let mut rng = rand::thread_rng();
+    let rng = &mut ark_std::test_rng();
     use syncvss::dh;
 
     let params = Params {
@@ -399,14 +415,23 @@ fn dkg() {
         security_threshold: 33,
         total_weight: 100,
     };
+
+    let (pp, powers_of_h) =
+        crate::fastkzg::setup(params.total_weight as usize, rng).unwrap();
+    //let (ck, vk) = crate::fastkzg::trim(&pp, params.total_weight);
+    let (powers_of_h, powers_of_g) =
+        (Rc::new(powers_of_h), Rc::new(pp.powers_of_g));
     for _ in 0..10 {
         let mut contexts = vec![];
         for _ in 0..10 {
             contexts.push(Context::new(
                 0u32, //tau
-                ed25519::Keypair::generate(&mut rng),
+                ed25519::Keypair::generate(rng),
                 &params,
-                &mut rng,
+                powers_of_g.clone(),
+                powers_of_h.clone(),
+                pp.beta_h,
+                rng,
             ));
         }
         use std::collections::VecDeque;
@@ -445,7 +470,7 @@ fn dkg() {
         msg_loop(&mut contexts, &mut messages);
 
         for participant in contexts.iter_mut() {
-            let msg = participant.deal_if_turn(&mut rng);
+            let msg = participant.deal_if_turn(rng);
             if let Some(msg) = msg {
                 messages.push_back(msg);
             }

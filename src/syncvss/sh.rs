@@ -3,7 +3,7 @@
 //#![allow(unused_imports)]
 #![allow(unused_variables)]
 
-//use crate::poly;
+use crate::Scalar;
 //use crate::signed_data;
 
 use crate::syncvss::nizkp::NIZKP_BLS;
@@ -33,7 +33,7 @@ use crate::dkg;
 //use crate::syncvss::params::Params;
 use serde::{Deserialize, Serialize};
 
-pub type Scalar = Fr;
+//pub type Scalar = Fr;
 
 pub type ShareCiphertext = Vec<u8>;
 
@@ -61,7 +61,7 @@ pub struct EncryptedShares {
     pub secret_commitment: G1Affine,
 
     #[serde(with = "crate::ark_serde")]
-    pub opening_proof: G1Affine,
+    pub zero_opening: G1Affine,
     pub shares: Vec<ShareCiphertext>,
 }
 
@@ -112,11 +112,12 @@ impl Context {
         &mut self,
         finalize: &FinalizeMsg,
         minimum_ready_weight: u32,
+        g: &G1Affine,
     ) -> Result<(), anyhow::Error> {
         if let State::Sharing { weight_ready } = self.state {
             if weight_ready >= minimum_ready_weight {
                 if finalize.proof.dleq_verify(
-                    &G1Affine::prime_subgroup_generator(),
+                    &g,
                     &self.encrypted_shares.secret_commitment,
                     &G1Affine::prime_subgroup_generator(),
                     &finalize.rebased_secret,
@@ -142,6 +143,7 @@ impl Context {
         dkg: &dkg::Context,
         rng: &mut R,
     ) -> Context {
+        use ark_ec::msm::VariableBaseMSM;
         let mut phi = DensePolynomial::<Scalar>::rand(
             dkg.params.security_threshold as usize,
             rng,
@@ -149,10 +151,17 @@ impl Context {
         phi.coeffs[0] = *s;
 
         let evals = phi.evaluate_over_domain_by_ref(dkg.domain);
-        let commitment = G1Affine::prime_subgroup_generator(); // TODO: Placeholder
-        let secret_commitment =
-            G1Affine::prime_subgroup_generator().mul(*s).into();
-        let opening_proof = G1Affine::prime_subgroup_generator(); // TODO: Placeholder
+        let commitment =
+            crate::fastkzg::g1_commit(&dkg.powers_of_g, &phi).unwrap(); //G1Affine::prime_subgroup_generator(); // TODO: Placeholder
+        let secret_commitment = dkg.powers_of_g[0].mul(*s).into();
+
+        let zero_opening = VariableBaseMSM::multi_scalar_mul(
+            &dkg.powers_of_g[0..],
+            &crate::fastkzg::convert_to_bigints(&phi.coeffs[1..]),
+        )
+        .into();
+
+        //let opening_proofs =
 
         let shares = dkg
             .participants
@@ -175,8 +184,8 @@ impl Context {
         let rebased_secret =
             G1Affine::prime_subgroup_generator().mul(*s).into(); //TODO: new base
         let proof = NIZKP_BLS::dleq(
-            &G1Affine::prime_subgroup_generator(),
-            &rebased_secret,
+            &dkg.powers_of_g[0],
+            &secret_commitment,
             &G1Affine::prime_subgroup_generator(),
             &rebased_secret,
             &s,
@@ -187,7 +196,7 @@ impl Context {
             encrypted_shares: EncryptedShares {
                 commitment,
                 secret_commitment,
-                opening_proof,
+                zero_opening,
                 shares,
             },
             state: State::Sharing { weight_ready: 0u32 },
@@ -208,7 +217,17 @@ impl Context {
         encrypted_shares: &EncryptedShares,
         dkg: &mut dkg::Context,
     ) -> Result<Context, anyhow::Error> {
+        use ark_ec::PairingEngine;
         let encrypted_local_shares = &encrypted_shares.shares[dkg.me as usize];
+
+        let comm = encrypted_shares.commitment.into_projective()
+            - encrypted_shares.secret_commitment.into_projective();
+        if crate::Curve::pairing(comm, dkg.powers_of_h[0])
+            != crate::Curve::pairing(encrypted_shares.zero_opening, dkg.beta_h)
+        {
+            return Err(anyhow::anyhow!("bad zero opening"));
+        }
+
         let local_shares = decrypt(
             &encrypted_local_shares,
             &encrypted_shares.commitment,
@@ -216,6 +235,7 @@ impl Context {
             &dkg.dh_key
                 .decrypt_cipher(&dkg.participants[dealer as usize].dh_key),
         )?;
+
         Ok(Context {
             dealer,
             encrypted_shares: encrypted_shares.clone(),
