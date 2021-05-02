@@ -86,7 +86,7 @@ fn test_ark_serde() {
     let p = G1Affine::prime_subgroup_generator();
     let t = Test { p };
     let m = serde_json::to_string(&t).unwrap();
-    let t2: Test = serde_json::from_str(&m).unwrap();
+    let _t2: Test = serde_json::from_str(&m).unwrap();
     let m = bincode::serialize(&t).unwrap();
-    let t2: Test = bincode::deserialize(&m).unwrap();
+    let _t2: Test = bincode::deserialize(&m).unwrap();
 }

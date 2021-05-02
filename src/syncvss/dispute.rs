@@ -54,7 +54,7 @@ pub fn handle_dispute(
             }
         }
         {
-            let dealee = &mut dkg.participants[dispute.dealee as usize];
+            //let dealee = &mut dkg.participants[dispute.dealee as usize];
 
             use chacha20poly1305::aead::{
                 generic_array::GenericArray, NewAead,
@@ -64,18 +64,16 @@ pub fn handle_dispute(
             //dealee.init_share_domain(&dkg.domain); // TODO: lazy evalutate share_domain in a nicer way
             let plaintext = crate::syncvss::sh::decrypt(
                 &ciphertext,
-                &vss.encrypted_shares.commitment,
-                &dealee.share_domain,
                 &chacha20poly1305::XChaCha20Poly1305::new(
                     &GenericArray::from_slice(&dispute.shared_secret.to_key()),
                 ),
             );
-            let result = match plaintext {
-                Ok(p) => {
+            let _result = match plaintext {
+                Ok(_) => {
                     vss.state = crate::syncvss::sh::State::Failure;
                     DisputeResolution::ComplainerFault
                 }
-                Err(e) => DisputeResolution::DealerFault,
+                Err(_) => DisputeResolution::DealerFault,
             };
         }
     }
