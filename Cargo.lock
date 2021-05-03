@@ -128,6 +128,8 @@ dependencies = [
 [[package]]
 name = "ark-poly-commit"
 version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ad7df2d50062d718e5914d013ee2f30dc203324e08070d16b241e869b8717ed6"
 dependencies = [
  "ark-ec",
  "ark-ff",

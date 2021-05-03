@@ -13,7 +13,7 @@ authors = ["Heliax AG <hello@heliax.dev>"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ark-poly-commit = { path = "../poly-commit" }
+ark-poly-commit = "0.2" #{ path = "../poly-commit" }
 ark-std = "0.2"
 ark-bls12-381 = "0.2"
 ark-ec = "0.2"
