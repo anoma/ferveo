@@ -37,8 +37,7 @@ impl AmortizedOpeningProof {
         evals: &[Fr],
         s: &fastpoly::SubproductTree,
     ) -> G1Affine {
-        let lagrange_coeff =
-            fastpoly::fast_inverse_lagrange_coefficients(domain, s);
+        let lagrange_coeff = s.fast_inverse_lagrange_coefficients(domain);
         use ark_ec::group::Group;
         let mut total = G1Projective::zero();
         for (c_i, point) in
@@ -606,19 +605,18 @@ fn test_all() {
             }
 
             let share_domain = share_domain[5..100].to_vec();
-            let A_I = fastpoly::subproduct_tree(&share_domain);
-            let A_I_prime = fastpoly::derivative(&A_I.M);
+            let A_I = fastpoly::SubproductTree::new(&share_domain);
+            let A_I_prime = fastpoly::derivative(&A_I.m);
 
             let evals = share_domain
                 .iter()
                 .map(|x| p.evaluate(x))
                 .collect::<Vec<Fr>>();
 
-            let (poly, proof) = fast_interpolate_and_batch(
+            let (poly, proof) = A_I.fast_interpolate_and_batch(
                 &share_domain,
                 &evals,
                 &openings,
-                &A_I,
                 None,
             );
 
@@ -627,7 +625,7 @@ fn test_all() {
                     .unwrap();
             let proof = proof.combine(&(5..100), &share_domain, &evals, &A_I);
 
-            let poly = fast_interpolate(&share_domain, &evals, &A_I);
+            let poly = A_I.fast_interpolate(&share_domain, &evals);
 
             /*for i in share_domain.iter() {
                 assert_eq!(A_I.M.evaluate(i), Fr::zero());
@@ -641,7 +639,7 @@ fn test_all() {
                 &powers_of_h,
                 &p_comm,
                 //&A_I.M,
-                &g2_commit(&powers_of_h, &A_I.M).unwrap(),
+                &g2_commit(&powers_of_h, &A_I.m).unwrap(),
                 //&poly,
                 &poly_commit,
                 &proof.into(),

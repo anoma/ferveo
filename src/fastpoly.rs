@@ -2,6 +2,7 @@ use ark_bls12_381::{Fr, G1Projective};
 use ark_ff::{One, Zero};
 use ark_poly::polynomial::univariate::DensePolynomial;
 
+/// Computes the inverse of f mod x^l
 pub fn inverse_mod_xl(
     f: &DensePolynomial<Fr>,
     l: usize,
@@ -27,6 +28,7 @@ pub fn inverse_mod_xl(
     Some(g)
 }
 
+/// Computes the rev_m(f) function
 pub fn rev(f: &mut DensePolynomial<Fr>, m: usize) {
     assert!(f.coeffs.len() - 1 <= m);
     for _ in 0..(m - (f.coeffs.len() - 1)) {
@@ -35,6 +37,7 @@ pub fn rev(f: &mut DensePolynomial<Fr>, m: usize) {
     f.reverse();
 }
 
+/// Divide f by g in nearly linear time
 pub fn fast_divide_monic(
     f: &DensePolynomial<Fr>,
     g: &DensePolynomial<Fr>,
@@ -61,149 +64,166 @@ pub fn fast_divide_monic(
     (q, r)
 }
 
+/// The subproduct tree of a polynomial m over a domain u
 #[derive(Debug, Clone)]
+pub struct SubproductDomain {
+    pub u: Vec<Fr>,
+    pub t: SubproductTree,
+}
+
+impl SubproductDomain {
+    pub fn new(u: Vec<Fr>) -> SubproductDomain {
+        SubproductDomain {
+            u,
+            t: SubproductTree::new(&u),
+        }
+    }
+    pub fn fast_evaluate(&self, f: &DensePolynomial<Fr>) -> Vec<Fr> {
+        let evals = vec![Fr::zero(); u.len()];
+        self.t.fast_evaluate(f, self.u, &mut evals);
+        evals
+    }
+    pub fn fast_interpolate(&self, v: &[Fr]) -> DensePolynomial<Fr> {
+        self.t.fast_interpolate(self.u, v)
+    }
+    pub fn fast_inverse_lagrange_coefficients(&self) -> Vec<Fr> {
+        self.t.fast_inverse_lagrange_coefficients(self.u)
+    }
+}
+
 pub struct SubproductTree {
     pub left: Option<Box<SubproductTree>>,
     pub right: Option<Box<SubproductTree>>,
-    pub M: DensePolynomial<Fr>,
+    pub m: DensePolynomial<Fr>,
 }
 
-pub fn subproduct_tree(u: &[Fr]) -> SubproductTree {
-    if u.len() == 1 {
-        SubproductTree {
-            left: None,
-            right: None,
-            M: DensePolynomial::<Fr> {
-                coeffs: vec![-u[0], Fr::one()],
-            },
+impl SubproductTree {
+    /// Compute the subproduct tree of m = (x - u_0)*...*(x-u_{n-1})
+    pub fn new(u: &[Fr]) -> SubproductTree {
+        if u.len() == 1 {
+            SubproductTree {
+                left: None,
+                right: None,
+                m: DensePolynomial::<Fr> {
+                    coeffs: vec![-u[0], Fr::one()],
+                },
+            }
+        } else {
+            let n = u.len() / 2;
+            let (u_0, u_1) = u.split_at(n);
+            let left = Box::new(SubproductTree::new(u_0));
+            let right = Box::new(SubproductTree::new(u_1));
+            let m = left.m * right.m;
+            SubproductTree { left, right, m }
         }
-    } else {
+    }
+
+    pub fn fast_evaluate(
+        &self,
+        f: &DensePolynomial<Fr>,
+        u: &[Fr],
+        t: &mut [Fr],
+    ) {
+        //todo: assert degree < u.len()
+        if u.len() == 1 {
+            t[0] = f.coeffs[0];
+            return;
+        }
+
+        let left = self.left.as_ref().unwrap();
+        let right = self.right.as_ref().unwrap();
+
+        let (q_0, r_0) = fast_divide_monic(f, &left.m);
+        let (_, r_1) = fast_divide_monic(f, &right.m);
+
         let n = u.len() / 2;
         let (u_0, u_1) = u.split_at(n);
-        let left = Box::new(subproduct_tree(u_0));
-        let right = Box::new(subproduct_tree(u_1));
-        let M = &left.M * &right.M;
-        SubproductTree {
-            left: Some(left),
-            right: Some(right),
-            M,
+        let (t_0, t_1) = t.split_at_mut(n);
+
+        left.fast_evaluate(&r_0, u_0, t_0);
+        right.fast_evaluate(&r_1, u_1, t_1);
+    }
+
+    pub fn fast_interpolate(&self, u: &[Fr], v: &[Fr]) -> DensePolynomial<Fr> {
+        use ark_ff::Field;
+        let mut lagrange_coeff = self.fast_inverse_lagrange_coefficients(u);
+
+        for (s_i, v_i) in lagrange_coeff.iter_mut().zip(v.iter()) {
+            *s_i = s_i.inverse().unwrap() * *v_i;
         }
-    }
-}
 
-pub fn fast_evaluate(
-    f: &DensePolynomial<Fr>,
-    u: &[Fr],
-    s: &SubproductTree,
-    t: &mut [Fr],
-) {
-    //todo: assert degree < u.len()
-    if u.len() == 1 {
-        t[0] = f.coeffs[0];
-        return;
+        self.fast_linear_combine(u, &lagrange_coeff)
     }
 
-    let left = s.left.as_ref().unwrap();
-    let right = s.right.as_ref().unwrap();
-
-    let (q_0, r_0) = fast_divide_monic(f, &left.M);
-    let (_, r_1) = fast_divide_monic(f, &right.M);
-
-    let n = u.len() / 2;
-    let (u_0, u_1) = u.split_at(n);
-    let (t_0, t_1) = t.split_at_mut(n);
-
-    fast_evaluate(&r_0, u_0, &left, t_0);
-    fast_evaluate(&r_1, u_1, &right, t_1);
-}
-
-pub fn fast_interpolate(
-    u: &[Fr],
-    v: &[Fr],
-    s: &SubproductTree,
-) -> DensePolynomial<Fr> {
-    use ark_ff::Field;
-    let mut lagrange_coeff = fast_inverse_lagrange_coefficients(u, s);
-
-    for (s_i, v_i) in lagrange_coeff.iter_mut().zip(v.iter()) {
-        *s_i = s_i.inverse().unwrap() * *v_i;
-    }
-
-    fast_linear_combine(u, &lagrange_coeff, &s)
-}
-
-pub fn fast_inverse_lagrange_coefficients(
-    u: &[Fr],
-    s: &SubproductTree,
-) -> Vec<Fr> {
-    //assert u.len() == degree of s.M
-    if u.len() == 1 {
-        return vec![Fr::one()];
-    }
-    let mut evals = vec![Fr::zero(); u.len()];
-    let m_prime = derivative(&s.M);
-    fast_evaluate(&m_prime, u, s, &mut evals);
-    evals
-}
-
-pub fn fast_interpolate_and_batch(
-    u: &[Fr],
-    v: &[Fr],
-    points: &[G1Projective],
-    s: &SubproductTree,
-    normalize: Option<Fr>,
-) -> (DensePolynomial<Fr>, G1Projective) {
-    use ark_ff::Field;
-    let mut lagrange_coeff = fast_inverse_lagrange_coefficients(u, s);
-
-    let mut c = lagrange_coeff
-        .iter()
-        .map(|x| x.inverse().unwrap())
-        .collect::<Vec<Fr>>();
-
-    use ark_ec::group::Group;
-    let mut total = G1Projective::zero();
-    for (c_i, point) in c.iter().zip(points.iter()) {
-        if let Some(norm) = normalize {
-            total += point.mul(&(norm * c_i));
-        } else {
-            total += point.mul(c_i);
+    pub fn fast_inverse_lagrange_coefficients(&self, u: &[Fr]) -> Vec<Fr> {
+        //assert u.len() == degree of s.m
+        if u.len() == 1 {
+            return vec![Fr::one()];
         }
+        let mut evals = vec![Fr::zero(); u.len()];
+        let m_prime = derivative(&self.m);
+        self.fast_evaluate(&m_prime, u, &mut evals);
+        evals
     }
 
-    for (s_i, v_i) in c.iter_mut().zip(v.iter()) {
-        *s_i = *s_i * v_i;
+    pub fn fast_interpolate_and_batch(
+        &self,
+        u: &[Fr],
+        v: &[Fr],
+        points: &[G1Projective],
+        normalize: Option<Fr>,
+    ) -> (DensePolynomial<Fr>, G1Projective) {
+        use ark_ff::Field;
+        let mut lagrange_coeff = self.fast_inverse_lagrange_coefficients(u);
+
+        let mut c = lagrange_coeff
+            .iter()
+            .map(|x| x.inverse().unwrap())
+            .collect::<Vec<Fr>>();
+
+        use ark_ec::group::Group;
+        let mut total = G1Projective::zero();
+        for (c_i, point) in c.iter().zip(points.iter()) {
+            if let Some(norm) = normalize {
+                total += point.mul(&(norm * c_i));
+            } else {
+                total += point.mul(c_i);
+            }
+        }
+
+        for (s_i, v_i) in c.iter_mut().zip(v.iter()) {
+            *s_i = *s_i * v_i;
+        }
+
+        (self.fast_linear_combine(u, &c), total)
     }
 
-    (fast_linear_combine(u, &c, &s), total)
+    pub fn fast_linear_combine(
+        &self,
+        u: &[Fr],
+        c: &[Fr],
+    ) -> DensePolynomial<Fr> {
+        if u.len() == 1 {
+            return DensePolynomial::<Fr> { coeffs: vec![c[0]] };
+        }
+        let n = u.len() / 2;
+        let (u_0, u_1) = u.split_at(n);
+        let (c_0, c_1) = c.split_at(n);
+
+        let left = self.left.as_ref().unwrap();
+        let right = self.right.as_ref().unwrap();
+        let r_0 = left.fast_linear_combine(u_0, c_0);
+        let r_1 = right.fast_linear_combine(u_1, c_1);
+
+        &(&right.m * &r_0) + &(&left.m * &r_1)
+    }
 }
-
 pub fn derivative(p: &DensePolynomial<Fr>) -> DensePolynomial<Fr> {
     let mut coeffs = Vec::with_capacity(p.coeffs.len() - 1);
     for (i, c) in p.coeffs.iter().enumerate().skip(1) {
         coeffs.push(Fr::from(i as u64) * c);
     }
     DensePolynomial::<Fr> { coeffs }
-}
-
-pub fn fast_linear_combine(
-    u: &[Fr],
-    c: &[Fr],
-    s: &SubproductTree,
-) -> DensePolynomial<Fr> {
-    if u.len() == 1 {
-        return DensePolynomial::<Fr> { coeffs: vec![c[0]] };
-    }
-    let n = u.len() / 2;
-    let (u_0, u_1) = u.split_at(n);
-    let (c_0, c_1) = c.split_at(n);
-
-    let left = s.left.as_ref().unwrap();
-    let right = s.right.as_ref().unwrap();
-    let r_0 = fast_linear_combine(u_0, c_0, left);
-    let r_1 = fast_linear_combine(u_1, c_1, right);
-
-    &(&right.M * &r_0) + &(&left.M * &r_1)
 }
 #[cfg(test)]
 mod tests {
@@ -263,8 +283,8 @@ mod tests {
                 evals.push(Fr::rand(rng));
             }
 
-            let s = subproduct_tree(&points);
-            let p = fast_interpolate(&points, &evals, &s);
+            let s = SubproductTree::new(&points);
+            let p = s.fast_interpolate(&points, &evals);
 
             for (x, y) in points.iter().zip(evals.iter()) {
                 assert_eq!(p.evaluate(x), *y)
@@ -282,11 +302,11 @@ mod tests {
                 u.push(Fr::rand(rng));
                 c.push(Fr::rand(rng));
             }
-            let s = subproduct_tree(&u);
-            let f = fast_linear_combine(&u, &c, &s);
+            let s = SubproductTree::new(&u);
+            let f = s.fast_linear_combine(&u, &c);
 
             let r = Fr::rand(rng);
-            let m = s.M.evaluate(&r);
+            let m = s.m.evaluate(&r);
             let mut total = Fr::zero();
             for (u_i, c_i) in u.iter().zip(c.iter()) {
                 total += m * *c_i / (r - u_i);
@@ -303,13 +323,12 @@ mod tests {
             for _ in 0..d {
                 u.push(Fr::rand(rng));
             }
-            let s = subproduct_tree(&u);
-            let f = fast_inverse_lagrange_coefficients(&u, &s);
+            let s = SubproductTree::new(&u);
+            let f = s.fast_inverse_lagrange_coefficients(&u);
 
-            let s_prime = derivative(&s.M);
+            let s_prime = derivative(&s.m);
 
             for (a, (i, j)) in u.iter().zip(f.iter()).enumerate() {
-                dbg!(a);
                 assert_eq!(s_prime.evaluate(i), *j);
             }
         }

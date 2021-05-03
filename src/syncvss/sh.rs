@@ -229,11 +229,9 @@ impl Context {
             &dkg.dh_key
                 .decrypt_cipher(&dkg.participants[dealer as usize].dh_key),
         )?;
-        let evaluation_polynomial = fastpoly::fast_interpolate(
-            &me.share_domain,
-            &local_shares.shares,
-            &me.a_i,
-        );
+        let evaluation_polynomial = me
+            .a_i
+            .fast_interpolate(&me.share_domain, &local_shares.shares);
 
         let evaluation_polynomial_commitment =
             fastkzg::g1_commit(&dkg.powers_of_g, &evaluation_polynomial)?;
