@@ -1,12 +1,25 @@
 ![ci-badge](https://github.com/heliaxdev/ferveo/actions/workflows/build.yaml/badge.svg)
 
-# ferveo
-An implementation of a DKG protocol for front-running protection on public blockchains.
+# Ferveo
+A DKG protocol for front-running protection on public blockchains.
 
-## Questions
-* Can we aggregate decryption shares?
-  * Probably not but as soon as a transaction has been decrypted we don't need to gossip the decryption shares but can rather gossip the decrypted transaction.
-* How to check if an encrypted transaction matches the decrypted transaction?
-  * The encrypted transaction can include a hash commitment to the plain-text transaction that is verified.
-* How to account for cost of storing and decrypting transactions?
-  * Encrypted transactions need a fee payer that pays for that base cost.
+## Documentation
+
+Documentation can be found [here](docs/).
+It is recommended to use [pandoc](https://pandoc.org/) to render the docs.
+
+## Build
+
+A rust toolchain with version `>= 1.52.0` is required.
+Installation via [rustup](https://rustup.rs/) is recommended.
+
+Run `cargo build --release` to build.
+Please note that performance may be significantly poorer when compiling in `Debug` mode.
+
+## Testing
+
+Run `cargo test --release` to run tests. Please note that performance may be significantly poorer when testing in `Debug` mode.
+
+## Benchmarks
+
+Run `cargo bench --benches` to run benchmarks.
