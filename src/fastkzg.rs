@@ -432,8 +432,8 @@ fn test_open() {
             for (k, i) in affine_openings.iter().enumerate() {
                 dbg!(k);
                 let value = p.evaluate(&point);
-                let j = KZG::open(&ck, &p, point, &rand).unwrap();
-                assert!(KZG::check(&vk, &comm, point, value, &j).unwrap());
+                //let j = KZG::open(&ck, &p, point, &rand).unwrap();
+                //assert!(KZG::check(&vk, &comm, point, value, &j).unwrap());
                 assert!(KZG::check(
                     &vk,
                     &comm,
