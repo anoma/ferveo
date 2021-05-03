@@ -6,11 +6,11 @@ This document describes the cryptography used in Ferveo. Cryptoeconomics, incent
 
 ## Goals
 
-The cryptography in Ferveo allows fast distributed key generation, threshold signature, and threshold encryption operations in a trustless and asynchronous manner, where the relative weights of participants are determined by cryptoeconomics/staking values.
+The cryptography in Ferveo allows fast distributed key generation, threshold signature, and threshold encryption operations, with weighted participants, where the relative weights of participants are determined by cryptoeconomics/staking values. Because relative weighting requires many more shares of the distributed key than other distributed key protocols, primitives in Ferveo are highly optimized and run in nearly linear time. Ferveo runs on top of a synchronizing consensus layer such as Tendermint, though some messages may be gossiped peer-to-peer if synchrony is not required.
 
 ## Definitions
 
-Each node $i \in [1,n]$ in Ferveo has an associated public key identity, and associated weight $w_i$. The total weight $\sum_i w_i = W$ can be determined with a performance tradeoff (higher total weight allows more identities, higher resolution of weights, but larger computation and communication complexity)
+Each node $i \in [1,n]$ in Ferveo has an associated Ed25519 public key identity, and associated relative weight $w_i$. The total weight $\sum_i w_i = W$ can be determined with a performance tradeoff (higher total weight allows more identities, higher resolution of weights, but larger computation and communication complexity). For performance reasons, $W$ is ideally a power of two.
 
 ### System model
 
@@ -20,7 +20,7 @@ Synchronous VSS can achieve resiliance when $W \ge 2t+1$, implying $t < W/2$. Th
 
 ### Assumptions
 
-Under the asynchronous model, node clocks are not synchronized and messages can be delayed for abritrary periods of time.
+Under the asynchronous model, node clocks are not synchronized and messages can be delayed for arbitrary periods of time.
 
 In practice a weak synchrony assumption is needed to assure liveness.
 Under weak synchrony, the time difference $delay(T)$ between the time a message was sent ($T$) and the time it is received doesn't grow indefinitely over time.
@@ -42,17 +42,17 @@ In addition, it is assumed that $2W/3$ weight nodes honestly follow the protocol
 
 The curve used is BLS12-381. $\mathbb{G}_1$ denotes the prime order subgroup of order $r$ and $\mathbb{F}_r$ is the scalar field of BLS12-381 with prime order $r$. The pairing operation is $e(P,Q) : \mathbb{G}_1 \times \mathbb{G}_2 \rightarrow \mathbb{G}_T$. The generator of $\mathbb{G}_1$ and $\mathbb{G}_2$ are denoted $G_1$ and $G_2$ respectively.
 
+Optionally, BLS12-377 may also be implemented.
+
 Let $\omega$ denote an $W$th root of unity in $\mathbb{F}_r$.
 
 #### Hashing
 
 Let $\operatorname{HTC}: \{0,1\}^* \rightarrow \mathbb{G}_1$ be the hash to curve function as specified in RFC https://datatracker.ietf.org/doc/draft-irtf-cfrg-hash-to-curve/
 
-TODO: details of exact instantiation chosen
-
 #### Fast subgroup checks
 
-All subgroup checks of membership in the subgroup $\mathbb{G}_1$ are performed as described in https://eprint.iacr.org/2019/814.pdf
+All subgroup checks of membership in the subgroup $\mathbb{G}_1$ and $\mathbb{G}_2$ are performed as described in https://eprint.iacr.org/2019/814.pdf for performance reasons.
 
 ### Symmetric Cryptography
 
@@ -63,7 +63,7 @@ $M = \operatorname{decrypt}(k, C)$
 
 Symmetric key encryption and decryption are provided by the ChaCha20Poly1305 (RFC8439) cipher, implemented as the chacha20poly1305 crate.
 
-(TODO: Evaluate potential use of AES-NI in place of ChaCha20, primarily for CPUs with hardware implementation)
+(Future work: Evaluate potential use of AES-NI in place of ChaCha20, primarily for CPUs with hardware implementation)
 
 ## Public Key identities
 
@@ -71,14 +71,12 @@ Every node $i$ in the network chooses an Ed25519 keypair for signing and an x255
 
 ## Key agreement
 
-Node $i$ can send asynchronous messages to node $j$ through either a gossip protocol or on-chain. The messages should be encrypted and authenticated via a symmetric cipher (e.g. ChaCha20) using an ephemeral key derived through key agreement.
+Node $i$ can send asynchronous messages to node $j$ through either a gossip protocol or on-chain. The messages should be encrypted and authenticated via a symmetric cipher (e.g. ChaCha20) using an x25519 ephemeral key derived through standard key agreement.
 
 1. Node $i$ chooses an ephemeral secret key $\alpha \in \mathbb{F}_r$
 2. The ephemeral public key is $[\alpha] G$.
 3. The ephemeral shared secret is $[sk_i] pk_j = [sk_i sk_j] G$.
-4. The shared symmetric key is $\operatorname{BLAKE2b}([\alpha]G, [sk_i] pk_j)$
-
-(TODO: Check this is accurate and complete)
+4. (Optional) The shared symmetric key can be additionaly derived  $\operatorname{BLAKE2b}([\alpha]G, [sk_i] pk_j)$
 
 ## Initialization
 
