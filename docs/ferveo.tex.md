@@ -76,7 +76,7 @@ Node $i$ can send asynchronous messages to node $j$ through either a gossip prot
 1. Node $i$ chooses an ephemeral secret key $\alpha \in \mathbb{F}_r$
 2. The ephemeral public key is $[\alpha] G$.
 3. The ephemeral shared secret is $[sk_i] pk_j = [sk_i sk_j] G$.
-4. (Optional) The shared symmetric key can be additionaly derived  $\operatorname{BLAKE2b}([\alpha]G, [sk_i] pk_j)$
+4. The shared symmetric key is derived from the ephemeral shared secret in a standard way, as in x25519, HKDF, or by  $\operatorname{BLAKE2b}([\alpha]G, [sk_i] pk_j)$
 
 ## Initialization
 
@@ -84,23 +84,28 @@ Each DKG session begins by choosing a unique integer session id $\tau$. This can
 
 ## Staking phase
 
-Nodes that want to participate in the DKG and receive key shares can stake value tied to the session id. Using the consensus layer, all nodes should agree on a canonical ordering of $(pk_i, w_i)$ where $pk_i$ is the public key of the $i$th node participating in the DKG and $w_i$ is number of shares belonging to node $i$. The value $i$ is the integer id of the node with public key $pk_i$.
+Nodes that want to participate in the DKG and receive key shares can stake value tied to the session id. In general the staking weights will total much greater than the total key weight of the DKG; therefore, the staking weights will have to be scaled and rounded.
+
+The algorithm to assign relative weights achieves exactly the desired total weight. Initially, every participant weight is scaled and rounded down to the nearest integer. The amount of assigned weight is greater than the total desired weight minus the number of participants, so weight at most 1 can be added to each participant in order of staked weight, until the total desired weight is reached. After all total weight is assigned, each participant will have relative weight at most 1 away from their fractional scaled weight.
+
+Using the consensus layer, all nodes should agree on a canonical ordering of $(pk_i, w_i)$ where $pk_i$ is the public key of the $i$th node participating in the DKG and $w_i$ is number of shares belonging to node $i$. The value $i$ is the integer id of the node with public key $pk_i$.
 
 Let $\Psi_{i} = \{ a, a+1, \ldots, a+w_i \}$ be a disjoint partition where $\cup_i \Psi_{i} =  \{0,1, \ldots, W-1\}$, and $\Omega_{i} = \{ \omega^k \ mid k \in \Psi_{i} \}$.
 
 ## VSS
 
-The Verifiable Secret Sharing scheme used is a modified version of the ETHDKG scheme (https://eprint.iacr.org/2021/118.pdf) with performance enhancements and weighted shares. All polynomial evaluations are at powers of $\omega$ to allow FFT based polynomial operations.
+The Verifiable Secret Sharing scheme used is a modified version of the ETHDKG scheme (https://eprint.iacr.org/2021/118.pdf) and the DKG from (https://people.csail.mit.edu/devadas/pubs/scalable_thresh.pdf), with performance enhancements and weighted shares. All polynomial evaluations are at powers of $\omega$ to allow FFT based polynomial operations.
 
 ### KZG commitment scheme
 
-(TODO: if necessary) There is a modified KZG commitment scheme from "Efficient polynomial commitment schemes for multiple points and polynomials" by Dan Boneh, Justin Drake, Ben Fisch, Ariel Gabizon, to allow multiple-point multi-polynomial opening proofs with only two $\mathbb{G}_1$ points.
+Batched fast KZG opening proofs contribute greatly to the scalability of Ferveo. Fast KZG openings are based off of the following:
 
-Additional performance enhancements from:
 * https://github.com/khovratovich/Kate/blob/66aae66cd4e99db3182025c27f02e147dfa0c034/Kate_amortized.pdf
-* https://alinush.github.io/2020/03/12/towards-scalable-vss-and-dkg.html#authenticated-multipoint-evaluation-trees-amts.
+* https://alinush.github.io/2020/03/12/towards-scalable-vss-and-dkg.html
 
-(TODO: possibly compare the inner product commitment scheme as well)
+The Feist and Khovratovich batch KZG opening allows for simultaneous fast computation of $2^n$ opening proofs of a single polynomial at $2^n$ roots of unity, which motivates the choice of evaluation points. 
+
+Additionally, nearly linear time fast polynomial evaluation and fast polynomial interpolation algorithms allow the dealer to combine all openings belonging to a participant into a single $\mathbb{G}_1$ element, and allow the recipient to fast verify the opening proof.
 
 ### Dealer messages
 
@@ -128,7 +133,7 @@ The cost of each plaintext is $2$ integers, ?? $\mathbb{F}_r$ elements and $2$ $
 
 #### Offline precompute
 
-Most of the dealer's computation can be done offline/precomputed, potentially saving online computation time.
+Much of the dealer's computation can be done offline/precomputed, potentially saving online computation time. The secret polynomial, commitment, and opening proofs can be speculatively computed, subject to maintaining secrecy of the secret data.
 
 ### Receiving dealer message
 
@@ -145,7 +150,7 @@ In the case where the dealer $d$ posts an invalid distribution of shares, a node
 
 ### VSS finalization
 
-To ensure the DKG results in an unbiased key, a new base $H_1 = \operatorname{HTC}(\text{DKG session} \tau)$ is used for every generated public key.
+To ensure the DKG results in an unbiased key, a new debiasing base $H_1 = \operatorname{HTC}(\text{DKG session} \tau)$ is used for every generated public key.
 
 Once sufficient weight of signatures are posted, the dealer $d$ posts the public share $[S(0)] H_1$ along with a NIZK proof that $[S(0)] G_1$ and $[S(0)] H_1$ share the same discrete log.
 
@@ -162,8 +167,6 @@ A slow node may discover the dealer has distributed invalid shares after the rel
 Penalties and rewards can still be allocated for disputes posted after the validity of the distributed key expires, but this process also must happen in a defined window of time between the expiry of the key and the release of staked value for the DKG session.
 
 ### Proof sketch
-
-(TODO: sketch proof that changes to the VSS are OK)
 
 ## DKG
 
@@ -189,11 +192,7 @@ The approach of Neji et al can be used to debias the final key. The public key $
 
 ### Proof Sketch
 
-TODO: proof sketch of resiliance in the appropriate model
-
 ## Threshold signature
-
-TODO
 
 ## Randomness beacon
 
