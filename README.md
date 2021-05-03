@@ -1,4 +1,4 @@
-<h1 align="center">ferveo</h1>
+<h1 align="center">Ferveo</h1>
 
 ![ci-badge](https://github.com/heliaxdev/ferveo/actions/workflows/build.yaml/badge.svg)
 
