@@ -160,9 +160,8 @@ impl Context {
                         &evals.evals[participant.share_range.clone()];
                     let opening = opening_proofs.combine(
                         &participant.share_range,
-                        &participant.share_domain,
                         local_evals,
-                        &participant.a_i,
+                        &participant.share_domain,
                     );
                     encrypt(
                         &local_evals,
@@ -229,17 +228,16 @@ impl Context {
             &dkg.dh_key
                 .decrypt_cipher(&dkg.participants[dealer as usize].dh_key),
         )?;
-        let evaluation_polynomial = me
-            .a_i
-            .fast_interpolate(&me.share_domain, &local_shares.shares);
+        let evaluation_polynomial =
+            me.share_domain.fast_interpolate(&local_shares.shares);
 
         let evaluation_polynomial_commitment =
             fastkzg::g1_commit(&dkg.powers_of_g, &evaluation_polynomial)?;
         if !fastkzg::check_batched(
             &dkg.powers_of_h,
             &encrypted_shares.commitment,
-            &me.a_i_commitment.ok_or_else(|| {
-                anyhow::anyhow!("my a_i_commitment not computed")
+            &me.domain_commitment.ok_or_else(|| {
+                anyhow::anyhow!("my domain_commitment not computed")
             })?,
             &evaluation_polynomial_commitment,
             &local_shares.opening,

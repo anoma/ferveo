@@ -33,11 +33,11 @@ impl AmortizedOpeningProof {
     pub fn combine(
         &self,
         range: &std::ops::Range<usize>,
-        domain: &[Fr],
+        //domain: &[Fr],
         evals: &[Fr],
-        s: &fastpoly::SubproductTree,
+        s: &fastpoly::SubproductDomain,
     ) -> G1Affine {
-        let lagrange_coeff = s.fast_inverse_lagrange_coefficients(domain);
+        let lagrange_coeff = s.fast_inverse_lagrange_coefficients();
         use ark_ec::group::Group;
         let mut total = G1Projective::zero();
         for (c_i, point) in
@@ -605,42 +605,27 @@ fn test_all() {
             }
 
             let share_domain = share_domain[5..100].to_vec();
-            let A_I = fastpoly::SubproductTree::new(&share_domain);
-            let A_I_prime = fastpoly::derivative(&A_I.m);
+            let share_domain = fastpoly::SubproductDomain::new(share_domain);
 
             let evals = share_domain
+                .u
                 .iter()
                 .map(|x| p.evaluate(x))
                 .collect::<Vec<Fr>>();
 
-            let (poly, proof) = A_I.fast_interpolate_and_batch(
-                &share_domain,
-                &evals,
-                &openings,
-                None,
-            );
+            let poly = share_domain.fast_interpolate(&evals);
 
             let proof =
                 AmortizedOpeningProof::new(&ck.powers_of_g, &p, &domain)
                     .unwrap();
-            let proof = proof.combine(&(5..100), &share_domain, &evals, &A_I);
+            let proof = proof.combine(&(5..100), &evals, &share_domain);
 
-            let poly = A_I.fast_interpolate(&share_domain, &evals);
-
-            /*for i in share_domain.iter() {
-                assert_eq!(A_I.M.evaluate(i), Fr::zero());
-            }*/
-            //let poly_commit = KZG::commit(&ck, &poly, None, None).unwrap().0.0;
             let poly_commit = g1_commit(&ck.powers_of_g, &poly).unwrap();
-            //let evaluation_polynomial_commitment =
-            //    g1_commit(&powers_of_g, &evaluation_polynomial)?;
 
             assert!(check_batched(
                 &powers_of_h,
                 &p_comm,
-                //&A_I.M,
-                &g2_commit(&powers_of_h, &A_I.m).unwrap(),
-                //&poly,
+                &g2_commit(&powers_of_h, &share_domain.t.m).unwrap(),
                 &poly_commit,
                 &proof.into(),
             )

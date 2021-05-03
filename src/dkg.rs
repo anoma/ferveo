@@ -37,17 +37,14 @@ pub struct ParticipantBuilder {
 }
 
 #[derive(Clone, Debug)]
-pub struct Participant<'a> {
+pub struct Participant {
     pub ed_key: ed25519::PublicKey,
     pub dh_key: dh::AsymmetricPublicKey,
     pub weight: u32,
     pub share_range: std::ops::Range<usize>,
-    pub share_domain: Rc<[Scalar]>,
-    pub a_i: fastpoly::SubproductTree, // subproduct tree of polynomial with zeros at share_domain
-    pub a_i_prime: DensePolynomial<Scalar>, // derivative of a_i
-    pub a_i_commitment: Option<G2Affine>,
+    pub share_domain: fastpoly::SubproductDomain, // subproduct tree of polynomial with zeros at share_domain
+    pub domain_commitment: Option<G2Affine>, //Commitment to subproduct domain}
 }
-
 #[derive(Debug)]
 pub enum State {
     Init {
@@ -60,12 +57,12 @@ pub enum State {
     Failure,
 }
 
-pub struct Context<'a> {
+pub struct Context {
     pub tau: u32,
     pub dh_key: dh::AsymmetricKeypair,
     pub ed_key: ed25519::Keypair,
     pub params: Params,
-    pub participants: Vec<Participant<'a>>,
+    pub participants: Vec<Participant>,
     pub vss: BTreeMap<u32, syncvss::sh::Context>,
     pub domain: ark_poly::Radix2EvaluationDomain<Scalar>,
     pub state: State,
@@ -75,8 +72,8 @@ pub struct Context<'a> {
     pub beta_h: G2Affine,
 }
 
-impl<'a> Context<'a> {
-    pub fn new<'c, R: rand::Rng + rand::CryptoRng + Sized>(
+impl Context {
+    pub fn new<R: rand::Rng + rand::CryptoRng + Sized>(
         tau: u32,
         ed_key: ed25519::Keypair,
         params: &Params,
@@ -84,7 +81,7 @@ impl<'a> Context<'a> {
         powers_of_h: Rc<Vec<G2Affine>>,
         beta_h: G2Affine,
         rng: &mut R,
-    ) -> Result<Context<'a>, anyhow::Error> {
+    ) -> Result<Context, anyhow::Error> {
         let domain = ark_poly::Radix2EvaluationDomain::<Scalar>::new(
             params.total_weight as usize,
         )
@@ -227,18 +224,17 @@ impl<'a> Context<'a> {
                     share_domain.push(domain_element);
                     domain_element *= self.domain.group_gen;
                 }
-                let share_domain = share_domain.into_boxed_slice();
-                let a_i = fastpoly::SubproductTree::new(&share_domain);
-                let a_i_prime = fastpoly::derivative(&a_i.m);
+                //let share_domain = share_domain.into_boxed_slice();
+                let share_domain =
+                    fastpoly::SubproductDomain::new(share_domain);
+                //let a_i_prime = fastpoly::derivative(&a_i.m);
                 self.participants.push(Participant {
                     ed_key: participant.ed_key,
                     dh_key: participant.dh_key,
                     weight,
                     share_range,
                     share_domain,
-                    a_i,
-                    a_i_prime,
-                    a_i_commitment: None,
+                    domain_commitment: None,
                 });
                 allocated_weight =
                     allocated_weight.checked_add(weight as usize).ok_or_else(
@@ -248,10 +244,10 @@ impl<'a> Context<'a> {
             self.me = self
                 .find_by_key(&self.ed_key.public)
                 .ok_or_else(|| anyhow::anyhow!("self not found"))?;
-            self.participants[self.me].a_i_commitment =
+            self.participants[self.me].domain_commitment =
                 Some(crate::fastkzg::g2_commit(
                     &self.powers_of_h,
-                    &self.participants[self.me].a_i.m,
+                    &self.participants[self.me].share_domain.t.m,
                 )?);
         }
         Ok(())

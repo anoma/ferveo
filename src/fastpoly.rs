@@ -69,28 +69,32 @@ pub fn fast_divide_monic(
 pub struct SubproductDomain {
     pub u: Vec<Fr>,
     pub t: SubproductTree,
+    pub prime: DensePolynomial<Fr>, // Derivative
 }
 
 impl SubproductDomain {
     pub fn new(u: Vec<Fr>) -> SubproductDomain {
-        SubproductDomain {
-            u,
-            t: SubproductTree::new(&u),
-        }
+        let t = SubproductTree::new(&u);
+        let prime = derivative(&t.m);
+        SubproductDomain { u, t, prime }
     }
     pub fn fast_evaluate(&self, f: &DensePolynomial<Fr>) -> Vec<Fr> {
-        let evals = vec![Fr::zero(); u.len()];
-        self.t.fast_evaluate(f, self.u, &mut evals);
+        let mut evals = vec![Fr::zero(); self.u.len()];
+        self.t.fast_evaluate(f, &self.u, &mut evals);
         evals
     }
     pub fn fast_interpolate(&self, v: &[Fr]) -> DensePolynomial<Fr> {
-        self.t.fast_interpolate(self.u, v)
+        self.t.fast_interpolate(&self.u, v)
     }
     pub fn fast_inverse_lagrange_coefficients(&self) -> Vec<Fr> {
-        self.t.fast_inverse_lagrange_coefficients(self.u)
+        self.t.fast_inverse_lagrange_coefficients(&self.u)
+    }
+    pub fn fast_linear_combine(&self, c: &[Fr]) -> DensePolynomial<Fr> {
+        self.t.fast_linear_combine(&self.u, &c)
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct SubproductTree {
     pub left: Option<Box<SubproductTree>>,
     pub right: Option<Box<SubproductTree>>,
@@ -113,8 +117,12 @@ impl SubproductTree {
             let (u_0, u_1) = u.split_at(n);
             let left = Box::new(SubproductTree::new(u_0));
             let right = Box::new(SubproductTree::new(u_1));
-            let m = left.m * right.m;
-            SubproductTree { left, right, m }
+            let m = &left.m * &right.m;
+            SubproductTree {
+                left: Some(left),
+                right: Some(right),
+                m,
+            }
         }
     }
 
@@ -174,7 +182,7 @@ impl SubproductTree {
         normalize: Option<Fr>,
     ) -> (DensePolynomial<Fr>, G1Projective) {
         use ark_ff::Field;
-        let mut lagrange_coeff = self.fast_inverse_lagrange_coefficients(u);
+        let lagrange_coeff = self.fast_inverse_lagrange_coefficients(u);
 
         let mut c = lagrange_coeff
             .iter()
@@ -283,10 +291,10 @@ mod tests {
                 evals.push(Fr::rand(rng));
             }
 
-            let s = SubproductTree::new(&points);
-            let p = s.fast_interpolate(&points, &evals);
+            let s = SubproductDomain::new(points);
+            let p = s.fast_interpolate(&evals);
 
-            for (x, y) in points.iter().zip(evals.iter()) {
+            for (x, y) in s.u.iter().zip(evals.iter()) {
                 assert_eq!(p.evaluate(x), *y)
             }
         }
@@ -302,13 +310,13 @@ mod tests {
                 u.push(Fr::rand(rng));
                 c.push(Fr::rand(rng));
             }
-            let s = SubproductTree::new(&u);
-            let f = s.fast_linear_combine(&u, &c);
+            let s = SubproductDomain::new(u);
+            let f = s.fast_linear_combine(&c);
 
             let r = Fr::rand(rng);
-            let m = s.m.evaluate(&r);
+            let m = s.t.m.evaluate(&r);
             let mut total = Fr::zero();
-            for (u_i, c_i) in u.iter().zip(c.iter()) {
+            for (u_i, c_i) in s.u.iter().zip(c.iter()) {
                 total += m * *c_i / (r - u_i);
             }
             assert_eq!(f.evaluate(&r), total);
@@ -323,13 +331,11 @@ mod tests {
             for _ in 0..d {
                 u.push(Fr::rand(rng));
             }
-            let s = SubproductTree::new(&u);
-            let f = s.fast_inverse_lagrange_coefficients(&u);
+            let s = SubproductDomain::new(u);
+            let f = s.fast_inverse_lagrange_coefficients();
 
-            let s_prime = derivative(&s.m);
-
-            for (a, (i, j)) in u.iter().zip(f.iter()).enumerate() {
-                assert_eq!(s_prime.evaluate(i), *j);
+            for (a, (i, j)) in s.u.iter().zip(f.iter()).enumerate() {
+                assert_eq!(s.prime.evaluate(i), *j);
             }
         }
     }
