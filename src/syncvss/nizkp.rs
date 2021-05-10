@@ -118,12 +118,12 @@ impl NIZKP_BLS {
         let c: Scalar; //TODO: use hash to field
         loop {
             let mut buf = Vec::new();
-            x_1.write(&mut buf);
-            y_1.write(&mut buf);
-            x_2.write(&mut buf);
-            y_2.write(&mut buf);
-            t_1.write(&mut buf);
-            t_2.write(&mut buf);
+            x_1.write(&mut buf).unwrap();
+            y_1.write(&mut buf).unwrap();
+            x_2.write(&mut buf).unwrap();
+            y_2.write(&mut buf).unwrap();
+            t_1.write(&mut buf).unwrap();
+            t_2.write(&mut buf).unwrap();
             hasher.update(buf.as_slice());
             if let Ok(h) = Scalar::read(hasher.finalize().as_bytes()) {
                 c = h;

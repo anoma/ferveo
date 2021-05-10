@@ -1,230 +1,116 @@
-use crate::fastpoly;
-use ark_bls12_381::{
-    Bls12_381, Fr, G1Affine, G1Projective, G2Affine, G2Projective,
-};
-use ark_ff::{Field, One, Zero};
+use crate::subproductdomain::*;
+use ark_ec::group::Group;
+use ark_ec::PairingEngine;
+use ark_ff::{Field, One, PrimeField, Zero};
 use ark_poly::{
     polynomial::univariate::DensePolynomial, EvaluationDomain, UVPolynomial,
 };
-use ark_poly_commit::kzg10::{Powers, UniversalParams, VerifierKey};
+use ark_poly_commit::kzg10::UniversalParams;
+use ark_serialize::*;
 
-pub fn open_amortized(
-    powers_of_g: &[G1Affine],
-    polynomial: &DensePolynomial<Fr>,
-    n: usize,
-) -> Result<Vec<G1Projective>, anyhow::Error> {
-    let m = polynomial.coeffs.len() - 1;
-    let domain = ark_poly::Radix2EvaluationDomain::<Fr>::new(1 << n)
-        .ok_or_else(|| anyhow::anyhow!("bad domain"))?;
-    let p = powers_of_g[0..m].to_vec();
-    let mut h = toeplitz_mul(polynomial, &p, domain.size())?;
+use ark_ec::AffineCurve;
 
-    ec_fft(&mut h, domain.group_gen, domain.log_size_of_group);
-
-    Ok(h)
+/// Opening proofs of a commitment on a large domain
+pub struct DomainProof<E: PairingEngine> {
+    /// This is a vector of commitments to the witness polynomials
+    /// over a domain 1, omega, omega^2, ..., omega^{n-1}
+    /// where omega is a primitive n'th root of unity
+    pub w: Vec<E::G1Projective>,
+    /// Scale factor whose multiplication is deferred until the proofs are combined
+    pub scale: E::Fr,
 }
 
-pub struct AmortizedOpeningProof {
-    pub proofs: Vec<G1Projective>,
-    pub scale: Fr,
-}
-
-impl AmortizedOpeningProof {
-    pub fn combine(
+impl<E: PairingEngine> DomainProof<E> {
+    /// Combine opening proofs onto a subset of the domain
+    /// represented by the SubproductDomain s
+    pub fn combine_at_domain(
         &self,
-        range: &std::ops::Range<usize>,
-        //domain: &[Fr],
-        evals: &[Fr],
-        s: &fastpoly::SubproductDomain,
-    ) -> G1Affine {
-        let lagrange_coeff = s.fast_inverse_lagrange_coefficients();
-        use ark_ec::group::Group;
-        let mut total = G1Projective::zero();
+        domain: &std::ops::Range<usize>, // Domain is omega^{start}, ..., omega^{end-1}
+        s: &SubproductDomain<E::Fr>,     // SubproductDomain of the domain
+    ) -> CombinedDomainProof<E> {
+        let lagrange_coeff = s.inverse_lagrange_coefficients();
+        let mut total = E::G1Projective::zero();
         for (c_i, point) in
-            lagrange_coeff.iter().zip(self.proofs[range.clone()].iter())
+            lagrange_coeff.iter().zip(self.w[domain.clone()].iter())
         {
-            total += point.mul(&(self.scale * c_i.inverse().unwrap()));
+            total += point.mul(&c_i.inverse().unwrap());
         }
-        total.into()
+        // total.into(),
+        // NOTE: if the ifft had not multiplied by domain_size_inv
+        CombinedDomainProof {
+            w: total.mul(&self.scale).into(),
+        }
     }
 
     pub fn new(
-        powers_of_g: &[G1Affine],
-        polynomial: &DensePolynomial<Fr>,
-        domain: &ark_poly::Radix2EvaluationDomain<Fr>,
-    ) -> Result<AmortizedOpeningProof, anyhow::Error> {
+        powers_of_g: &[E::G1Affine],
+        polynomial: &DensePolynomial<E::Fr>,
+        domain: &ark_poly::Radix2EvaluationDomain<E::Fr>,
+    ) -> Result<DomainProof<E>, anyhow::Error> {
         let m = polynomial.coeffs.len() - 1;
         let p = powers_of_g[0..m].to_vec();
         let (mut h, domain_size_inv) =
-            toeplitz_mul_unnormalized(polynomial, &p, domain.size())?;
+            toeplitz_mul::<E, false>(polynomial, &p, domain.size())?;
 
-        ec_fft(&mut h, domain.group_gen, domain.log_size_of_group);
+        domain.fft_in_place(&mut h);
 
-        Ok(AmortizedOpeningProof {
-            proofs: h,
+        Ok(DomainProof {
+            w: h,
             scale: domain_size_inv,
         })
     }
 }
 
-pub fn build_circulant(
-    polynomial: &DensePolynomial<Fr>,
-    size: usize,
-) -> Vec<Fr> {
-    let mut circulant = vec![Fr::zero(); 2 * size];
-    let coeffs = polynomial.coeffs();
-    if size == coeffs.len() - 1 {
-        circulant[0] = *coeffs.last().unwrap();
-        circulant[size] = *coeffs.last().unwrap();
-        circulant[size + 1..size + 1 + coeffs.len() - 2]
-            .copy_from_slice(&coeffs[1..coeffs.len() - 1]);
-    } else {
-        circulant[size + 1..size + 1 + coeffs.len() - 1]
-            .copy_from_slice(&coeffs[1..]);
-    }
-    circulant
+#[derive(Debug, Clone, Copy, CanonicalSerialize, CanonicalDeserialize)]
+pub struct CombinedDomainProof<E: PairingEngine> {
+    pub w: E::G1Affine,
 }
 
-pub fn toeplitz_mul(
-    polynomial: &DensePolynomial<Fr>,
-    v: &[G1Affine],
-    size: usize,
-) -> Result<Vec<G1Projective>, anyhow::Error> {
-    let (mut tmp, domain_size_inv) =
-        toeplitz_mul_unnormalized(polynomial, v, size)?;
-    for p in tmp.iter_mut() {
-        *p *= domain_size_inv;
+impl<E: PairingEngine> CombinedDomainProof<E> {
+    /// Verifies that `evals` are the evaluation at `s` of the polynomial
+    /// committed inside `comm` where `s` is a constructed SubproductDomain
+    pub fn check_at_domain(
+        &self,
+        powers_of_g: &[E::G1Affine],
+        powers_of_h: &[E::G2Affine],
+        comm: &E::G1Affine,
+        evals: &[E::Fr], // Evaluations at the SubproductDomain
+        s: &SubproductDomain<E::Fr>, // SubproductDomain of the evaluation domain
+    ) -> Result<bool, anyhow::Error> {
+        let evaluation_polynomial = s.interpolate(evals);
+
+        let evaluation_polynomial_commitment =
+            g1_commit::<E>(powers_of_g, &evaluation_polynomial)?;
+
+        let s_commitment = g2_commit::<E>(powers_of_h, &s.t.m)?;
+        Ok(self.check_at_domain_with_commitments(
+            powers_of_h,
+            comm,
+            &s_commitment,
+            &evaluation_polynomial_commitment,
+        ))
     }
 
-    Ok(tmp)
-}
+    /// Check combined domain proof with precomputed commitments
+    pub fn check_at_domain_with_commitments(
+        &self,
+        powers_of_h: &[E::G2Affine],
+        comm: &E::G1Affine,
+        s_commitment: &E::G2Affine, // G2 Commitment to the SubproductDomain
+        evaluation_polynomial_commitment: &E::G1Affine,
+    ) -> bool {
+        let inner = comm.into_projective()
+            - evaluation_polynomial_commitment.into_projective();
 
-pub fn toeplitz_mul_unnormalized(
-    polynomial: &DensePolynomial<Fr>,
-    v: &[G1Affine],
-    size: usize,
-) -> Result<(Vec<G1Projective>, Fr), anyhow::Error> {
-    use ark_ec::AffineCurve;
-
-    let m = polynomial.coeffs.len() - 1;
-    let size = ark_std::cmp::max(size, m);
-
-    let domain = ark_poly::Radix2EvaluationDomain::<Fr>::new(2 * size)
-        .ok_or_else(|| anyhow::anyhow!("bad domain"))?;
-
-    let size = domain.size() / 2;
-    let mut circulant = build_circulant(&polynomial, size);
-
-    let mut tmp: Vec<G1Projective> = Vec::with_capacity(domain.size());
-
-    for _ in 0..(size - v.len()) {
-        tmp.push(G1Projective::zero());
-    }
-
-    for i in v.iter().rev() {
-        tmp.push(i.into_projective());
-    }
-
-    tmp.resize(domain.size(), G1Projective::zero());
-    ec_fft(&mut tmp, domain.group_gen, domain.log_size_of_group);
-    domain.fft_in_place(&mut circulant);
-
-    for (i, j) in tmp.iter_mut().zip(circulant.iter()) {
-        *i *= *j;
-    }
-
-    ec_fft(&mut tmp, domain.group_gen_inv, domain.log_size_of_group);
-
-    Ok((
-        tmp[..size].to_vec(),
-        Fr::from(domain.size() as u64).inverse().unwrap(),
-    ))
-}
-
-pub fn ec_fft(a: &mut [G1Projective], omega: Fr, two_adicity: u32) {
-    let n = a.len();
-    assert_eq!(n, 1 << two_adicity);
-
-    // swapping in place (from Storer's book)
-    for k in 0..n {
-        let rk = bitreverse(k as u32, two_adicity) as usize;
-        if k < rk {
-            a.swap(k, rk);
-        }
-    }
-
-    let mut m = 1;
-    for _ in 0..two_adicity {
-        // w_m is 2^s-th root of unity now
-        let w_m = omega.pow(&[(n / (2 * m)) as u64]);
-
-        let mut k = 0;
-        while k < n {
-            let mut w = Fr::one();
-            for j in 0..m {
-                let mut t = a[(k + m) + j];
-                t *= w;
-                a[(k + m) + j] = a[k + j];
-                a[(k + m) + j] -= t;
-                a[k + j] += t;
-                w *= w_m;
-            }
-            k += 2 * m;
-        }
-        m *= 2;
+        E::pairing(inner, powers_of_h[0])
+            == E::pairing(self.w, s_commitment.into_projective())
     }
 }
 
-#[inline]
-pub(crate) fn bitreverse(mut n: u32, l: u32) -> u32 {
-    let mut r = 0;
-    for _ in 0..l {
-        r = (r << 1) | (n & 1);
-        n >>= 1;
-    }
-    r
-}
-
-pub fn batch_proofs(ci: &[Fr], proofs: &[G1Projective]) -> G1Projective {
-    use ark_ec::group::Group;
-    let mut total = G1Projective::zero();
-    for (c, proof) in ci.iter().zip(proofs.iter()) {
-        total += proof.mul(c);
-    }
-    total
-}
-
-/// Verifies that `value` is the evaluation at `point` of the polynomial
-/// committed inside `comm`.
-pub fn check_batched(
-    powers_of_h: &[G2Affine],
-    comm: &G1Affine, //Commitment<Bls12_381>,
-    //A_I: &DensePolynomial<Fr>,
-    A_I_commitment: &G2Affine,
-    //evaluation_polynomial: &DensePolynomial<Fr>,
-    evaluation_polynomial_commitment: &G1Affine,
-    proof: &G1Affine,
-) -> Result<bool, anyhow::Error> {
-    use ark_ec::{AffineCurve, PairingEngine};
-    //let check_time = start_timer!(|| "Checking evaluation");
-    let inner = comm.into_projective()
-        - evaluation_polynomial_commitment.into_projective();
-    //if let Some(random_v) = proof.random_v {
-    //    inner -= &vk.gamma_g.mul(random_v);
-    //}
-    let lhs = Bls12_381::pairing(inner, powers_of_h[0]);
-
-    //let inner = g2_commit(powers_of_h, A_I)?.into_projective();
-    let rhs = Bls12_381::pairing(*proof, A_I_commitment.into_projective());
-
-    //end_timer!(check_time, || format!("Result: {}", lhs == rhs));
-    Ok(lhs == rhs)
-}
-
-pub fn g2_commit(
-    powers_of_h: &[G2Affine],
-    polynomial: &DensePolynomial<Fr>,
-) -> Result<G2Affine, anyhow::Error> {
+pub fn g2_commit<E: PairingEngine>(
+    powers_of_h: &[E::G2Affine],
+    polynomial: &DensePolynomial<E::Fr>,
+) -> Result<E::G2Affine, anyhow::Error> {
     use ark_ec::msm::VariableBaseMSM;
     //TODO: check degree is a private
     /*Self::check_degree_is_too_large(
@@ -242,10 +128,10 @@ pub fn g2_commit(
     Ok(commitment.into())
 }
 
-pub fn g1_commit(
-    powers_of_g: &[G1Affine],
-    polynomial: &DensePolynomial<Fr>,
-) -> Result<G1Affine, anyhow::Error> {
+pub fn g1_commit<E: PairingEngine>(
+    powers_of_g: &[E::G1Affine],
+    polynomial: &DensePolynomial<E::Fr>,
+) -> Result<E::G1Affine, anyhow::Error> {
     use ark_ec::msm::VariableBaseMSM;
     //TODO: check degree is a private
     /*Self::check_degree_is_too_large(
@@ -263,25 +149,22 @@ pub fn g1_commit(
     Ok(commitment.into())
 }
 
-pub fn setup<R: rand::RngCore>(
+pub fn setup<E: PairingEngine, R: rand::RngCore>(
     max_degree: usize,
     rng: &mut R,
-) -> Result<(UniversalParams<Bls12_381>, Vec<G2Affine>), anyhow::Error> {
-    use ark_ec::group::Group;
+) -> Result<(UniversalParams<E>, Vec<E::G2Affine>), anyhow::Error> {
     use ark_ec::msm::FixedBaseMSM;
-    use ark_ec::AffineCurve;
     use ark_ec::ProjectiveCurve;
-    use ark_ff::PrimeField;
     use ark_std::UniformRand;
     if max_degree < 1 {
         return Err(anyhow::anyhow!("DegreeIsZero"));
     }
-    let beta = Fr::rand(rng);
-    let g = G1Projective::rand(rng);
-    let gamma_g = G1Projective::rand(rng);
-    let h = G2Projective::rand(rng);
+    let beta = E::Fr::rand(rng);
+    let g = E::G1Projective::rand(rng);
+    let gamma_g = E::G1Projective::rand(rng);
+    let h = E::G2Projective::rand(rng);
 
-    let mut powers_of_beta = vec![Fr::one()];
+    let mut powers_of_beta = vec![E::Fr::one()];
 
     let mut cur = beta;
     for _ in 0..max_degree {
@@ -291,9 +174,9 @@ pub fn setup<R: rand::RngCore>(
 
     let window_size = FixedBaseMSM::get_mul_window_size(max_degree + 1);
 
-    let scalar_bits = Fr::size_in_bits();
+    let scalar_bits = E::Fr::size_in_bits();
     let g_table = FixedBaseMSM::get_window_table(scalar_bits, window_size, g);
-    let powers_of_g = FixedBaseMSM::multi_scalar_mul::<G1Projective>(
+    let powers_of_g = FixedBaseMSM::multi_scalar_mul::<E::G1Projective>(
         scalar_bits,
         window_size,
         &g_table,
@@ -301,7 +184,7 @@ pub fn setup<R: rand::RngCore>(
     );
 
     let h_table = FixedBaseMSM::get_window_table(scalar_bits, window_size, h);
-    let powers_of_h = FixedBaseMSM::multi_scalar_mul::<G2Projective>(
+    let powers_of_h = FixedBaseMSM::multi_scalar_mul::<E::G2Projective>(
         scalar_bits,
         window_size,
         &h_table,
@@ -310,7 +193,7 @@ pub fn setup<R: rand::RngCore>(
 
     let gamma_g_table =
         FixedBaseMSM::get_window_table(scalar_bits, window_size, gamma_g);
-    let mut powers_of_gamma_g = FixedBaseMSM::multi_scalar_mul::<G1Projective>(
+    let mut powers_of_gamma_g = FixedBaseMSM::multi_scalar_mul::<E::G1Projective>(
         scalar_bits,
         window_size,
         &gamma_g_table,
@@ -321,12 +204,12 @@ pub fn setup<R: rand::RngCore>(
     powers_of_gamma_g.push(powers_of_gamma_g.last().unwrap().mul(&beta));
 
     let powers_of_g =
-        G1Projective::batch_normalization_into_affine(&powers_of_g);
+        E::G1Projective::batch_normalization_into_affine(&powers_of_g);
 
     let powers_of_h =
-        G2Projective::batch_normalization_into_affine(&powers_of_h);
+        E::G2Projective::batch_normalization_into_affine(&powers_of_h);
     let powers_of_gamma_g =
-        G1Projective::batch_normalization_into_affine(&powers_of_gamma_g)
+        E::G1Projective::batch_normalization_into_affine(&powers_of_gamma_g)
             .into_iter()
             .enumerate()
             .collect();
@@ -347,21 +230,20 @@ pub fn setup<R: rand::RngCore>(
     };
     Ok((pp, powers_of_h))
 }
-pub fn skip_leading_zeros_and_convert_to_bigints(
-    p: &DensePolynomial<Fr>,
-) -> (usize, Vec<<Fr as ark_ff::PrimeField>::BigInt>) {
+pub fn skip_leading_zeros_and_convert_to_bigints<F: PrimeField>(
+    p: &DensePolynomial<F>,
+) -> (usize, Vec<F::BigInt>) {
     let mut num_leading_zeros = 0;
     while num_leading_zeros < p.coeffs().len()
         && p.coeffs()[num_leading_zeros].is_zero()
     {
         num_leading_zeros += 1;
     }
-    let coeffs = convert_to_bigints(&p.coeffs()[num_leading_zeros..]);
+    let coeffs = convert_to_bigints::<F>(&p.coeffs()[num_leading_zeros..]);
     (num_leading_zeros, coeffs)
 }
 
-pub fn convert_to_bigints(p: &[Fr]) -> Vec<<Fr as ark_ff::PrimeField>::BigInt> {
-    use ark_ff::PrimeField;
+pub fn convert_to_bigints<F: PrimeField>(p: &[F]) -> Vec<F::BigInt> {
     let coeffs = ark_std::cfg_iter!(p)
         .map(|s| s.into_repr())
         .collect::<Vec<_>>();
@@ -369,9 +251,9 @@ pub fn convert_to_bigints(p: &[Fr]) -> Vec<<Fr as ark_ff::PrimeField>::BigInt> {
 }
 
 #[cfg(test)]
-type KZG = ark_poly_commit::kzg10::KZG10<Bls12_381, DensePolynomial<Fr>>;
+type KZG = ark_poly_commit::kzg10::KZG10<Curve, DensePolynomial<Scalar>>;
+use ark_poly_commit::kzg10::{Powers, VerifierKey};
 
-#[cfg(test)]
 fn trim<E: ark_ec::PairingEngine>(
     pp: &UniversalParams<E>,
     mut supported_degree: usize,
@@ -399,8 +281,12 @@ fn trim<E: ark_ec::PairingEngine>(
     Ok((powers, vk))
 }
 
+#[cfg(test)]
+use crate::*;
+
 #[test]
 fn test_open() {
+    use ark_ec::ProjectiveCurve;
     use ark_poly::Polynomial;
     use ark_poly_commit::kzg10::Proof;
     let rng = &mut ark_std::test_rng();
@@ -409,157 +295,82 @@ fn test_open() {
     let total_weight = 1 << n;
     {
         let degree = 2 * total_weight / 3;
-        let (pp, powers_of_h) = setup(degree, rng).unwrap();
+        let (pp, _powers_of_h) = setup::<Curve, _>(degree, rng).unwrap();
         let (ck, vk) = trim(&pp, degree).unwrap();
 
         for _ in 0..10 {
-            let p = DensePolynomial::<Fr>::rand(degree, rng);
+            let p = DensePolynomial::<Scalar>::rand(degree, rng);
 
-            let (comm, rand) = KZG::commit(&ck, &p, None, None).unwrap();
-
+            let (comm, _) = KZG::commit(&ck, &p, None, None).unwrap();
+            //let comm = g1_commit::<Curve>(&ck.powers_of_g, &p);
             let domain =
-                ark_poly::Radix2EvaluationDomain::<Fr>::new(total_weight)
+                ark_poly::Radix2EvaluationDomain::<Scalar>::new(total_weight)
                     .unwrap();
 
-            let openings = open_amortized(&ck.powers_of_g, &p, n).unwrap();
-            let affine_openings = openings
-                .iter()
-                .map(|p| (*p).into())
-                .collect::<Vec<G1Affine>>();
+            let proof = DomainProof::<Curve>::new(&ck.powers_of_g, &p, &domain)
+                .unwrap();
 
-            let mut point = Fr::one();
-
-            for (k, i) in affine_openings.iter().enumerate() {
-                dbg!(k);
-                let value = p.evaluate(&point);
-                //let j = KZG::open(&ck, &p, point, &rand).unwrap();
-                //assert!(KZG::check(&vk, &comm, point, value, &j).unwrap());
-                assert!(KZG::check(
-                    &vk,
-                    &comm,
-                    point,
-                    value,
-                    &Proof {
-                        w: *i,
-                        random_v: None
-                    }
-                )
-                .unwrap());
-                point *= domain.group_gen;
-            }
-            let mut share_domain =
-                Vec::with_capacity(1 << domain.log_size_of_group);
-            let mut t = Fr::one();
+            let mut share_domain = Vec::with_capacity(domain.size());
+            let mut t = Scalar::one();
             for _ in 0..1 << domain.log_size_of_group {
                 share_domain.push(t);
                 t *= domain.group_gen;
             }
-            /*
-            let A_I = compute_ai(&share_domain);
-            let A_I_prime = derivative(&A_I);
-            let c_i = compute_ci(&share_domain, &A_I_prime);
-            let batch = batch_proofs(&c_i, &openings);
-            assert!(check_batched(
-                &powers_of_h,
-                //&ck,
-                //&vk,
-                &comm,
-                &A_I,
-                &lagrange_interpolate(
-                    &share_domain,
-                    &share_domain
-                        .iter()
-                        .map(|x| p.evaluate(x))
-                        .collect::<Vec<Fr>>(),
-                    &A_I,
-                    &A_I_prime,
-                ),
-                &batch.into(),
-            )
-            .unwrap());*/
+
+            let mut point = Scalar::one();
+
+            for proof_projective in proof.w.iter() {
+                let kzg_proof = Proof {
+                    w: proof_projective.into_affine(),
+                    random_v: None,
+                };
+                let value = p.evaluate(&point);
+                assert!(
+                    KZG::check(&vk, &comm, point, value, &kzg_proof,).unwrap()
+                );
+                point *= domain.group_gen;
+            }
         }
-    }
-}
-
-#[test]
-fn test_fft() {
-    use ark_ec::group::Group;
-    use ark_ec::AffineCurve;
-    use ark_std::test_rng;
-    let rng = &mut test_rng();
-    let mut tmp: Vec<G1Affine> = Vec::with_capacity(128);
-    for _ in 0..128 {
-        tmp.push(G1Affine::prime_subgroup_generator());
-    }
-
-    let mut tmp2 = tmp
-        .iter()
-        .map(|p| G1Projective::from(*p))
-        .collect::<Vec<G1Projective>>();
-
-    let domain =
-        ark_poly::Radix2EvaluationDomain::<Fr>::new(tmp.len()).unwrap();
-
-    assert_eq!(domain.size(), tmp.len());
-
-    let mut total = G1Projective::zero();
-    let mut omega = Fr::one();
-    for i in tmp2.iter() {
-        total = total + i.mul(&omega);
-        omega = omega * domain.group_gen * domain.group_gen;
-    }
-
-    ec_fft(&mut tmp2, domain.group_gen, domain.log_size_of_group);
-
-    for i in tmp2.iter() {
-        if G1Affine::from(*i) == G1Affine::from(total) {
-            dbg!(i);
-        }
-    }
-    assert_eq!(G1Affine::from(total), G1Affine::from(tmp2[2]));
-
-    ec_fft(&mut tmp2, domain.group_gen_inv, domain.log_size_of_group);
-    let domain_size_inv = Fr::from(domain.size() as u64).inverse().unwrap();
-    for p in tmp2.iter_mut() {
-        *p *= domain_size_inv;
-    }
-
-    for (i, j) in tmp.iter().zip(tmp2.iter()) {
-        assert_eq!(*i, G1Affine::from(*j));
     }
 }
 
 #[test]
 fn test_toeplitz() {
-    use ark_ec::AffineCurve;
+    use ark_ec::{AffineCurve, ProjectiveCurve};
     let rng = &mut ark_std::test_rng();
-    for total_weight in 95..130 {
-        let degree = 2 * total_weight / 3;
 
-        let pp = KZG::setup(degree, false, rng).unwrap();
-        let (ck, vk) = trim(&pp, degree).unwrap();
+    let max_degree = 50;
+    let pp = KZG::setup(max_degree, false, rng).unwrap();
 
-        for _ in 0..4 {
-            let polynomial = DensePolynomial::<Fr>::rand(degree, rng);
+    for total_weight in 50..75 {
+        for degree in 30..total_weight {
+            let (ck, _) = trim(&pp, degree).unwrap();
 
-            let coeffs = polynomial.coeffs();
-            let m = polynomial.coeffs.len() - 1;
+            for _ in 0..4 {
+                let polynomial = DensePolynomial::<Scalar>::rand(degree, rng);
 
-            let domain =
-                ark_poly::Radix2EvaluationDomain::<Fr>::new(total_weight)
-                    .ok_or_else(|| anyhow::anyhow!("bad domain"))
-                    .unwrap();
-            let mut p = ck.powers_of_g[0..m].to_vec();
-            let h = toeplitz_mul(&polynomial, &p, total_weight).unwrap();
+                let coeffs = polynomial.coeffs();
+                let m = polynomial.coeffs.len() - 1;
 
-            let h = h.iter().map(|p| (*p).into()).collect::<Vec<G1Affine>>();
+                let (h, _) = toeplitz_mul::<Curve, true>(
+                    &polynomial,
+                    &ck.powers_of_g[0..m],
+                    total_weight,
+                )
+                .unwrap();
 
-            for i in 1..=m {
-                let mut total = G1Projective::zero();
-                for j in 0..=m - i {
-                    total = total + (p[j].mul(coeffs[i + j]));
+                let h = h
+                    .iter()
+                    .map(|p| p.into_affine())
+                    .collect::<Vec<G1Affine>>();
+
+                for i in 1..=m {
+                    let mut total = G1Projective::zero();
+                    for j in 0..=m - i {
+                        total = total + (ck.powers_of_g[j].mul(coeffs[i + j]));
+                    }
+                    assert_eq!(G1Affine::from(total), h[i - 1]);
                 }
-                assert_eq!(G1Affine::from(total), h[i - 1]);
             }
         }
     }
@@ -567,7 +378,7 @@ fn test_toeplitz() {
 
 #[test]
 fn test_all() {
-    use crate::fastpoly::*;
+    use crate::subproductdomain::*;
     use ark_poly::Polynomial;
     let rng = &mut ark_std::test_rng();
 
@@ -575,61 +386,63 @@ fn test_all() {
     let total_weight = 1 << n;
     {
         let degree = 2 * total_weight / 3;
-        let (pp, powers_of_h) = setup(degree, rng).unwrap();
-        let (ck, vk) = trim(&pp, degree).unwrap();
+        let (pp, powers_of_h) = setup::<Curve, _>(degree, rng).unwrap();
+        let (ck, _) = trim(&pp, degree).unwrap();
 
         for _ in 0..1 {
-            let p = DensePolynomial::<Fr>::rand(degree, rng);
+            let p = DensePolynomial::<Scalar>::rand(degree, rng);
 
-            let (comm, rand) = KZG::commit(&ck, &p, None, None).unwrap();
+            //let (comm, _) = KZG::commit(&ck, &p, None, None).unwrap();
+            let comm = g1_commit::<Curve>(&ck.powers_of_g, &p);
 
-            let p_comm = g1_commit(&ck.powers_of_g, &p).unwrap();
+            let p_comm =
+                g1_commit::<crate::Curve>(&ck.powers_of_g, &p).unwrap();
             let domain =
-                ark_poly::Radix2EvaluationDomain::<Fr>::new(total_weight)
+                ark_poly::Radix2EvaluationDomain::<Scalar>::new(total_weight)
                     .unwrap();
-
-            let openings = open_amortized(&ck.powers_of_g, &p, n).unwrap();
-            let affine_openings = openings
-                .iter()
-                .map(|p| (*p).into())
-                .collect::<Vec<G1Affine>>();
-
-            let mut point = Fr::one();
 
             let mut share_domain =
                 Vec::with_capacity(1 << domain.log_size_of_group);
-            let mut t = Fr::one();
+            let mut t = Scalar::one();
             for _ in 0..1 << domain.log_size_of_group {
                 share_domain.push(t);
                 t *= domain.group_gen;
             }
 
             let share_domain = share_domain[5..100].to_vec();
-            let share_domain = fastpoly::SubproductDomain::new(share_domain);
+            let share_domain = SubproductDomain::new(share_domain);
 
             let evals = share_domain
                 .u
                 .iter()
                 .map(|x| p.evaluate(x))
-                .collect::<Vec<Fr>>();
+                .collect::<Vec<Scalar>>();
 
-            let poly = share_domain.fast_interpolate(&evals);
+            let poly = share_domain.interpolate(&evals);
 
-            let proof =
-                AmortizedOpeningProof::new(&ck.powers_of_g, &p, &domain)
-                    .unwrap();
-            let proof = proof.combine(&(5..100), &evals, &share_domain);
+            let proof = DomainProof::<Curve>::new(&ck.powers_of_g, &p, &domain)
+                .unwrap();
+            let proof = proof.combine_at_domain(&(5..100), &share_domain);
 
-            let poly_commit = g1_commit(&ck.powers_of_g, &poly).unwrap();
-
-            assert!(check_batched(
+            assert!(proof
+                .check_at_domain(
+                    &ck.powers_of_g,
+                    &powers_of_h,
+                    &p_comm,
+                    &evals,
+                    &share_domain,
+                )
+                .unwrap());
+            let evals_commit =
+                g1_commit::<Curve>(&ck.powers_of_g, &poly).unwrap();
+            let s_commit =
+                g2_commit::<Curve>(&powers_of_h, &share_domain.t.m).unwrap();
+            assert!(proof.check_at_domain_with_commitments(
                 &powers_of_h,
                 &p_comm,
-                &g2_commit(&powers_of_h, &share_domain.t.m).unwrap(),
-                &poly_commit,
-                &proof.into(),
-            )
-            .unwrap());
+                &s_commit,
+                &evals_commit,
+            ));
         }
     }
 }

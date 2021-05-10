@@ -43,7 +43,7 @@ impl SharedSecret {
         params.hash_length(32);
         let mut hasher = params.to_state();
         //hasher.write(b"Ferveo shared_secret_to_key"); //TODO personalization?
-        self.s.write(&mut hasher);
+        self.s.write(&mut hasher).unwrap();
         let mut key = [0u8; 32];
         key.copy_from_slice(hasher.finalize().as_bytes());
         key

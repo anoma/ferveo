@@ -1,8 +1,9 @@
 #![allow(clippy::many_single_char_names)]
 #![allow(non_snake_case)]
 
-use crate::{dkg, fastkzg, fastpoly, Scalar};
+use crate::{dkg, fastkzg, Curve, Scalar};
 
+use crate::fastkzg::{CombinedDomainProof, DomainProof};
 use crate::syncvss::nizkp::NIZKP_BLS;
 use ark_bls12_381::G1Affine;
 use ark_ec::AffineCurve;
@@ -11,7 +12,6 @@ use ark_poly::{
     polynomial::UVPolynomial,
     //    EvaluationDomain, Polynomial, Radix2EvaluationDomain,
 };
-use ark_serialize::CanonicalSerialize;
 use ark_serialize::*;
 use chacha20poly1305::aead::Aead;
 
@@ -19,12 +19,18 @@ use serde::{Deserialize, Serialize};
 
 pub type ShareCiphertext = Vec<u8>;
 
+/// The possible States of a VSS instance
 pub enum State {
+    /// The VSS is currently in a Sharing state with weight_ready
+    /// of participants signaling Ready for this VSS
     Sharing { weight_ready: u32 },
+    /// The VSS has completed Successfully with final secret commitment g^{\phi(0)}
     Success { final_secret: G1Affine },
+    /// The VSS has ended in Failure
     Failure,
 }
 
+/// The Context of an individual VSS instance as either the Dealer or the Dealee
 pub struct Context {
     pub dealer: u32,
     pub encrypted_shares: EncryptedShares,
@@ -34,16 +40,22 @@ pub struct Context {
     pub finalize_msg: Option<FinalizeMsg>,
 }
 
+/// The dealer posts the EncryptedShares to the blockchain to initiate the VSS
 #[derive(Serialize, Deserialize, Clone)]
 pub struct EncryptedShares {
+    /// Commitment to the VSS polynomial, g^{\phi}
     #[serde(with = "crate::ark_serde")]
     pub commitment: G1Affine,
 
+    /// Commitment to only the shared secret, g^{\phi(0)}
     #[serde(with = "crate::ark_serde")]
     pub secret_commitment: G1Affine,
 
+    /// Proof that g^{phi} - g^{\phi(0)} opens to 0
     #[serde(with = "crate::ark_serde")]
-    pub zero_opening: G1Affine,
+    pub zero_opening_proof: G1Affine,
+
+    /// The encrypted shares for each participant
     pub shares: Vec<ShareCiphertext>,
 }
 
@@ -134,20 +146,18 @@ impl Context {
         phi.coeffs[0] = *s;
 
         let evals = phi.evaluate_over_domain_by_ref(dkg.domain);
-        let commitment = crate::fastkzg::g1_commit(&dkg.powers_of_g, &phi)?; //G1Affine::prime_subgroup_generator(); // TODO: Placeholder
+        let commitment =
+            crate::fastkzg::g1_commit::<Curve>(&dkg.powers_of_g, &phi)?;
         let secret_commitment = dkg.powers_of_g[0].mul(*s).into();
 
-        let zero_opening = VariableBaseMSM::multi_scalar_mul(
+        let zero_opening_proof = VariableBaseMSM::multi_scalar_mul(
             &dkg.powers_of_g[0..],
             &crate::fastkzg::convert_to_bigints(&phi.coeffs[1..]),
         )
         .into();
 
-        let opening_proofs = crate::fastkzg::AmortizedOpeningProof::new(
-            &dkg.powers_of_g,
-            &phi,
-            &dkg.domain,
-        )?;
+        let opening_proofs =
+            DomainProof::<Curve>::new(&dkg.powers_of_g, &phi, &dkg.domain)?;
 
         let shares = dkg
             .participants
@@ -158,9 +168,8 @@ impl Context {
                 } else {
                     let local_evals =
                         &evals.evals[participant.share_range.clone()];
-                    let opening = opening_proofs.combine(
+                    let opening = opening_proofs.combine_at_domain(
                         &participant.share_range,
-                        local_evals,
                         &participant.share_domain,
                     );
                     encrypt(
@@ -189,7 +198,7 @@ impl Context {
             encrypted_shares: EncryptedShares {
                 commitment,
                 secret_commitment,
-                zero_opening,
+                zero_opening_proof,
                 shares,
             },
             state: State::Sharing { weight_ready: 0u32 },
@@ -218,7 +227,10 @@ impl Context {
         let comm = encrypted_shares.commitment.into_projective()
             - encrypted_shares.secret_commitment.into_projective();
         if crate::Curve::pairing(comm, dkg.powers_of_h[0])
-            != crate::Curve::pairing(encrypted_shares.zero_opening, dkg.beta_h)
+            != crate::Curve::pairing(
+                encrypted_shares.zero_opening_proof,
+                dkg.beta_h,
+            )
         {
             return Err(anyhow::anyhow!("bad zero opening"));
         }
@@ -229,19 +241,20 @@ impl Context {
                 .decrypt_cipher(&dkg.participants[dealer as usize].dh_key),
         )?;
         let evaluation_polynomial =
-            me.share_domain.fast_interpolate(&local_shares.shares);
+            me.share_domain.interpolate(&local_shares.shares);
 
-        let evaluation_polynomial_commitment =
-            fastkzg::g1_commit(&dkg.powers_of_g, &evaluation_polynomial)?;
-        if !fastkzg::check_batched(
+        let evaluation_polynomial_commitment = fastkzg::g1_commit::<Curve>(
+            &dkg.powers_of_g,
+            &evaluation_polynomial,
+        )?;
+        if !local_shares.opening_proof.check_at_domain_with_commitments(
             &dkg.powers_of_h,
             &encrypted_shares.commitment,
             &me.domain_commitment.ok_or_else(|| {
                 anyhow::anyhow!("my domain_commitment not computed")
             })?,
             &evaluation_polynomial_commitment,
-            &local_shares.opening,
-        )? {
+        ) {
             return Err(anyhow::anyhow!("share opening proof invalid"));
         }
 
@@ -259,18 +272,18 @@ impl Context {
 #[derive(CanonicalSerialize, CanonicalDeserialize)]
 pub struct NodeSharesPlaintext {
     pub shares: Vec<Scalar>,
-    pub opening: G1Affine,
+    pub opening_proof: CombinedDomainProof<Curve>,
 }
 
 pub fn encrypt(
     shares: &[Scalar],
-    opening: &G1Affine,
+    opening_proof: &CombinedDomainProof<Curve>,
     cipher: &chacha20poly1305::XChaCha20Poly1305,
 ) -> ShareCiphertext {
     let mut msg = vec![];
     NodeSharesPlaintext {
         shares: shares.to_vec(),
-        opening: *opening,
+        opening_proof: *opening_proof,
     }
     .serialize(&mut msg)
     .unwrap();
@@ -294,12 +307,8 @@ pub fn decrypt(
 
 #[test]
 fn test_encrypt_decrypt() {
-    //use rand_chacha::rand_core::{RngCore, SeedableRng};
-    //use rand_chacha::ChaCha8Rng;
-
     let rng = &mut ark_std::test_rng();
     use crate::syncvss::dh;
-    use ark_ff::Zero;
     use ark_std::UniformRand;
 
     for _ in 0..1000 {
@@ -315,15 +324,18 @@ fn test_encrypt_decrypt() {
             sent_shares.push(Scalar::rand(rng));
         }
 
+        let fake_proof = CombinedDomainProof::<Curve> {
+            w: G1Affine::prime_subgroup_generator(),
+        };
         let enc = encrypt(
             sent_shares.as_slice(),
-            &G1Affine::prime_subgroup_generator(),
+            &fake_proof,
             &alice_secret.encrypt_cipher(&bob_public),
         );
 
-        let domain = vec![Scalar::zero(); 1000]; //TODO: real domain
+        //let domain = vec![Scalar::zero(); 1000]; //TODO: real domain
 
-        let dec =
+        let _dec =
             decrypt(&enc, &bob_secret.decrypt_cipher(&alice_public)).unwrap();
     }
 }

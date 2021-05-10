@@ -9,8 +9,11 @@ pub mod poly;
 pub mod syncvss;
 
 pub use msg::ark_serde;
+pub mod ec_fft;
 pub mod fastkzg;
-pub mod fastpoly;
+pub mod subproductdomain;
+
+pub use ark_bls12_381::{G1Affine, G1Projective, G2Affine, G2Projective};
 
 pub type Scalar = ark_bls12_381::Fr;
 pub type Curve = ark_bls12_381::Bls12_381;

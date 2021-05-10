@@ -9,8 +9,8 @@ use rand::Rng;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::rc::Rc;
 
-use crate::fastpoly;
 use crate::msg::{Message, MessagePayload, SignedMessage};
+use crate::subproductdomain;
 use crate::syncvss;
 use crate::syncvss::dh;
 use crate::{Curve, Scalar};
@@ -42,7 +42,7 @@ pub struct Participant {
     pub dh_key: dh::AsymmetricPublicKey,
     pub weight: u32,
     pub share_range: std::ops::Range<usize>,
-    pub share_domain: fastpoly::SubproductDomain, // subproduct tree of polynomial with zeros at share_domain
+    pub share_domain: subproductdomain::SubproductDomain<Fr>, // subproduct tree of polynomial with zeros at share_domain
     pub domain_commitment: Option<G2Affine>, //Commitment to subproduct domain}
 }
 #[derive(Debug)]
@@ -226,7 +226,7 @@ impl Context {
                 }
                 //let share_domain = share_domain.into_boxed_slice();
                 let share_domain =
-                    fastpoly::SubproductDomain::new(share_domain);
+                    subproductdomain::SubproductDomain::new(share_domain);
                 //let a_i_prime = fastpoly::derivative(&a_i.m);
                 self.participants.push(Participant {
                     ed_key: participant.ed_key,
@@ -245,7 +245,7 @@ impl Context {
                 .find_by_key(&self.ed_key.public)
                 .ok_or_else(|| anyhow::anyhow!("self not found"))?;
             self.participants[self.me].domain_commitment =
-                Some(crate::fastkzg::g2_commit(
+                Some(crate::fastkzg::g2_commit::<Curve>(
                     &self.powers_of_h,
                     &self.participants[self.me].share_domain.t.m,
                 )?);
@@ -425,7 +425,8 @@ fn dkg() {
     };
 
     let (pp, powers_of_h) =
-        crate::fastkzg::setup(params.total_weight as usize, rng).unwrap();
+        crate::fastkzg::setup::<Curve, _>(params.total_weight as usize, rng)
+            .unwrap();
     let (powers_of_h, powers_of_g) =
         (Rc::new(powers_of_h), Rc::new(pp.powers_of_g));
     for _ in 0..10 {
