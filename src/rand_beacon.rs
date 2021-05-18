@@ -13,23 +13,34 @@ use sha2::{Digest, Sha256};
 pub struct PartialRand {
     pub value: G2Affine,
     pub round: usize,
-    pub random_beacon: G2Affine,
+    pub random_beacon: RandomBeacon,
 }
 
 impl PartialRand {
-    fn init(msg: &[u8], secret_share: Scalar) -> Self {
+    fn init(seed: &[u8], secret_share: Scalar) -> Self {
+	/*
+	 * Initialize a PartialRand using a fixed seed
+	 */
         PartialRand {
-            value: sign_g2(secret_share, msg),
+            value: sign_g2(secret_share, seed),
             round: 0,
-            random_beacon: G2Affine::identity(),
+            random_beacon: RandomBeacon {
+		value: G2Affine::identity(),
+		prev_value: G2Affine::identity(),
+		round: 0,
+	    },
         }
     }
 
     fn update_share(&mut self, secret_share: Scalar) {
-        assert!(self.random_beacon != G2Affine::identity());
+	/*
+	 * update the value of a PartialRand by signing the message
+	 * H(r|| previous random beacon).
+	 */
+        assert!(self.random_beacon.value != G2Affine::identity());
         let catsig: Vec<u8> = [
             &[self.round as u8][..],
-            &self.random_beacon.to_compressed()[..],
+            &self.random_beacon.value.to_compressed()[..],
         ]
         .concat();
         let s = String::from_utf8_lossy(&catsig);
@@ -43,32 +54,68 @@ impl PartialRand {
         self.round += 1;
     }
 
-    fn init_random_beacon(
-        msg: &[u8],
+    fn update_rb(&mut self, rb: RandomBeacon) {
+	/*
+	 * Update the random beacon value of a PartialRand.
+	 */
+	self.random_beacon = rb;
+    }
+    
+}
+
+#[derive(Copy, Clone)]
+pub struct RandomBeacon {
+    pub value: G2Affine,
+    pub prev_value: G2Affine,
+    pub round: usize,
+}
+
+impl RandomBeacon {
+
+    fn init(
+	seed: & [u8],
+	partial_rands: &mut [PartialRand],
+        positions: &[usize],
+        setup: &Setup,
+    ) -> Self {
+	/*
+	 * Initialize a RandomBeacon from a list of PartialRand.
+	 */
+	
+	// verification of the partial_sigs
+	let partial_sigs: Vec<G2Affine> =
+            partial_rands.iter().map(|pr| pr.value).collect();
+        assert!(setup.verify_partial_sigs(&partial_sigs, &positions, seed));
+
+	// value of the random_beacon
+	let val = setup.build_group_signature(&partial_sigs, &positions);
+
+	// update of the partial_rands.random_beacon value
+	for pr in partial_rands.iter_mut() {
+            pr.random_beacon.value = val;
+        }
+
+	RandomBeacon {
+	    value: val,
+	    prev_value: val,
+	    round: 0,
+	}
+    }
+
+    fn update(
+    	&mut self,
         partial_rands: &mut [PartialRand],
         positions: &[usize],
         setup: &Setup,
-    ) -> G2Affine {
-        let partial_sigs: Vec<G2Affine> =
-            partial_rands.iter().map(|pr| pr.value).collect();
-        assert!(setup.verify_partial_sigs(&partial_sigs, &positions, msg));
-        let random_beacon =
-            setup.build_group_signature(&partial_sigs, &positions);
-        for pr in partial_rands.iter_mut() {
-            pr.random_beacon = random_beacon;
-        }
-        random_beacon
-    }
-
-    fn random_beacon(
-        previous_random_beacon: G2Affine,
-        partial_rands: &[PartialRand],
-        positions: &[usize],
-        setup: &Setup,
-    ) -> G2Affine {
+    ) {
+	/*
+	 * Update the value of a RandomBeacon from a list of
+	 * PartialRand.
+	 */
+	let saved_value = self.value;
         let catsig: Vec<u8> = [
             &[(partial_rands[0].round - 1) as u8][..],
-            &previous_random_beacon.to_compressed()[..],
+            &self.value.to_compressed()[..],
         ]
         .concat();
         let mut hasher = Sha256::new();
@@ -82,13 +129,19 @@ impl PartialRand {
             partial_rands.iter().map(|pr| pr.value).collect();
 
         assert!(setup.verify_partial_sigs(&partial_sigs, &positions, msg));
-        setup.build_group_signature(&partial_sigs, &positions)
-    }
+        self.value = setup.build_group_signature(&partial_sigs,
+						 &positions);
+	self.prev_value = saved_value;
+	self.round += 1;
 
-    fn update_random_beacon(&mut self, new_random_beacon: G2Affine) {
-        self.random_beacon = new_random_beacon;
+	for pr in partial_rands {
+	    pr.update_rb(*self);
+	}
     }
+    
 }
+
+
 
 #[test]
 pub fn test_rand_beacon() {
@@ -121,51 +174,49 @@ pub fn test_rand_beacon() {
         group_pubkey: group_pk.clone(),
     };
 
+    
     // round 0
-    let msg: &[u8; 64] =
+    let seed: &[u8; 64] =
         b"0314159265314159265314159265314159265314159265314159265314159265";
     let mut positions = (0..n).choose_multiple(&mut rng, t);
     positions.sort();
 
     let mut partial_rands: Vec<PartialRand> = positions
         .iter()
-        .map(|i| PartialRand::init(msg, secret_shares[*i]))
+        .map(|i| PartialRand::init(seed, secret_shares[*i]))
         .collect();
 
-    let rand_beac_0 = PartialRand::init_random_beacon(
-        msg,
-        &mut partial_rands,
-        &positions,
-        &setup,
+    let mut rand_beac_0 = RandomBeacon::init(
+    	seed,
+    	&mut partial_rands,
+    	&positions,
+    	&setup,
     );
+    
+    assert!(verify_g2(&group_pk, &rand_beac_0.value, seed));
 
-    assert!(verify_g2(&group_pk, &rand_beac_0, msg));
+    let rounds = 5;
 
-    let rounds = 6;
-    let mut rands: Vec<_> = vec![G2Affine::identity(); rounds + 1];
-    rands[0] = rand_beac_0;
-
-    for round in 1..rounds {
+    for round in 1..rounds+1 {
+	println!("Round {}", round);
         positions = (0..n).choose_multiple(&mut rng, t);
         positions.sort();
         for (i, j) in positions.iter().enumerate() {
             partial_rands[i].update_share(secret_shares[*j])
         }
-        rands[round] = PartialRand::random_beacon(
-            rands[round - 1],
-            &partial_rands,
-            &positions,
-            &setup,
-        );
-        for i in 0..t {
-            partial_rands[i].update_random_beacon(rands[round]);
-        }
+	rand_beac_0.update(&mut partial_rands, &positions, &setup);
     }
-    // we need to recompute the messages in order to do a
-    // verification...
-    // msgs = (...)
-    // rands.iter().zip(msgs.iter()).map(
-    // 	|(rand,msg)|
-    // 	assert!(verify_g2(&group_pk,
-    // 			  &rand, msg)));
+    
+    let catsig: Vec<u8> = [
+        &[rounds-1 as u8][..],
+	&rand_beac_0.prev_value.to_compressed()[..],
+    ].concat();
+    let s = String::from_utf8_lossy(&catsig);
+    let mut hasher = Sha256::new();
+    hasher.update(&*s);
+    let res = hasher.finalize();
+    let tmp = String::from_utf8_lossy(&res);
+    let msg = tmp.as_bytes();
+
+    assert!(verify_g2(&group_pk, &rand_beac_0.value, msg));
 }
