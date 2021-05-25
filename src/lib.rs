@@ -22,3 +22,5 @@ pub type KZG = ark_poly_commit::kzg10::KZG10<
     Curve,
     ark_poly::polynomial::univariate::DensePolynomial<Scalar>,
 >;
+
+pub mod bdfg20;

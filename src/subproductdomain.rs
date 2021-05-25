@@ -4,6 +4,15 @@ use ark_ff::{FftField, Field, Zero};
 use ark_poly::polynomial::univariate::DensePolynomial as Poly;
 use ark_poly::{Polynomial, UVPolynomial};
 
+pub fn poly_from_scalar<F: FftField>(s: &F) -> Poly<F> {
+    Poly::<F> { coeffs: vec![*s] }
+}
+pub fn moduli_from_scalar<F: FftField>(s: &F) -> Poly<F> {
+    Poly::<F> {
+        coeffs: vec![-*s, F::one()],
+    }
+}
+
 /// Where indicated, algorithms are from Modern Computer Algebra, 3rd edition, by Gathen and Gerhard
 /// Abbreviated as GG
 /// Let M(n) denote the time to multiply.

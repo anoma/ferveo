@@ -254,7 +254,7 @@ pub fn convert_to_bigints<F: PrimeField>(p: &[F]) -> Vec<F::BigInt> {
 type KZG = ark_poly_commit::kzg10::KZG10<Curve, DensePolynomial<Scalar>>;
 use ark_poly_commit::kzg10::{Powers, VerifierKey};
 
-fn trim<E: ark_ec::PairingEngine>(
+pub fn trim<E: ark_ec::PairingEngine>(
     pp: &UniversalParams<E>,
     mut supported_degree: usize,
 ) -> Result<(Powers<E>, VerifierKey<E>), anyhow::Error> {

@@ -120,14 +120,14 @@ impl Context {
                     self.state = State::Success {
                         final_secret: finalize.rebased_secret,
                     };
-                    return Ok(());
+                    Ok(())
                 } else {
-                    return Err(anyhow::anyhow!(
+                    Err(anyhow::anyhow!(
                         "FinalizeMsg: bad rebased secret proof"
-                    ));
+                    ))
                 }
             } else {
-                return Err(anyhow::anyhow!("FinalizeMsg: dealer was early"));
+                Err(anyhow::anyhow!("FinalizeMsg: dealer was early"))
             }
         } else {
             Err(anyhow::anyhow!("FinalizeMsg: not currently sharing"))
