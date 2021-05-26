@@ -10,8 +10,10 @@ use ark_poly::{
     polynomial::univariate::DensePolynomial, EvaluationDomain, UVPolynomial,
 };
 use ark_poly_commit::Polynomial;
+use ark_serialize::*;
 
 #[allow(non_snake_case)]
+#[derive(CanonicalSerialize, CanonicalDeserialize, Debug, Clone)]
 pub struct Proof<E: PairingEngine> {
     pub cm: E::G1Affine,
     pub W: E::G1Affine,
