@@ -2,7 +2,6 @@
 #![allow(non_snake_case)]
 #![allow(unused_imports)]
 
-use ark_bls12_381::{Fr, G1Affine, G2Affine};
 use ark_poly_commit::kzg10::{Powers, VerifierKey};
 use num::integer::div_ceil;
 use rand::Rng;
@@ -12,14 +11,15 @@ use std::rc::Rc;
 use crate::msg::{Message, MessagePayload, SignedMessage};
 use crate::subproductdomain;
 use crate::syncvss;
-use crate::syncvss::dh;
-use crate::{Curve, Scalar};
+use crate::syncvss::{dh, nizkp};
+use crate::{bdfg20, Curve, G1Affine, G1Projective, G2Affine, Scalar};
 use anyhow::anyhow;
 use ark_poly::{
     polynomial::univariate::DensePolynomial, polynomial::UVPolynomial,
     EvaluationDomain, Polynomial,
 };
 use ed25519_dalek as ed25519;
+use serde::*;
 
 // DKG parameters
 #[derive(Copy, Clone, Debug)]
@@ -42,8 +42,8 @@ pub struct Participant {
     pub dh_key: dh::AsymmetricPublicKey,
     pub weight: u32,
     pub share_range: std::ops::Range<usize>,
-    pub share_domain: subproductdomain::SubproductDomain<Fr>, // subproduct tree of polynomial with zeros at share_domain
-    pub domain_commitment: Option<G2Affine>, //Commitment to subproduct domain}
+    pub share_domain: subproductdomain::SubproductDomain<Scalar>, // subproduct tree of polynomial with zeros at share_domain
+    pub domain_commitment: Option<G2Affine>, // Commitment to subproduct domain
 }
 #[derive(Debug)]
 pub enum State {
@@ -55,6 +55,21 @@ pub enum State {
     },
     Success,
     Failure,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PublicDistributedKeyShares {
+    #[serde(with = "crate::ark_serde")]
+    pub shares_proof: bdfg20::Proof<Curve>,
+    #[serde(with = "crate::ark_serde")]
+    pub share_public_keys: Vec<G1Affine>,
+    pub pok: Vec<nizkp::SchnorrPoK<Curve>>,
+}
+
+#[derive(Clone, Debug)]
+pub struct DistributedKeyShares {
+    pub local_shares: Vec<Scalar>,
+    pub public: PublicDistributedKeyShares,
 }
 
 pub struct Context {
@@ -70,6 +85,7 @@ pub struct Context {
     pub powers_of_g: Rc<Vec<G1Affine>>,
     pub powers_of_h: Rc<Vec<G2Affine>>,
     pub beta_h: G2Affine,
+    pub final_state: Option<DistributedKeyShares>,
 }
 
 impl Context {
@@ -102,22 +118,25 @@ impl Context {
             powers_of_g,
             powers_of_h,
             beta_h,
+            final_state: None,
         })
     }
     pub fn final_key(&self) -> G1Affine {
         use crate::syncvss::sh::State as VSSState;
+        use ark_ec::AffineCurve;
+        use ark_ec::ProjectiveCurve;
         use ark_ff::Zero;
         self.vss
             .iter()
             .filter_map(|(_, vss)| {
                 if let VSSState::Success { final_secret } = vss.state {
-                    Some(final_secret)
+                    Some(final_secret.into_projective())
                 } else {
                     None
                 }
             })
-            // .sum() //TODO: it would be nice to use Sum trait here, but not implemented for G1Affine
-            .fold(G1Affine::zero(), |i, j| i + j)
+            .sum::<G1Projective>()
+            .into_affine()
     }
 
     pub fn announce(&mut self, stake: u64) -> SignedMessage {
@@ -215,7 +234,7 @@ impl Context {
             assert_eq!(weights.iter().sum::<u32>(), self.params.total_weight);
 
             let mut allocated_weight = 0usize;
-            let mut domain_element = Fr::one();
+            let mut domain_element = Scalar::one();
             for (participant, weight) in participants.iter().zip(weights) {
                 let share_range =
                     allocated_weight..allocated_weight + weight as usize;
@@ -262,6 +281,25 @@ impl Context {
     //TODO: this is not a good workaround for finding dealer from ed_key
     pub fn find_by_key(&self, ed_key: &ed25519::PublicKey) -> Option<usize> {
         self.participants.iter().position(|p| p.ed_key == *ed_key)
+    }
+
+    pub fn generate_share_keys(
+        &self,
+    ) -> Result<PublicDistributedKeyShares, anyhow::Error> {
+        use ark_ff::Zero;
+        let p = DensePolynomial::<Scalar>::zero();
+        let domain = [];
+        let evals = [];
+        Ok(PublicDistributedKeyShares {
+            shares_proof: bdfg20::Proof::<Curve>::commit_and_open(
+                &p,
+                &domain,
+                &evals,
+                &self.powers_of_g,
+            )?,
+            share_public_keys: vec![],
+            pok: vec![],
+        })
     }
 
     pub fn handle_message(
@@ -394,6 +432,15 @@ impl Context {
                             + self.participants[dealer as usize].weight;
                         if finalized_weight >= minimum_ready_weight {
                             self.state = State::Success;
+                            return Ok(Some(SignedMessage::new(
+                                &Message {
+                                    tau: self.tau,
+                                    payload: MessagePayload::ShareKeys(
+                                        self.generate_share_keys()?,
+                                    ),
+                                },
+                                &self.ed_key,
+                            )));
                         } else {
                             self.state = State::Sharing { finalized_weight };
                         }
@@ -409,6 +456,7 @@ impl Context {
                     dispute::DisputeResolution::ComplainerFault => Ok(None),
                 }
             }
+            MessagePayload::ShareKeys(share_keys) => Ok(None),
         }
     }
 }
@@ -420,8 +468,8 @@ fn dkg() {
 
     let params = Params {
         failure_threshold: 1,
-        security_threshold: 33,
-        total_weight: 100,
+        security_threshold: 330,
+        total_weight: 1000,
     };
 
     let (pp, powers_of_h) =

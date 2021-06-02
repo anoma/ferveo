@@ -17,7 +17,12 @@ use chacha20poly1305::aead::Aead;
 
 use serde::{Deserialize, Serialize};
 
-pub type ShareCiphertext = Vec<u8>;
+#[derive(Clone, Serialize, Deserialize)]
+pub struct ShareCiphertext {
+    #[serde(with = "crate::ark_serde")]
+    pub opening_proof: CombinedDomainProof<Curve>,
+    pub ciphertext: Vec<u8>,
+}
 
 /// The possible States of a VSS instance
 pub enum State {
@@ -162,21 +167,21 @@ impl Context {
         let shares = dkg
             .participants
             .iter()
-            .map(|participant| {
+            .filter_map(|participant| {
                 if participant.ed_key == dkg.ed_key.public {
-                    vec![]
+                    None
                 } else {
                     let local_evals =
                         &evals.evals[participant.share_range.clone()];
-                    let opening = opening_proofs.combine_at_domain(
+                    let opening_proof = opening_proofs.combine_at_domain(
                         &participant.share_range,
                         &participant.share_domain,
                     );
-                    encrypt(
+                    Some(encrypt(
                         &local_evals,
-                        &opening,
+                        &opening_proof,
                         &dkg.dh_key.encrypt_cipher(&participant.dh_key),
-                    )
+                    ))
                 }
             })
             .collect::<Vec<ShareCiphertext>>();
@@ -222,7 +227,10 @@ impl Context {
         use ark_ec::PairingEngine;
         let me = &dkg.participants[dkg.me as usize];
 
-        let encrypted_local_shares = &encrypted_shares.shares[dkg.me as usize];
+        let adjusted_index =
+            dkg.me - if dkg.me > dealer as usize { 1 } else { 0 };
+
+        let encrypted_local_shares = &encrypted_shares.shares[adjusted_index];
 
         let comm = encrypted_shares.commitment.into_projective()
             - encrypted_shares.secret_commitment.into_projective();
@@ -247,14 +255,17 @@ impl Context {
             &dkg.powers_of_g,
             &evaluation_polynomial,
         )?;
-        if !local_shares.opening_proof.check_at_domain_with_commitments(
-            &dkg.powers_of_h,
-            &encrypted_shares.commitment,
-            &me.domain_commitment.ok_or_else(|| {
-                anyhow::anyhow!("my domain_commitment not computed")
-            })?,
-            &evaluation_polynomial_commitment,
-        ) {
+        if !encrypted_local_shares
+            .opening_proof
+            .check_at_domain_with_commitments(
+                &dkg.powers_of_h,
+                &encrypted_shares.commitment,
+                &me.domain_commitment.ok_or_else(|| {
+                    anyhow::anyhow!("my domain_commitment not computed")
+                })?,
+                &evaluation_polynomial_commitment,
+            )
+        {
             return Err(anyhow::anyhow!("share opening proof invalid"));
         }
 
@@ -272,7 +283,6 @@ impl Context {
 #[derive(CanonicalSerialize, CanonicalDeserialize)]
 pub struct NodeSharesPlaintext {
     pub shares: Vec<Scalar>,
-    pub opening_proof: CombinedDomainProof<Curve>,
 }
 
 pub fn encrypt(
@@ -283,22 +293,26 @@ pub fn encrypt(
     let mut msg = vec![];
     NodeSharesPlaintext {
         shares: shares.to_vec(),
-        opening_proof: *opening_proof,
     }
     .serialize(&mut msg)
     .unwrap();
 
     let nonce = [0u8; 24]; //TODO: add nonce?
-    cipher.encrypt(&nonce.into(), &msg[..]).unwrap()
+    ShareCiphertext {
+        ciphertext: cipher.encrypt(&nonce.into(), &msg[..]).unwrap(),
+        opening_proof: *opening_proof,
+    }
 }
 
 pub fn decrypt(
-    enc_share: &[u8],
+    enc_share: &ShareCiphertext,
     cipher: &chacha20poly1305::XChaCha20Poly1305,
 ) -> Result<NodeSharesPlaintext, anyhow::Error> {
     let nonce = [0u8; 24]; //TODO: add nonce?
 
-    let dec_share = cipher.decrypt(&nonce.into(), enc_share).unwrap(); //TODO: implement StdError for aead::error
+    let dec_share = cipher
+        .decrypt(&nonce.into(), &enc_share.ciphertext[..])
+        .unwrap(); //TODO: implement StdError for aead::error
 
     let node_shares = NodeSharesPlaintext::deserialize(&dec_share[..])?;
 

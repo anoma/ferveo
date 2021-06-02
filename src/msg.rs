@@ -2,7 +2,7 @@ use ed25519_dalek as ed25519;
 //use ed25519_dalek::Signature;
 use ed25519_dalek::Signer;
 
-use crate::syncvss;
+use crate::{dkg, syncvss};
 //use ark_bls12_381::G1Affine;
 use serde::{Deserialize, Serialize};
 
@@ -40,6 +40,7 @@ pub enum MessagePayload {
     EncryptedShares(syncvss::sh::EncryptedShares),
     Ready(syncvss::sh::ReadyMsg),
     Finalize(syncvss::sh::FinalizeMsg),
+    ShareKeys(dkg::PublicDistributedKeyShares),
     Dispute(syncvss::dispute::Dispute),
 }
 

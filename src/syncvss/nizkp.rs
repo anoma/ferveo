@@ -8,7 +8,7 @@ use rand::{CryptoRng, RngCore};
 use std::convert::TryInto;
 
 use ark_bls12_381::{Fr, G1Affine};
-use ark_ec::AffineCurve;
+use ark_ec::{AffineCurve, PairingEngine};
 use ark_ff::FromBytes;
 
 use crate::Scalar;
@@ -20,7 +20,7 @@ pub struct NIZKP {
     pub r: curve25519_dalek::scalar::Scalar,
 }
 
-//TODO: use hash-to-field for both
+//TODO: use hash-to-field for both?
 
 impl NIZKP {
     pub fn dleq<R: rand::Rng + rand::RngCore + rand::CryptoRng>(
@@ -115,7 +115,7 @@ impl NIZKP_BLS {
         params.hash_length(32);
         let mut hasher = params.to_state();
 
-        let c: Scalar; //TODO: use hash to field
+        let c: Scalar; //TODO: use hash to field?
         loop {
             let mut buf = Vec::new();
             x_1.write(&mut buf).unwrap();
@@ -171,6 +171,70 @@ impl NIZKP_BLS {
         c == self.c
     }
 }
+#[derive(Serialize, Deserialize, Copy, Clone, Debug)]
+pub struct SchnorrPoK<E: PairingEngine> {
+    #[serde(with = "crate::ark_serde")]
+    pub s: E::Fr,
+    #[serde(with = "crate::ark_serde")]
+    pub e: E::Fr,
+}
+
+impl<E: PairingEngine> SchnorrPoK<E> {
+    pub fn new<R: rand::Rng + rand::RngCore + rand::CryptoRng>(
+        g: E::G1Affine,
+        x: E::Fr,
+        g_x: E::G1Affine,
+        rng: &mut R,
+    ) -> Self {
+        use ark_ff::ToBytes;
+        use ark_std::UniformRand;
+        use blake2b_simd::State;
+        let k = E::Fr::rand(rng);
+        let r = g.mul(k);
+
+        let mut params = blake2b_simd::Params::new();
+        params.hash_length(32);
+        let mut hasher = params.to_state();
+
+        let e =  //TODO: use hash to field?
+        loop {
+            let mut buf = Vec::new();
+            r.write(&mut buf).unwrap();
+            g.write(&mut buf).unwrap();
+            g_x.write(&mut buf).unwrap();
+
+            hasher.update(buf.as_slice());
+            if let Ok(h) = E::Fr::read(hasher.finalize().as_bytes()) {
+                break h;
+            }
+        };
+        let s = k - x * e;
+        Self { s, e }
+    }
+    pub fn verify(&self, g: E::G1Affine, g_x: E::G1Affine) -> bool {
+        use ark_ff::ToBytes;
+        use blake2b_simd::State;
+
+        let mut params = blake2b_simd::Params::new();
+        params.hash_length(32);
+        let mut hasher = params.to_state();
+
+        let r = g.mul(self.s);
+        let e = loop {
+            let mut buf = Vec::new();
+            r.write(&mut buf).unwrap();
+            g.write(&mut buf).unwrap();
+            g_x.write(&mut buf).unwrap();
+
+            hasher.update(buf.as_slice());
+            if let Ok(h) = E::Fr::read(hasher.finalize().as_bytes()) {
+                break h;
+            }
+        };
+        e == self.e
+    }
+}
+
 #[test]
 fn test_nizkp() {
     use rand_chacha::rand_core::{RngCore, SeedableRng};
