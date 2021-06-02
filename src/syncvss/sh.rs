@@ -1,12 +1,13 @@
 #![allow(clippy::many_single_char_names)]
 #![allow(non_snake_case)]
 
-use crate::{dkg, fastkzg, Curve, Scalar};
+use crate::{dkg, Affine, Projective, Scalar};
 
-use crate::fastkzg::{CombinedDomainProof, DomainProof};
-use crate::syncvss::nizkp::NIZKP_BLS;
-use ark_bls12_381::G1Affine;
+use crate::syncvss::nizkp::NIZKP_Pallas;
+use ark_ec::msm::FixedBaseMSM;
 use ark_ec::AffineCurve;
+use ark_ec::ProjectiveCurve;
+use ark_ff::PrimeField;
 use ark_poly::{
     polynomial::univariate::DensePolynomial,
     polynomial::UVPolynomial,
@@ -14,10 +15,12 @@ use ark_poly::{
 };
 use ark_serialize::*;
 use chacha20poly1305::aead::Aead;
-
 use serde::{Deserialize, Serialize};
 
-pub type ShareCiphertext = Vec<u8>;
+#[derive(Clone, Serialize, Deserialize)]
+pub struct ShareCiphertext {
+    pub ciphertext: Vec<u8>,
+}
 
 /// The possible States of a VSS instance
 pub enum State {
@@ -25,7 +28,7 @@ pub enum State {
     /// of participants signaling Ready for this VSS
     Sharing { weight_ready: u32 },
     /// The VSS has completed Successfully with final secret commitment g^{\phi(0)}
-    Success { final_secret: G1Affine },
+    Success { final_secret: Affine },
     /// The VSS has ended in Failure
     Failure,
 }
@@ -45,15 +48,7 @@ pub struct Context {
 pub struct EncryptedShares {
     /// Commitment to the VSS polynomial, g^{\phi}
     #[serde(with = "crate::ark_serde")]
-    pub commitment: G1Affine,
-
-    /// Commitment to only the shared secret, g^{\phi(0)}
-    #[serde(with = "crate::ark_serde")]
-    pub secret_commitment: G1Affine,
-
-    /// Proof that g^{phi} - g^{\phi(0)} opens to 0
-    #[serde(with = "crate::ark_serde")]
-    pub zero_opening_proof: G1Affine,
+    pub commitment: Vec<Affine>,
 
     /// The encrypted shares for each participant
     pub shares: Vec<ShareCiphertext>,
@@ -63,17 +58,14 @@ pub struct EncryptedShares {
 #[derive(Serialize, Deserialize, Copy, Clone)]
 pub struct ReadyMsg {
     pub dealer: u32,
-
-    #[serde(with = "crate::ark_serde")]
-    pub commitment: G1Affine, //TODO: necessary?
 }
 
 #[derive(Serialize, Deserialize, Copy, Clone)]
 pub struct FinalizeMsg {
     //TODO: necessary?
     #[serde(with = "crate::ark_serde")]
-    pub rebased_secret: G1Affine,
-    pub proof: NIZKP_BLS,
+    pub rebased_secret: Affine,
+    pub proof: NIZKP_Pallas,
 }
 
 impl Context {
@@ -84,20 +76,14 @@ impl Context {
         signer_weight: u32,
     ) -> Result<u32, anyhow::Error> {
         if let State::Sharing { weight_ready } = self.state {
-            if ready.commitment == self.encrypted_shares.commitment {
-                if self.ready_msg.contains(&signer) {
-                    return Err(anyhow::anyhow!("Duplicate ready message"));
-                } else {
-                    self.ready_msg.push(*signer);
-                    self.state = State::Sharing {
-                        weight_ready: weight_ready + signer_weight,
-                    };
-                    return Ok(weight_ready + signer_weight);
-                }
+            if self.ready_msg.contains(&signer) {
+                return Err(anyhow::anyhow!("Duplicate ready message"));
             } else {
-                return Err(anyhow::anyhow!(
-                    "ReadyMsg: Wrong commitment for dealer"
-                ));
+                self.ready_msg.push(*signer);
+                self.state = State::Sharing {
+                    weight_ready: weight_ready + signer_weight,
+                };
+                return Ok(weight_ready + signer_weight);
             }
         }
         Ok(0u32) //TODO: better return possible?
@@ -107,14 +93,14 @@ impl Context {
         &mut self,
         finalize: &FinalizeMsg,
         minimum_ready_weight: u32,
-        g: &G1Affine,
+        g: &Affine,
     ) -> Result<(), anyhow::Error> {
         if let State::Sharing { weight_ready } = self.state {
             if weight_ready >= minimum_ready_weight {
                 if finalize.proof.dleq_verify(
                     &g,
-                    &self.encrypted_shares.secret_commitment,
-                    &G1Affine::prime_subgroup_generator(),
+                    &self.encrypted_shares.commitment[0],
+                    &Affine::prime_subgroup_generator(),
                     &finalize.rebased_secret,
                 ) {
                     self.state = State::Success {
@@ -138,7 +124,7 @@ impl Context {
         dkg: &dkg::Context,
         rng: &mut R,
     ) -> Result<Context, anyhow::Error> {
-        use ark_ec::msm::VariableBaseMSM;
+        use ark_poly::Polynomial;
         let mut phi = DensePolynomial::<Scalar>::rand(
             dkg.params.security_threshold as usize,
             rng,
@@ -146,61 +132,55 @@ impl Context {
         phi.coeffs[0] = *s;
 
         let evals = phi.evaluate_over_domain_by_ref(dkg.domain);
+        let window_size = FixedBaseMSM::get_mul_window_size(phi.degree() + 1);
+
+        let scalar_bits = Scalar::size_in_bits();
+        let g_table = FixedBaseMSM::get_window_table(
+            scalar_bits,
+            window_size,
+            Affine::prime_subgroup_generator().into_projective(),
+        );
+        let commitment = FixedBaseMSM::multi_scalar_mul::<Projective>(
+            scalar_bits,
+            window_size,
+            &g_table,
+            &phi.coeffs,
+        );
         let commitment =
-            crate::fastkzg::g1_commit::<Curve>(&dkg.powers_of_g, &phi)?;
-        let secret_commitment = dkg.powers_of_g[0].mul(*s).into();
-
-        let zero_opening_proof = VariableBaseMSM::multi_scalar_mul(
-            &dkg.powers_of_g[0..],
-            &crate::fastkzg::convert_to_bigints(&phi.coeffs[1..]),
-        )
-        .into();
-
-        let opening_proofs =
-            DomainProof::<Curve>::new(&dkg.powers_of_g, &phi, &dkg.domain)?;
+            Projective::batch_normalization_into_affine(&commitment);
 
         let shares = dkg
             .participants
             .iter()
-            .map(|participant| {
+            .filter_map(|participant| {
                 if participant.ed_key == dkg.ed_key.public {
-                    vec![]
+                    None
                 } else {
                     let local_evals =
                         &evals.evals[participant.share_range.clone()];
-                    let opening = opening_proofs.combine_at_domain(
-                        &participant.share_range,
-                        &participant.share_domain,
-                    );
-                    encrypt(
+
+                    Some(encrypt(
                         &local_evals,
-                        &opening,
                         &dkg.dh_key.encrypt_cipher(&participant.dh_key),
-                    )
+                    ))
                 }
             })
             .collect::<Vec<ShareCiphertext>>();
 
         //phi.zeroize(); // TODO zeroize?
 
-        let rebased_secret =
-            G1Affine::prime_subgroup_generator().mul(*s).into(); //TODO: new base
-        let proof = NIZKP_BLS::dleq(
-            &dkg.powers_of_g[0],
-            &secret_commitment,
-            &G1Affine::prime_subgroup_generator(),
+        let rebased_secret = Affine::prime_subgroup_generator().mul(*s).into(); //TODO: new base
+        let proof = NIZKP_Pallas::dleq(
+            &Affine::prime_subgroup_generator(),
+            &commitment[0],
+            &Affine::prime_subgroup_generator(),
             &rebased_secret,
             &s,
             rng,
         );
         let vss = Context {
             dealer: dkg.me as u32,
-            encrypted_shares: EncryptedShares {
-                commitment,
-                secret_commitment,
-                zero_opening_proof,
-                shares,
-            },
+            encrypted_shares: EncryptedShares { commitment, shares },
             state: State::Sharing { weight_ready: 0u32 },
             local_shares: evals.evals
                 [dkg.participants[dkg.me].share_range.clone()]
@@ -219,43 +199,59 @@ impl Context {
         encrypted_shares: &EncryptedShares,
         dkg: &mut dkg::Context,
     ) -> Result<Context, anyhow::Error> {
-        use ark_ec::PairingEngine;
+        use ark_poly::EvaluationDomain;
         let me = &dkg.participants[dkg.me as usize];
 
-        let encrypted_local_shares = &encrypted_shares.shares[dkg.me as usize];
-
-        let comm = encrypted_shares.commitment.into_projective()
-            - encrypted_shares.secret_commitment.into_projective();
-        if crate::Curve::pairing(comm, dkg.powers_of_h[0])
-            != crate::Curve::pairing(
-                encrypted_shares.zero_opening_proof,
-                dkg.beta_h,
-            )
-        {
-            return Err(anyhow::anyhow!("bad zero opening"));
+        if encrypted_shares.shares.len() != dkg.participants.len() - 1 {
+            return Err(anyhow::anyhow!("wrong vss length"));
         }
+        let adjusted_index =
+            dkg.me - if dkg.me > dealer as usize { 1 } else { 0 };
+
+        let encrypted_local_shares = &encrypted_shares.shares[adjusted_index];
 
         let local_shares = decrypt(
             &encrypted_local_shares,
             &dkg.dh_key
                 .decrypt_cipher(&dkg.participants[dealer as usize].dh_key),
         )?;
-        let evaluation_polynomial =
-            me.share_domain.interpolate(&local_shares.shares);
 
-        let evaluation_polynomial_commitment = fastkzg::g1_commit::<Curve>(
-            &dkg.powers_of_g,
-            &evaluation_polynomial,
-        )?;
-        if !local_shares.opening_proof.check_at_domain_with_commitments(
-            &dkg.powers_of_h,
-            &encrypted_shares.commitment,
-            &me.domain_commitment.ok_or_else(|| {
-                anyhow::anyhow!("my domain_commitment not computed")
-            })?,
-            &evaluation_polynomial_commitment,
-        ) {
-            return Err(anyhow::anyhow!("share opening proof invalid"));
+        let mut commitment = encrypted_shares
+            .commitment
+            .iter()
+            .map(|p| p.into_projective())
+            .collect::<Vec<_>>();
+        dkg.domain.fft_in_place(&mut commitment);
+
+        let commitment =
+            Projective::batch_normalization_into_affine(&commitment);
+
+        let window_size =
+            FixedBaseMSM::get_mul_window_size(commitment.len() + 1);
+
+        let scalar_bits = Scalar::size_in_bits();
+        let g_table = FixedBaseMSM::get_window_table(
+            scalar_bits,
+            window_size,
+            Affine::prime_subgroup_generator().into_projective(),
+        );
+        let shares_commitment = FixedBaseMSM::multi_scalar_mul::<Projective>(
+            scalar_bits,
+            window_size,
+            &g_table,
+            &local_shares.shares,
+            //&dkg.participants[dkg.me].share_domain,
+        );
+        let shares_commitment =
+            Projective::batch_normalization_into_affine(&shares_commitment);
+
+        for (i, j) in commitment[dkg.participants[dkg.me].share_range.clone()]
+            .iter()
+            .zip(shares_commitment.iter())
+        {
+            if *i != *j {
+                return Err(anyhow::anyhow!("share opening proof invalid"));
+            }
         }
 
         Ok(Context {
@@ -272,33 +268,34 @@ impl Context {
 #[derive(CanonicalSerialize, CanonicalDeserialize)]
 pub struct NodeSharesPlaintext {
     pub shares: Vec<Scalar>,
-    pub opening_proof: CombinedDomainProof<Curve>,
 }
 
 pub fn encrypt(
     shares: &[Scalar],
-    opening_proof: &CombinedDomainProof<Curve>,
     cipher: &chacha20poly1305::XChaCha20Poly1305,
 ) -> ShareCiphertext {
     let mut msg = vec![];
     NodeSharesPlaintext {
         shares: shares.to_vec(),
-        opening_proof: *opening_proof,
     }
     .serialize(&mut msg)
     .unwrap();
 
     let nonce = [0u8; 24]; //TODO: add nonce?
-    cipher.encrypt(&nonce.into(), &msg[..]).unwrap()
+    ShareCiphertext {
+        ciphertext: cipher.encrypt(&nonce.into(), &msg[..]).unwrap(),
+    }
 }
 
 pub fn decrypt(
-    enc_share: &[u8],
+    enc_share: &ShareCiphertext,
     cipher: &chacha20poly1305::XChaCha20Poly1305,
 ) -> Result<NodeSharesPlaintext, anyhow::Error> {
     let nonce = [0u8; 24]; //TODO: add nonce?
 
-    let dec_share = cipher.decrypt(&nonce.into(), enc_share).unwrap(); //TODO: implement StdError for aead::error
+    let dec_share = cipher
+        .decrypt(&nonce.into(), &enc_share.ciphertext[..])
+        .unwrap(); //TODO: implement StdError for aead::error
 
     let node_shares = NodeSharesPlaintext::deserialize(&dec_share[..])?;
 
@@ -324,12 +321,8 @@ fn test_encrypt_decrypt() {
             sent_shares.push(Scalar::rand(rng));
         }
 
-        let fake_proof = CombinedDomainProof::<Curve> {
-            w: G1Affine::prime_subgroup_generator(),
-        };
         let enc = encrypt(
             sent_shares.as_slice(),
-            &fake_proof,
             &alice_secret.encrypt_cipher(&bob_public),
         );
 

@@ -3,7 +3,7 @@
 use super::dh;
 use super::nizkp;
 use crate::dkg;
-use ark_bls12_381::G1Affine;
+use ark_pallas::Affine;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -11,7 +11,7 @@ pub struct Dispute {
     pub dealer: u32,
     pub dealee: u32,
     pub shared_secret: dh::SharedSecret,
-    pub nizkp: nizkp::NIZKP_BLS,
+    pub nizkp: nizkp::NIZKP_Pallas,
 }
 
 pub enum DisputeResolution {

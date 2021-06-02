@@ -1,4 +1,3 @@
-use crate::ec_fft;
 use ark_ec::PairingEngine;
 use ark_ff::{FftField, Field, Zero};
 use ark_poly::polynomial::univariate::DensePolynomial as Poly;

@@ -112,6 +112,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ark-pallas"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7a0578183491eb5d78b8538d1ce889c8cd0c904e8ca75db1546ffc95f3ad7169"
+dependencies = [
+ "ark-ec",
+ "ark-ff",
+ "ark-std",
+]
+
+[[package]]
 name = "ark-poly"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -589,6 +600,7 @@ dependencies = [
  "ark-bls12-381",
  "ark-ec",
  "ark-ff",
+ "ark-pallas",
  "ark-poly",
  "ark-poly-commit",
  "ark-serialize",

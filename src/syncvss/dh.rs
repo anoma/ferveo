@@ -1,12 +1,12 @@
 use super::nizkp;
 use crate::Scalar;
-use ark_bls12_381::G1Affine;
 use ark_ec::AffineCurve;
+use ark_pallas::Affine;
 use chacha20poly1305::aead::{generic_array::GenericArray, NewAead};
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
 
-pub type PublicKey = G1Affine;
+pub type PublicKey = Affine;
 
 #[derive(Serialize, Deserialize, Copy, Clone, Debug)]
 pub struct AsymmetricPublicKey {
@@ -33,7 +33,7 @@ pub struct Keypair {
 #[derive(Serialize, Deserialize, Clone)]
 pub struct SharedSecret {
     #[serde(with = "crate::ark_serde")]
-    pub s: G1Affine,
+    pub s: Affine,
 }
 
 impl SharedSecret {
@@ -51,8 +51,8 @@ impl SharedSecret {
 }
 
 impl Keypair {
-    pub fn base() -> G1Affine {
-        G1Affine::prime_subgroup_generator() //TODO: hash to curve to get generator
+    pub fn base() -> Affine {
+        Affine::prime_subgroup_generator() //TODO: hash to curve to get generator
     }
     pub fn new<R: rand::Rng + rand::RngCore + rand::CryptoRng>(
         rng: &mut R,
@@ -68,11 +68,11 @@ impl Keypair {
         &self,
         other: &PublicKey,
         rng: &mut R,
-    ) -> (SharedSecret, nizkp::NIZKP_BLS) {
+    ) -> (SharedSecret, nizkp::NIZKP_Pallas) {
         let shared_secret = self.shared_secret(&other);
         (
             shared_secret.clone(),
-            nizkp::NIZKP_BLS::dleq(
+            nizkp::NIZKP_Pallas::dleq(
                 &Self::base(),
                 &self.public,
                 &other,
@@ -96,7 +96,7 @@ impl AsymmetricKeypair {
             dec: self.dec.public,
         }
     }
-    pub fn base() -> G1Affine {
+    pub fn base() -> Affine {
         Keypair::base()
     }
     pub fn new<R: rand::Rng + rand::RngCore + rand::CryptoRng>(
@@ -136,7 +136,7 @@ impl AsymmetricKeypair {
         &self,
         decrypter: &AsymmetricPublicKey,
         rng: &mut R,
-    ) -> (SharedSecret, nizkp::NIZKP_BLS) {
+    ) -> (SharedSecret, nizkp::NIZKP_Pallas) {
         self.dec.nizkp(&decrypter.enc, rng)
     }
 
@@ -145,7 +145,7 @@ impl AsymmetricKeypair {
         &self,
         encrypter: &AsymmetricPublicKey,
         rng: &mut R,
-    ) -> (SharedSecret, nizkp::NIZKP_BLS) {
+    ) -> (SharedSecret, nizkp::NIZKP_Pallas) {
         self.enc.nizkp(&encrypter.dec, rng)
     }
 
@@ -171,13 +171,13 @@ impl AsymmetricKeypair {
 }
 
 impl AsymmetricPublicKey {
-    // Verify a NIZKP created by the sender of an ecrypted message
+    // Verify a NIZKP created by the sender of an encrypted message
 
     pub fn encrypter_nizkp_verify(
         encrypter: &AsymmetricPublicKey,
         decrypter: &AsymmetricPublicKey,
         shared_secret: &SharedSecret,
-        nizkp: &nizkp::NIZKP_BLS,
+        nizkp: &nizkp::NIZKP_Pallas,
     ) -> bool {
         nizkp.dleq_verify(
             &Keypair::base(),
@@ -187,12 +187,12 @@ impl AsymmetricPublicKey {
         )
     }
 
-    // Verify a NIZKP created by the recipient of an ecrypted message\
+    // Verify a NIZKP created by the recipient of an encrypted message
     pub fn decrypter_nizkp_verify(
         encrypter: &AsymmetricPublicKey,
         decrypter: &AsymmetricPublicKey,
         shared_secret: &SharedSecret,
-        nizkp: &nizkp::NIZKP_BLS,
+        nizkp: &nizkp::NIZKP_Pallas,
     ) -> bool {
         nizkp.dleq_verify(
             &Keypair::base(),

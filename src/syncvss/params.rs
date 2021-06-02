@@ -2,7 +2,7 @@
 
 use rand::Rng;
 
-use ark_bls12_381::{Fr, G1Affine};
+use crate::{Affine, Scalar};
 //type Scalar = Fr;
 use ark_poly::{
     polynomial::univariate::DensePolynomial, polynomial::UVPolynomial,

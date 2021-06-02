@@ -15,6 +15,7 @@ authors = ["Heliax AG <hello@heliax.dev>"]
 [dependencies]
 ark-poly-commit = "0.2" #{ path = "../poly-commit" }
 ark-std = "0.2"
+ark-pallas = "0.2"
 ark-bls12-381 = "0.2"
 ark-ec = "0.2"
 ark-ff = "0.2"
@@ -63,8 +64,3 @@ opt-level = 3
 
 [profile.release]
 debug = true
-
-[[bench]]
-name = "kzg"
-harness = false
-html_reports = true

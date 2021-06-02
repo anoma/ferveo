@@ -7,11 +7,10 @@ use blake2b_simd::{Params, State};
 use rand::{CryptoRng, RngCore};
 use std::convert::TryInto;
 
-use ark_bls12_381::{Fr, G1Affine};
-use ark_ec::AffineCurve;
+use ark_ec::{AffineCurve, PairingEngine};
 use ark_ff::FromBytes;
 
-use crate::Scalar;
+use crate::{Affine, Scalar};
 use serde::{Deserialize, Serialize};
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -20,7 +19,7 @@ pub struct NIZKP {
     pub r: curve25519_dalek::scalar::Scalar,
 }
 
-//TODO: use hash-to-field for both
+//TODO: use hash-to-field for both?
 
 impl NIZKP {
     pub fn dleq<R: rand::Rng + rand::RngCore + rand::CryptoRng>(
@@ -89,33 +88,33 @@ impl NIZKP {
 }
 
 #[derive(Serialize, Deserialize, Copy, Clone)]
-pub struct NIZKP_BLS {
+pub struct NIZKP_Pallas {
     #[serde(with = "crate::ark_serde")]
     pub c: Scalar,
     #[serde(with = "crate::ark_serde")]
     pub r: Scalar,
 }
-impl NIZKP_BLS {
+impl NIZKP_Pallas {
     pub fn dleq<R: rand::Rng + rand::RngCore + rand::CryptoRng>(
-        x_1: &G1Affine,
-        y_1: &G1Affine,
-        x_2: &G1Affine,
-        y_2: &G1Affine,
+        x_1: &Affine,
+        y_1: &Affine,
+        x_2: &Affine,
+        y_2: &Affine,
         alpha: &Scalar,
         rng: &mut R,
-    ) -> NIZKP_BLS {
+    ) -> NIZKP_Pallas {
         use ark_ff::ToBytes;
         use ark_std::UniformRand;
         use blake2b_simd::State;
 
         let w = Scalar::rand(rng);
-        let t_1 = G1Affine::from(x_1.mul(w));
-        let t_2 = G1Affine::from(x_2.mul(w));
+        let t_1 = Affine::from(x_1.mul(w));
+        let t_2 = Affine::from(x_2.mul(w));
         let mut params = blake2b_simd::Params::new();
         params.hash_length(32);
         let mut hasher = params.to_state();
 
-        let c: Scalar; //TODO: use hash to field
+        let c: Scalar; //TODO: use hash to field?
         loop {
             let mut buf = Vec::new();
             x_1.write(&mut buf).unwrap();
@@ -133,22 +132,22 @@ impl NIZKP_BLS {
 
         let r = w - *alpha * c;
 
-        NIZKP_BLS { c, r }
+        NIZKP_Pallas { c, r }
     }
 
     pub fn dleq_verify(
-        self: &NIZKP_BLS,
-        x_1: &G1Affine,
-        y_1: &G1Affine,
-        x_2: &G1Affine,
-        y_2: &G1Affine,
+        self: &NIZKP_Pallas,
+        x_1: &Affine,
+        y_1: &Affine,
+        x_2: &Affine,
+        y_2: &Affine,
     ) -> bool {
         use ark_ff::FromBytes;
         use ark_ff::ToBytes;
         use blake2b_simd::State;
 
-        let t_1 = G1Affine::from(x_1.mul(self.r) + y_1.mul(self.c));
-        let t_2 = G1Affine::from(x_2.mul(self.r) + y_2.mul(self.c));
+        let t_1 = Affine::from(x_1.mul(self.r) + y_1.mul(self.c));
+        let t_2 = Affine::from(x_2.mul(self.r) + y_2.mul(self.c));
 
         let mut params = blake2b_simd::Params::new();
         params.hash_length(32);
@@ -171,6 +170,70 @@ impl NIZKP_BLS {
         c == self.c
     }
 }
+#[derive(Serialize, Deserialize, Copy, Clone, Debug)]
+pub struct SchnorrPoK<E: PairingEngine> {
+    #[serde(with = "crate::ark_serde")]
+    pub s: E::Fr,
+    #[serde(with = "crate::ark_serde")]
+    pub e: E::Fr,
+}
+
+impl<E: PairingEngine> SchnorrPoK<E> {
+    pub fn new<R: rand::Rng + rand::RngCore + rand::CryptoRng>(
+        g: E::G1Affine,
+        x: E::Fr,
+        g_x: E::G1Affine,
+        rng: &mut R,
+    ) -> Self {
+        use ark_ff::ToBytes;
+        use ark_std::UniformRand;
+        use blake2b_simd::State;
+        let k = E::Fr::rand(rng);
+        let r = g.mul(k);
+
+        let mut params = blake2b_simd::Params::new();
+        params.hash_length(32);
+        let mut hasher = params.to_state();
+
+        let e =  //TODO: use hash to field?
+        loop {
+            let mut buf = Vec::new();
+            r.write(&mut buf).unwrap();
+            g.write(&mut buf).unwrap();
+            g_x.write(&mut buf).unwrap();
+
+            hasher.update(buf.as_slice());
+            if let Ok(h) = E::Fr::read(hasher.finalize().as_bytes()) {
+                break h;
+            }
+        };
+        let s = k - x * e;
+        Self { s, e }
+    }
+    pub fn verify(&self, g: E::G1Affine, g_x: E::G1Affine) -> bool {
+        use ark_ff::ToBytes;
+        use blake2b_simd::State;
+
+        let mut params = blake2b_simd::Params::new();
+        params.hash_length(32);
+        let mut hasher = params.to_state();
+
+        let r = g.mul(self.s);
+        let e = loop {
+            let mut buf = Vec::new();
+            r.write(&mut buf).unwrap();
+            g.write(&mut buf).unwrap();
+            g_x.write(&mut buf).unwrap();
+
+            hasher.update(buf.as_slice());
+            if let Ok(h) = E::Fr::read(hasher.finalize().as_bytes()) {
+                break h;
+            }
+        };
+        e == self.e
+    }
+}
+
 #[test]
 fn test_nizkp() {
     use rand_chacha::rand_core::{RngCore, SeedableRng};
@@ -207,22 +270,20 @@ fn test_nizkp() {
 }
 
 #[test]
-fn test_nizkp_bls() {
+fn test_nizkp_pallas() {
     use rand_chacha::rand_core::{RngCore, SeedableRng};
     use rand_chacha::ChaCha8Rng;
-    //use rand::RngCore;
-    let mut rng = rand::thread_rng();
-    //let mut rng = ChaCha8Rng::from_seed([0u8;32]);
+    let mut rng = ark_std::test_rng();
     use ark_ec::ProjectiveCurve;
     use ark_std::UniformRand;
     for _ in 0..1000 {
         let secret = Scalar::rand(&mut rng);
-        let g_base = G1Affine::prime_subgroup_generator();
+        let g_base = Affine::prime_subgroup_generator();
         let g = g_base.mul(secret);
         let h_base = g_base + g_base;
         let h = h_base.mul(secret);
 
-        let pi = NIZKP_BLS::dleq(
+        let pi = NIZKP_Pallas::dleq(
             &g_base,
             &g.into(),
             &h_base,
