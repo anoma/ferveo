@@ -6,7 +6,11 @@ use crate::dkg;
 use ark_bls12_381::G1Affine;
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "borsh")]
+use borsh::{BorshDeserialize, BorshSerialize};
+
 #[derive(Serialize, Deserialize, Clone)]
+#[cfg_attr(feature = "borsh", derive(BorshSerialize, BorshDeserialize))]
 pub struct Dispute {
     pub dealer: u32,
     pub dealee: u32,
@@ -14,6 +18,7 @@ pub struct Dispute {
     pub nizkp: nizkp::NIZKP_BLS,
 }
 
+#[cfg_attr(feature = "borsh", derive(BorshSerialize, BorshDeserialize))]
 pub enum DisputeResolution {
     DealerFault,
     ComplainerFault,

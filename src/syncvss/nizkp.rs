@@ -14,6 +14,11 @@ use ark_ff::FromBytes;
 use crate::Scalar;
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "borsh")]
+use borsh::maybestd::io as borsh_io;
+#[cfg(feature = "borsh")]
+use borsh::{BorshDeserialize, BorshSerialize};
+
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct NIZKP {
     pub c: [u8; 32],
@@ -171,6 +176,41 @@ impl NIZKP_BLS {
         c == self.c
     }
 }
+
+#[cfg(feature = "borsh")]
+fn ark_to_bytes<T: CanonicalSerialize>(value: T) -> Vec<u8> {
+    let mut bytes = vec![0u8; value.serialized_size()];
+    value.serialize(&mut bytes).expect("failed to serialize");
+    bytes
+}
+
+#[cfg(feature = "borsh")]
+fn ark_from_bytes<T: CanonicalDeserialize>(bytes: &[u8]) -> Option<T> {
+    CanonicalDeserialize::deserialize(bytes).ok()
+}
+
+#[cfg(feature = "borsh")]
+impl BorshSerialize for NIZKP_BLS {
+    fn serialize<W: borsh_io::Write>(
+        &self,
+        writer: &mut W,
+    ) -> borsh_io::Result<()> {
+        let c = ark_to_bytes(self.c);
+        let r = ark_to_bytes(self.r);
+        BorshSerialize::serialize(&(c, r), writer)
+    }
+}
+
+#[cfg(feature = "borsh")]
+impl BorshDeserialize for NIZKP_BLS {
+    fn deserialize(buf: &mut &[u8]) -> borsh_io::Result<Self> {
+        let (c, r): (Vec<u8>, Vec<u8>) = BorshDeserialize::deserialize(buf)?;
+        let c = ark_from_bytes(&c).expect("failed to deserialize");
+        let r = ark_from_bytes(&r).expect("failed to deserialize");
+        Ok(Self { c, r })
+    }
+}
+
 #[test]
 fn test_nizkp() {
     use rand_chacha::rand_core::{RngCore, SeedableRng};

@@ -21,8 +21,12 @@ use ark_poly::{
 };
 use ed25519_dalek as ed25519;
 
+#[cfg(feature = "borsh")]
+use borsh::{BorshDeserialize, BorshSerialize};
+
 // DKG parameters
 #[derive(Copy, Clone, Debug)]
+#[cfg_attr(feature = "borsh", derive(BorshSerialize, BorshDeserialize))]
 pub struct Params {
     pub failure_threshold: u32,  // failure threshold
     pub security_threshold: u32, // threshold

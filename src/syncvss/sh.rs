@@ -17,6 +17,13 @@ use chacha20poly1305::aead::Aead;
 
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "borsh")]
+use ark_serialize::CanonicalDeserialize;
+#[cfg(feature = "borsh")]
+use borsh::maybestd::io as borsh_io;
+#[cfg(feature = "borsh")]
+use borsh::{BorshDeserialize, BorshSerialize};
+
 pub type ShareCiphertext = Vec<u8>;
 
 pub enum State {
@@ -325,5 +332,229 @@ fn test_encrypt_decrypt() {
 
         let dec =
             decrypt(&enc, &bob_secret.decrypt_cipher(&alice_public)).unwrap();
+    }
+}
+
+#[cfg(feature = "borsh")]
+fn ark_to_bytes<T: CanonicalSerialize>(value: T) -> Vec<u8> {
+    let mut bytes = vec![0u8; value.serialized_size()];
+    value.serialize(&mut bytes).expect("failed to serialize");
+    bytes
+}
+
+#[cfg(feature = "borsh")]
+fn ark_from_bytes<T: CanonicalDeserialize>(bytes: &[u8]) -> Option<T> {
+    CanonicalDeserialize::deserialize(bytes).ok()
+}
+
+#[cfg(feature = "borsh")]
+impl BorshSerialize for State {
+    fn serialize<W: borsh_io::Write>(
+        &self,
+        writer: &mut W,
+    ) -> borsh_io::Result<()> {
+        match self {
+            State::Sharing { weight_ready } => {
+                BorshSerialize::serialize(&0u8, writer)?;
+                BorshSerialize::serialize(weight_ready, writer)
+            }
+            State::Success { final_secret } => {
+                BorshSerialize::serialize(&1u8, writer)?;
+                BorshSerialize::serialize(&ark_to_bytes(*final_secret), writer)
+            }
+            State::Failure => BorshSerialize::serialize(&2u8, writer),
+        }
+    }
+}
+
+#[cfg(feature = "borsh")]
+impl BorshDeserialize for State {
+    fn deserialize(buf: &mut &[u8]) -> borsh_io::Result<Self> {
+        let tag: u8 = BorshDeserialize::deserialize(buf)?;
+        match tag {
+            0u8 => {
+                let weight_ready = BorshDeserialize::deserialize(buf)?;
+                Ok(State::Sharing { weight_ready })
+            }
+            1u8 => {
+                let final_secret: Vec<u8> = BorshDeserialize::deserialize(buf)?;
+                let final_secret = ark_from_bytes(&final_secret)
+                    .expect("failed to deserialize");
+                Ok(State::Success { final_secret })
+            }
+            2u8 => Ok(State::Failure),
+            _ => Err(borsh_io::ErrorKind::InvalidData.into()),
+        }
+    }
+}
+
+/*
+pub struct Context {
+    pub dealer: u32,
+    pub encrypted_shares: EncryptedShares,
+    pub state: State,
+    pub local_shares: Vec<Scalar>,
+    pub ready_msg: Vec<ed25519_dalek::PublicKey>, //TODO: Should be a set, but doesn't support comparison ops
+    pub finalize_msg: Option<FinalizeMsg>,
+}
+*/
+
+#[cfg(feature = "borsh")]
+impl BorshSerialize for Context {
+    fn serialize<W: borsh_io::Write>(
+        &self,
+        writer: &mut W,
+    ) -> borsh_io::Result<()> {
+        let local_shares: Vec<_> = self
+            .local_shares
+            .iter()
+            .cloned()
+            .map(ark_to_bytes)
+            .collect();
+        let ready_msg: Vec<_> = self
+            .ready_msg
+            .iter()
+            .cloned()
+            .map(|pk| pk.to_bytes())
+            .collect();
+        BorshSerialize::serialize(
+            &(
+                &self.dealer,
+                &self.encrypted_shares,
+                &self.state,
+                &local_shares,
+                &ready_msg,
+                &self.finalize_msg,
+            ),
+            writer,
+        )
+    }
+}
+
+#[cfg(feature = "borsh")]
+impl BorshDeserialize for Context {
+    fn deserialize(buf: &mut &[u8]) -> borsh_io::Result<Self> {
+        let (
+            dealer,
+            encrypted_shares,
+            state,
+            local_shares,
+            ready_msg,
+            finalize_msg,
+        ): (
+            u32,
+            EncryptedShares,
+            State,
+            Vec<Vec<u8>>,
+            Vec<Vec<u8>>,
+            Option<FinalizeMsg>,
+        ) = BorshDeserialize::deserialize(buf)?;
+        let local_shares: Vec<_> = local_shares
+            .iter()
+            .map(|bytes| ark_from_bytes(bytes).expect("failed to deserialize"))
+            .collect();
+        let ready_msg: Vec<_> = ready_msg
+            .iter()
+            .map(|bytes| {
+                ed25519_dalek::PublicKey::from_bytes(bytes)
+                    .expect("failed to deserialize")
+            })
+            .collect();
+        Ok(Self {
+            dealer,
+            encrypted_shares,
+            state,
+            local_shares,
+            ready_msg,
+            finalize_msg,
+        })
+    }
+}
+
+#[cfg(feature = "borsh")]
+impl BorshSerialize for EncryptedShares {
+    fn serialize<W: borsh_io::Write>(
+        &self,
+        writer: &mut W,
+    ) -> borsh_io::Result<()> {
+        let commitment = ark_to_bytes(self.commitment);
+        let secret_commitment = ark_to_bytes(self.secret_commitment);
+        let zero_opening = ark_to_bytes(self.zero_opening);
+        let shares = &self.shares;
+        BorshSerialize::serialize(
+            &(commitment, secret_commitment, zero_opening, shares),
+            writer,
+        )
+    }
+}
+
+#[cfg(feature = "borsh")]
+impl BorshDeserialize for EncryptedShares {
+    fn deserialize(buf: &mut &[u8]) -> borsh_io::Result<Self> {
+        let (commitment, secret_commitment, zero_opening, shares): (
+            Vec<u8>,
+            Vec<u8>,
+            Vec<u8>,
+            Vec<ShareCiphertext>,
+        ) = BorshDeserialize::deserialize(buf)?;
+        let commitment =
+            ark_from_bytes(&commitment).expect("failed to deserialize");
+        let secret_commitment =
+            ark_from_bytes(&secret_commitment).expect("failed to deserialize");
+        let zero_opening =
+            ark_from_bytes(&zero_opening).expect("failed to deserialize");
+        Ok(Self {
+            commitment,
+            secret_commitment,
+            zero_opening,
+            shares,
+        })
+    }
+}
+
+#[cfg(feature = "borsh")]
+impl BorshSerialize for ReadyMsg {
+    fn serialize<W: borsh_io::Write>(
+        &self,
+        writer: &mut W,
+    ) -> borsh_io::Result<()> {
+        let commitment = ark_to_bytes(self.commitment);
+        BorshSerialize::serialize(&(self.dealer, commitment), writer)
+    }
+}
+
+#[cfg(feature = "borsh")]
+impl BorshDeserialize for ReadyMsg {
+    fn deserialize(buf: &mut &[u8]) -> borsh_io::Result<Self> {
+        let (dealer, commitment): (u32, Vec<u8>) =
+            BorshDeserialize::deserialize(buf)?;
+        let commitment =
+            ark_from_bytes(&commitment).expect("failed to deserialize");
+        Ok(Self { dealer, commitment })
+    }
+}
+
+#[cfg(feature = "borsh")]
+impl BorshSerialize for FinalizeMsg {
+    fn serialize<W: borsh_io::Write>(
+        &self,
+        writer: &mut W,
+    ) -> borsh_io::Result<()> {
+        let rebased_secret = ark_to_bytes(self.rebased_secret);
+        BorshSerialize::serialize(&(rebased_secret, self.proof), writer)
+    }
+}
+
+#[cfg(feature = "borsh")]
+impl BorshDeserialize for FinalizeMsg {
+    fn deserialize(buf: &mut &[u8]) -> borsh_io::Result<Self> {
+        let (rebased_secret, proof): (Vec<u8>, NIZKP_BLS) =
+            BorshDeserialize::deserialize(buf)?;
+        let rebased_secret =
+            ark_from_bytes(&rebased_secret).expect("failed to deserialize");
+        Ok(Self {
+            rebased_secret,
+            proof,
+        })
     }
 }
