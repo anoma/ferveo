@@ -388,17 +388,6 @@ impl BorshDeserialize for State {
     }
 }
 
-/*
-pub struct Context {
-    pub dealer: u32,
-    pub encrypted_shares: EncryptedShares,
-    pub state: State,
-    pub local_shares: Vec<Scalar>,
-    pub ready_msg: Vec<ed25519_dalek::PublicKey>, //TODO: Should be a set, but doesn't support comparison ops
-    pub finalize_msg: Option<FinalizeMsg>,
-}
-*/
-
 #[cfg(feature = "borsh")]
 impl BorshSerialize for Context {
     fn serialize<W: borsh_io::Write>(

@@ -22,6 +22,10 @@ use ark_poly::{
 use ed25519_dalek as ed25519;
 
 #[cfg(feature = "borsh")]
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+#[cfg(feature = "borsh")]
+use borsh::maybestd::io as borsh_io;
+#[cfg(feature = "borsh")]
 use borsh::{BorshDeserialize, BorshSerialize};
 
 // DKG parameters
@@ -50,6 +54,7 @@ pub struct Participant {
     pub domain_commitment: Option<G2Affine>, //Commitment to subproduct domain}
 }
 #[derive(Debug)]
+#[cfg_attr(feature = "borsh", derive(BorshSerialize, BorshDeserialize))]
 pub enum State {
     Init {
         participants: Vec<ParticipantBuilder>,
@@ -512,5 +517,198 @@ fn dkg() {
             .collect::<Vec<G1Affine>>();
 
         assert!(final_keys.iter().all(|&key| key == final_secret));
+    }
+}
+
+#[cfg(feature = "borsh")]
+fn ark_to_bytes<T: CanonicalSerialize>(value: T) -> Vec<u8> {
+    let mut bytes = vec![0u8; value.serialized_size()];
+    value.serialize(&mut bytes).expect("failed to serialize");
+    bytes
+}
+
+#[cfg(feature = "borsh")]
+fn ark_from_bytes<T: CanonicalDeserialize>(bytes: &[u8]) -> Option<T> {
+    CanonicalDeserialize::deserialize(bytes).ok()
+}
+
+#[cfg(feature = "borsh")]
+impl BorshSerialize for ParticipantBuilder {
+    fn serialize<W: borsh_io::Write>(
+        &self,
+        writer: &mut W,
+    ) -> borsh_io::Result<()> {
+        let ed_key = self.ed_key.to_bytes();
+        BorshSerialize::serialize(&(&ed_key, &self.dh_key, &self.stake), writer)
+    }
+}
+
+#[cfg(feature = "borsh")]
+impl BorshDeserialize for ParticipantBuilder {
+    fn deserialize(buf: &mut &[u8]) -> borsh_io::Result<Self> {
+        let (ed_key, dh_key, stake): (Vec<u8>, dh::AsymmetricPublicKey, u64) =
+            BorshDeserialize::deserialize(buf)?;
+        let ed_key = ed25519::PublicKey::from_bytes(&ed_key)
+            .expect("failed to deserialize");
+        Ok(Self {
+            ed_key,
+            dh_key,
+            stake,
+        })
+    }
+}
+
+#[cfg(feature = "borsh")]
+impl BorshSerialize for Participant {
+    fn serialize<W: borsh_io::Write>(
+        &self,
+        writer: &mut W,
+    ) -> borsh_io::Result<()> {
+        let ed_key = self.ed_key.to_bytes();
+        let share_range =
+            (self.share_range.start as u64, self.share_range.end as u64);
+        let domain_commitment: Option<Vec<u8>> =
+            self.domain_commitment.map(ark_to_bytes);
+        BorshSerialize::serialize(
+            &(
+                &ed_key,
+                &self.dh_key,
+                &self.weight,
+                &share_range,
+                &self.share_domain,
+                &domain_commitment,
+            ),
+            writer,
+        )
+    }
+}
+
+#[cfg(feature = "borsh")]
+impl BorshDeserialize for Participant {
+    fn deserialize(buf: &mut &[u8]) -> borsh_io::Result<Self> {
+        let (
+            ed_key,
+            dh_key,
+            weight,
+            share_range,
+            share_domain,
+            domain_commitment,
+        ): (
+            Vec<u8>,
+            dh::AsymmetricPublicKey,
+            u32,
+            (u64, u64),
+            fastpoly::SubproductDomain,
+            Option<Vec<u8>>,
+        ) = BorshDeserialize::deserialize(buf)?;
+        let ed_key = ed25519::PublicKey::from_bytes(&ed_key)
+            .expect("failed to deserialize");
+        let share_range = std::ops::Range {
+            start: share_range.0 as usize,
+            end: share_range.1 as usize,
+        };
+        let domain_commitment = domain_commitment.map(|bytes| {
+            ark_from_bytes(&bytes).expect("failed to deserialize")
+        });
+        Ok(Self {
+            ed_key,
+            dh_key,
+            weight,
+            share_range,
+            share_domain,
+            domain_commitment,
+        })
+    }
+}
+
+#[cfg(feature = "borsh")]
+impl BorshSerialize for Context {
+    fn serialize<W: borsh_io::Write>(
+        &self,
+        writer: &mut W,
+    ) -> borsh_io::Result<()> {
+        let ed_key = self.ed_key.to_bytes();
+        let domain = ark_to_bytes(self.domain);
+        let powers_of_g: Vec<_> =
+            self.powers_of_g.iter().cloned().map(ark_to_bytes).collect();
+        let powers_of_h: Vec<_> =
+            self.powers_of_h.iter().cloned().map(ark_to_bytes).collect();
+        let beta_h = ark_to_bytes(self.beta_h);
+        BorshSerialize::serialize(
+            &(
+                &self.tau,
+                &self.dh_key,
+                &ed_key,
+                &self.params,
+                &self.participants,
+                &self.vss,
+                &domain,
+                &self.state,
+                &(self.me as u64),
+                &powers_of_g,
+                &powers_of_h,
+                &beta_h,
+            ),
+            writer,
+        )
+    }
+}
+
+#[cfg(feature = "borsh")]
+impl BorshDeserialize for Context {
+    fn deserialize(buf: &mut &[u8]) -> borsh_io::Result<Self> {
+        let (
+            tau,
+            dh_key,
+            ed_key,
+            params,
+            participants,
+            vss,
+            domain,
+            state,
+            me,
+            powers_of_g,
+            powers_of_h,
+            beta_h,
+        ): (
+            u32,
+            dh::AsymmetricKeypair,
+            Vec<u8>,
+            Params,
+            Vec<Participant>,
+            BTreeMap<u32, syncvss::sh::Context>,
+            Vec<u8>,
+            State,
+            u64,
+            Vec<Vec<u8>>,
+            Vec<Vec<u8>>,
+            Vec<u8>,
+        ) = BorshDeserialize::deserialize(buf)?;
+        let ed_key = ed25519::Keypair::from_bytes(&ed_key)
+            .expect("failed to deserialize");
+        let domain = ark_from_bytes(&domain).expect("failed to deserialize");
+        let powers_of_g: Vec<_> = powers_of_g
+            .iter()
+            .map(|bytes| ark_from_bytes(&bytes).expect("failed to deserialize"))
+            .collect();
+        let powers_of_h: Vec<_> = powers_of_h
+            .iter()
+            .map(|bytes| ark_from_bytes(&bytes).expect("failed to deserialize"))
+            .collect();
+        let beta_h = ark_from_bytes(&beta_h).expect("failed to deserialize");
+        Ok(Self {
+            tau,
+            dh_key,
+            ed_key,
+            params,
+            participants,
+            vss,
+            domain,
+            state,
+            me: me as usize,
+            powers_of_g: Rc::new(powers_of_g),
+            powers_of_h: Rc::new(powers_of_h),
+            beta_h,
+        })
     }
 }

@@ -2,6 +2,13 @@ use ark_bls12_381::{Fr, G1Projective};
 use ark_ff::{One, Zero};
 use ark_poly::polynomial::univariate::DensePolynomial;
 
+#[cfg(feature = "borsh")]
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+#[cfg(feature = "borsh")]
+use borsh::maybestd::io as borsh_io;
+#[cfg(feature = "borsh")]
+use borsh::{BorshDeserialize, BorshSerialize};
+
 /// Computes the inverse of f mod x^l
 pub fn inverse_mod_xl(
     f: &DensePolynomial<Fr>,
@@ -338,5 +345,84 @@ mod tests {
                 assert_eq!(s.prime.evaluate(i), *j);
             }
         }
+    }
+}
+
+#[cfg(feature = "borsh")]
+fn ark_to_bytes<T: CanonicalSerialize>(value: T) -> Vec<u8> {
+    let mut bytes = vec![0u8; value.serialized_size()];
+    value.serialize(&mut bytes).expect("failed to serialize");
+    bytes
+}
+
+#[cfg(feature = "borsh")]
+fn ark_from_bytes<T: CanonicalDeserialize>(bytes: &[u8]) -> Option<T> {
+    CanonicalDeserialize::deserialize(bytes).ok()
+}
+
+/*
+#[derive(Debug, Clone)]
+pub struct SubproductTree {
+    pub left: Option<Box<SubproductTree>>,
+    pub right: Option<Box<SubproductTree>>,
+    pub m: DensePolynomial<Fr>,
+}
+
+/// The subproduct tree of a polynomial m over a domain u
+#[derive(Debug, Clone)]
+pub struct SubproductDomain {
+    pub u: Vec<Fr>,
+    pub t: SubproductTree,
+    pub prime: DensePolynomial<Fr>, // Derivative
+}
+*/
+
+#[cfg(feature = "borsh")]
+impl BorshSerialize for SubproductTree {
+    fn serialize<W: borsh_io::Write>(
+        &self,
+        writer: &mut W,
+    ) -> borsh_io::Result<()> {
+        let m = ark_to_bytes(self.m.clone());
+        BorshSerialize::serialize(&(&self.left, &self.right, &m), writer)
+    }
+}
+
+#[cfg(feature = "borsh")]
+impl BorshDeserialize for SubproductTree {
+    fn deserialize(buf: &mut &[u8]) -> borsh_io::Result<Self> {
+        let (left, right, m): (
+            Option<Box<SubproductTree>>,
+            Option<Box<SubproductTree>>,
+            Vec<u8>,
+        ) = BorshDeserialize::deserialize(buf)?;
+        let m = ark_from_bytes(&m).expect("failed to deserialize");
+        Ok(Self { left, right, m })
+    }
+}
+
+#[cfg(feature = "borsh")]
+impl BorshSerialize for SubproductDomain {
+    fn serialize<W: borsh_io::Write>(
+        &self,
+        writer: &mut W,
+    ) -> borsh_io::Result<()> {
+        let u: Vec<_> = self.u.iter().cloned().map(ark_to_bytes).collect();
+        let prime = ark_to_bytes(self.prime.clone());
+        BorshSerialize::serialize(&(&u, &self.t, &prime), writer)
+    }
+}
+
+#[cfg(feature = "borsh")]
+impl BorshDeserialize for SubproductDomain {
+    fn deserialize(buf: &mut &[u8]) -> borsh_io::Result<Self> {
+        let (u, t, prime): (Vec<Vec<u8>>, SubproductTree, Vec<_>) =
+            BorshDeserialize::deserialize(buf)?;
+        let u: Vec<_> = u
+            .iter()
+            .map(|bytes| ark_from_bytes(bytes).expect("failed to deserialize"))
+            .collect();
+        let prime = ark_from_bytes(&prime).expect("failed to deserialize");
+        Ok(Self { u, t, prime })
     }
 }
