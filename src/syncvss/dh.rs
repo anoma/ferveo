@@ -6,6 +6,13 @@ use chacha20poly1305::aead::{generic_array::GenericArray, NewAead};
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
 
+#[cfg(feature = "borsh")]
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+#[cfg(feature = "borsh")]
+use borsh::maybestd::io as borsh_io;
+#[cfg(feature = "borsh")]
+use borsh::{BorshDeserialize, BorshSerialize};
+
 pub type PublicKey = G1Affine;
 
 #[derive(Serialize, Deserialize, Copy, Clone, Debug)]
@@ -18,6 +25,7 @@ pub struct AsymmetricPublicKey {
 }
 
 #[derive(Clone)]
+#[cfg_attr(feature = "borsh", derive(BorshSerialize, BorshDeserialize))]
 pub struct AsymmetricKeypair {
     pub enc: Keypair, // Encrypt messages to recipient's enc
     pub dec: Keypair, // Decrypt messages with sender's dec
@@ -200,5 +208,82 @@ impl AsymmetricPublicKey {
             &decrypter.dec,
             &shared_secret.s,
         )
+    }
+}
+
+#[cfg(feature = "borsh")]
+fn ark_to_bytes<T: CanonicalSerialize>(value: T) -> Vec<u8> {
+    let mut bytes = vec![0u8; value.serialized_size()];
+    value.serialize(&mut bytes).expect("failed to serialize");
+    bytes
+}
+
+#[cfg(feature = "borsh")]
+fn ark_from_bytes<T: CanonicalDeserialize>(bytes: &[u8]) -> Option<T> {
+    CanonicalDeserialize::deserialize(bytes).ok()
+}
+
+#[cfg(feature = "borsh")]
+impl BorshSerialize for AsymmetricPublicKey {
+    fn serialize<W: borsh_io::Write>(
+        &self,
+        writer: &mut W,
+    ) -> borsh_io::Result<()> {
+        let enc = ark_to_bytes(self.enc);
+        let dec = ark_to_bytes(self.dec);
+        BorshSerialize::serialize(&(enc, dec), writer)
+    }
+}
+
+#[cfg(feature = "borsh")]
+impl BorshDeserialize for AsymmetricPublicKey {
+    fn deserialize(buf: &mut &[u8]) -> borsh_io::Result<Self> {
+        let (enc, dec): (Vec<u8>, Vec<u8>) =
+            BorshDeserialize::deserialize(buf)?;
+        let enc = ark_from_bytes(&enc).expect("failed to deserialize");
+        let dec = ark_from_bytes(&dec).expect("failed to deserialize");
+        Ok(Self { enc, dec })
+    }
+}
+
+#[cfg(feature = "borsh")]
+impl BorshSerialize for Keypair {
+    fn serialize<W: borsh_io::Write>(
+        &self,
+        writer: &mut W,
+    ) -> borsh_io::Result<()> {
+        let secret = ark_to_bytes(self.secret);
+        let public = ark_to_bytes(self.public);
+        BorshSerialize::serialize(&(secret, public), writer)
+    }
+}
+
+#[cfg(feature = "borsh")]
+impl BorshDeserialize for Keypair {
+    fn deserialize(buf: &mut &[u8]) -> borsh_io::Result<Self> {
+        let (secret, public): (Vec<u8>, Vec<u8>) =
+            BorshDeserialize::deserialize(buf)?;
+        let secret = ark_from_bytes(&secret).expect("failed to deserialize");
+        let public = ark_from_bytes(&public).expect("failed to deserialize");
+        Ok(Self { secret, public })
+    }
+}
+
+#[cfg(feature = "borsh")]
+impl BorshSerialize for SharedSecret {
+    fn serialize<W: borsh_io::Write>(
+        &self,
+        writer: &mut W,
+    ) -> borsh_io::Result<()> {
+        BorshSerialize::serialize(&ark_to_bytes(self.s), writer)
+    }
+}
+
+#[cfg(feature = "borsh")]
+impl BorshDeserialize for SharedSecret {
+    fn deserialize(buf: &mut &[u8]) -> borsh_io::Result<Self> {
+        let s: Vec<u8> = BorshDeserialize::deserialize(buf)?;
+        let s = ark_from_bytes(&s).expect("failed to deserialize");
+        Ok(Self { s })
     }
 }

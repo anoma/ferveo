@@ -9,8 +9,12 @@ use ark_poly::{
     EvaluationDomain, Polynomial, Radix2EvaluationDomain,
 };
 
+#[cfg(feature = "borsh")]
+use borsh::{BorshDeserialize, BorshSerialize};
+
 // VSS parameters
 #[derive(Copy, Clone)]
+#[cfg_attr(feature = "borsh", derive(BorshSerialize, BorshDeserialize))]
 pub struct Params {
     pub d: u32,            // dealer index
     pub f: u32,            // failure threshold
