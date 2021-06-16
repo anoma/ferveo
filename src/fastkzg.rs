@@ -1,4 +1,5 @@
 use crate::fastpoly;
+use kzg_setup_powersoftau::{load_fastkzg_setup, download_fastkzg_setup};
 use ark_bls12_381::{
     Bls12_381, Fr, G1Affine, G1Projective, G2Affine, G2Projective,
 };
@@ -261,6 +262,15 @@ pub fn g1_commit(
         &plain_coeffs,
     );
     Ok(commitment.into())
+}
+
+pub fn load_setup<R: rand::RngCore>(
+    max_degree: usize,
+    rng: &mut R,
+) -> Result<(UniversalParams<Bls12_381>, Vec<G2Affine>), anyhow::Error> {
+    download_fastkzg_setup(false).unwrap();
+    let (pp, powers_of_h) = load_fastkzg_setup();
+    Ok((pp, powers_of_h))
 }
 
 pub fn setup<R: rand::RngCore>(
