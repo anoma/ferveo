@@ -1,5 +1,4 @@
 use crate::fastpoly;
-use kzg_setup_powersoftau::{load_fastkzg_setup, download_fastkzg_setup};
 use ark_bls12_381::{
     Bls12_381, Fr, G1Affine, G1Projective, G2Affine, G2Projective,
 };
@@ -8,6 +7,7 @@ use ark_poly::{
     polynomial::univariate::DensePolynomial, EvaluationDomain, UVPolynomial,
 };
 use ark_poly_commit::kzg10::{Powers, UniversalParams, VerifierKey};
+use kzg_setup_powersoftau::{download_fastkzg_setup, load_fastkzg_setup};
 
 pub fn open_amortized(
     powers_of_g: &[G1Affine],
