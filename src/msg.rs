@@ -1,7 +1,7 @@
 use ed25519_dalek as ed25519;
 use ed25519_dalek::Signer;
 
-use crate::{dkg, syncvss};
+use crate::*;
 use serde::{Deserialize, Serialize};
 
 pub mod ark_serde {
@@ -30,25 +30,17 @@ pub mod ark_serde {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-pub enum MessagePayload {
-    Announce {
-        stake: u64,
-        dh_key: crate::syncvss::dh::AsymmetricPublicKey,
-    },
-    EncryptedShares(syncvss::sh::EncryptedShares),
-    Ready(syncvss::sh::ReadyMsg),
-    Finalize(syncvss::sh::FinalizeMsg),
-    Dispute(syncvss::dispute::Dispute),
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub struct Message {
+#[serde(bound = "")]
+pub struct Message<E: Engine> {
     pub tau: u32,
-    pub payload: MessagePayload,
+    pub payload: MessagePayload<E>,
 }
 
 impl SignedMessage {
-    pub fn new(msg: &Message, key: &ed25519::Keypair) -> SignedMessage {
+    pub fn new<M>(msg: &M, key: &ed25519::Keypair) -> SignedMessage
+    where
+        M: Serialize,
+    {
         let msg_bytes = bincode::serialize(msg).unwrap();
         let signature = key.sign(&msg_bytes);
         SignedMessage {
@@ -57,18 +49,32 @@ impl SignedMessage {
             signer: key.public,
         }
     }
-    pub fn verify(&self) -> Result<Message, anyhow::Error> {
+    pub fn verify<'de, M>(&'de self) -> Result<M, anyhow::Error>
+    where
+        M: Deserialize<'de>,
+    {
         self.signer
             .verify_strict(&self.msg_bytes, &self.signature)?;
-        bincode::deserialize(&self.msg_bytes).map_err(|e| e.into()) //TODO: handle error
+        bincode::deserialize::<'de, _>(&self.msg_bytes).map_err(|e| e.into()) //TODO: handle error
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct SignedMessage {
     msg_bytes: Vec<u8>,
     signature: ed25519::Signature,
     pub signer: ed25519::PublicKey,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum MessagePayload<E: Engine> {
+    Announce {
+        stake: u64,
+        session_key: E::SessionKey,
+    },
+    VSS(E::DealingMsg),
+    Ready(E::ReadyMsg),
+    Finalize(E::FinalizeMsg),
 }
 
 #[test]

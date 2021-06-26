@@ -10,18 +10,51 @@ use std::convert::TryInto;
 use ark_ec::{AffineCurve, PairingEngine};
 use ark_ff::FromBytes;
 
-use crate::{Affine, Scalar};
+//use crate::{Affine, Scalar};
+use anyhow::{anyhow, Result};
+use curve25519_dalek::edwards::EdwardsPoint;
+use curve25519_dalek::montgomery::MontgomeryPoint;
+use curve25519_dalek::scalar::Scalar as Scalar25519;
 use serde::{Deserialize, Serialize};
 
 #[derive(serde::Serialize, serde::Deserialize)]
-pub struct NIZKP {
+pub struct NIZKP_25519 {
     pub c: [u8; 32],
     pub r: curve25519_dalek::scalar::Scalar,
 }
 
+pub struct XEdDSA {
+    pub R: curve25519_dalek::edwards::CompressedEdwardsY,
+    pub s: EdwardsPoint,
+}
+
+impl XEdDSA {
+    pub fn new<R: rand::Rng + rand::RngCore + rand::CryptoRng>(
+        k: &Scalar25519,
+        B: &MontgomeryPoint,
+    ) -> Self {
+        let (A, a) = Self::calculate_key_pair(k, B).unwrap();
+        unimplemented!();
+    }
+    pub fn calculate_key_pair(
+        k: &Scalar25519,
+        B: &MontgomeryPoint,
+    ) -> Result<(EdwardsPoint, Scalar25519)> {
+        use subtle::ConditionallyNegatable;
+        //let B = B.to_edwards(0).ok_or_else(anyhow!("bad montgomery base"))?;
+        let E = k * B;
+        //let A = E.to_edwards(0).ok_or_else(anyhow!("bad montgomery base"))?
+        let mut a = k;
+        //a.conditional_negate(E.X.is_negative());
+        //E.0[31] &= !(1 << 7); // set sign bit to 0
+        //Ok((E, a))
+        unimplemented!()
+    }
+}
+
 //TODO: use hash-to-field for both?
 
-impl NIZKP {
+impl NIZKP_25519 {
     pub fn dleq<R: rand::Rng + rand::RngCore + rand::CryptoRng>(
         x_1: &curve25519_dalek::montgomery::MontgomeryPoint,
         y_1: &curve25519_dalek::montgomery::MontgomeryPoint,
@@ -29,7 +62,7 @@ impl NIZKP {
         y_2: &curve25519_dalek::montgomery::MontgomeryPoint,
         alpha: &curve25519_dalek::scalar::Scalar,
         rng: &mut R,
-    ) -> NIZKP {
+    ) -> Self {
         let w = curve25519_dalek::scalar::Scalar::random(rng);
         let t_1 = x_1 * w;
         let t_2 = x_2 * w;
@@ -50,11 +83,11 @@ impl NIZKP {
         let r = w - alpha
             * curve25519_dalek::scalar::Scalar::from_bytes_mod_order(c);
 
-        NIZKP { c, r }
+        Self { c, r }
     }
 
     pub fn dleq_verify(
-        self: &NIZKP,
+        &self,
         x_1: &curve25519_dalek::montgomery::MontgomeryPoint,
         y_1: &curve25519_dalek::montgomery::MontgomeryPoint,
         x_2: &curve25519_dalek::montgomery::MontgomeryPoint,
@@ -87,34 +120,37 @@ impl NIZKP {
     }
 }
 
-#[derive(Serialize, Deserialize, Copy, Clone)]
-pub struct NIZKP_Pallas {
+#[derive(Serialize, Deserialize, Copy, Clone, Debug)]
+pub struct NIZKP<A: ark_ec::AffineCurve> {
     #[serde(with = "crate::ark_serde")]
-    pub c: Scalar,
+    pub c: A::ScalarField,
     #[serde(with = "crate::ark_serde")]
-    pub r: Scalar,
+    pub r: A::ScalarField,
 }
-impl NIZKP_Pallas {
+impl<Affine> NIZKP<Affine>
+where
+    Affine: ark_ec::AffineCurve,
+{
     pub fn dleq<R: rand::Rng + rand::RngCore + rand::CryptoRng>(
         x_1: &Affine,
         y_1: &Affine,
         x_2: &Affine,
         y_2: &Affine,
-        alpha: &Scalar,
+        alpha: &Affine::ScalarField,
         rng: &mut R,
-    ) -> NIZKP_Pallas {
+    ) -> Self {
         use ark_ff::ToBytes;
         use ark_std::UniformRand;
         use blake2b_simd::State;
 
-        let w = Scalar::rand(rng);
+        let w = Affine::ScalarField::rand(rng);
         let t_1 = Affine::from(x_1.mul(w));
         let t_2 = Affine::from(x_2.mul(w));
         let mut params = blake2b_simd::Params::new();
         params.hash_length(32);
         let mut hasher = params.to_state();
 
-        let c: Scalar; //TODO: use hash to field?
+        let c: Affine::ScalarField; //TODO: use hash to field?
         loop {
             let mut buf = Vec::new();
             x_1.write(&mut buf).unwrap();
@@ -124,7 +160,9 @@ impl NIZKP_Pallas {
             t_1.write(&mut buf).unwrap();
             t_2.write(&mut buf).unwrap();
             hasher.update(buf.as_slice());
-            if let Ok(h) = Scalar::read(hasher.finalize().as_bytes()) {
+            if let Ok(h) =
+                Affine::ScalarField::read(hasher.finalize().as_bytes())
+            {
                 c = h;
                 break;
             }
@@ -132,11 +170,11 @@ impl NIZKP_Pallas {
 
         let r = w - *alpha * c;
 
-        NIZKP_Pallas { c, r }
+        Self { c, r }
     }
 
     pub fn dleq_verify(
-        self: &NIZKP_Pallas,
+        &self,
         x_1: &Affine,
         y_1: &Affine,
         x_2: &Affine,
@@ -152,7 +190,7 @@ impl NIZKP_Pallas {
         let mut params = blake2b_simd::Params::new();
         params.hash_length(32);
         let mut hasher = params.to_state();
-        let c: Scalar;
+        let c: Affine::ScalarField;
         loop {
             let mut buf = Vec::new();
             x_1.write(&mut buf);
@@ -162,7 +200,9 @@ impl NIZKP_Pallas {
             t_1.write(&mut buf);
             t_2.write(&mut buf);
             hasher.update(buf.as_slice());
-            if let Ok(h) = Scalar::read(hasher.finalize().as_bytes()) {
+            if let Ok(h) =
+                Affine::ScalarField::read(hasher.finalize().as_bytes())
+            {
                 c = h;
                 break;
             }
@@ -252,7 +292,7 @@ fn test_nizkp() {
         let bob_public = PublicKey::from(&bob_secret);
         let alice_shared_secret = alice_secret.diffie_hellman(&bob_public);
 
-        let pi = NIZKP::dleq(
+        let pi = NIZKP_25519::dleq(
             &curve25519_dalek::constants::X25519_BASEPOINT,
             &MontgomeryPoint(alice_public.to_bytes()),
             &MontgomeryPoint(bob_public.to_bytes()),
@@ -271,6 +311,8 @@ fn test_nizkp() {
 
 #[test]
 fn test_nizkp_pallas() {
+    type Affine = ark_pallas::Affine;
+    type Scalar = ark_pallas::Fr;
     use rand_chacha::rand_core::{RngCore, SeedableRng};
     use rand_chacha::ChaCha8Rng;
     let mut rng = ark_std::test_rng();
@@ -283,7 +325,7 @@ fn test_nizkp_pallas() {
         let h_base = g_base + g_base;
         let h = h_base.mul(secret);
 
-        let pi = NIZKP_Pallas::dleq(
+        let pi = NIZKP::<Affine>::dleq(
             &g_base,
             &g.into(),
             &h_base,

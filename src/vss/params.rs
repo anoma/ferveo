@@ -2,8 +2,6 @@
 
 use rand::Rng;
 
-use crate::{Affine, Scalar};
-//type Scalar = Fr;
 use ark_poly::{
     polynomial::univariate::DensePolynomial, polynomial::UVPolynomial,
     EvaluationDomain, Polynomial, Radix2EvaluationDomain,

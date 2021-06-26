@@ -1,42 +1,47 @@
-use super::nizkp;
-use crate::Scalar;
-use ark_ec::AffineCurve;
-use ark_pallas::Affine;
-use chacha20poly1305::aead::{generic_array::GenericArray, NewAead};
-use serde::{Deserialize, Serialize};
-use zeroize::Zeroize;
-
-pub type PublicKey = Affine;
+use crate::*;
+use chacha20poly1305::aead::{generic_array::GenericArray, Aead, NewAead};
 
 #[derive(Serialize, Deserialize, Copy, Clone, Debug)]
-pub struct AsymmetricPublicKey {
+pub struct AsymmetricPublicKey<Affine>
+where
+    Affine: AffineCurve,
+{
     #[serde(with = "crate::ark_serde")]
-    pub enc: PublicKey,
+    pub enc: Affine,
 
     #[serde(with = "crate::ark_serde")]
-    pub dec: PublicKey,
+    pub dec: Affine,
 }
 
 #[derive(Clone)]
-pub struct AsymmetricKeypair {
-    pub enc: Keypair, // Encrypt messages to recipient's enc
-    pub dec: Keypair, // Decrypt messages with sender's dec
+pub struct AsymmetricKeypair<Affine>
+where
+    Affine: AffineCurve,
+{
+    pub enc: Keypair<Affine>, // Encrypt messages to recipient's enc
+    pub dec: Keypair<Affine>, // Decrypt messages with sender's dec
 }
 
-#[derive(Zeroize, Clone)]
-#[zeroize(drop)]
-pub struct Keypair {
-    pub secret: Scalar,
-    pub public: PublicKey,
+#[derive(Clone)]
+//#[zeroize(drop)]
+pub struct Keypair<Affine>
+where
+    Affine: AffineCurve,
+{
+    pub secret: Affine::ScalarField,
+    pub public: Affine,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-pub struct SharedSecret {
+pub struct SharedSecret<Affine: AffineCurve> {
     #[serde(with = "crate::ark_serde")]
     pub s: Affine,
 }
 
-impl SharedSecret {
+impl<Affine> SharedSecret<Affine>
+where
+    Affine: AffineCurve,
+{
     pub fn to_key(&self) -> [u8; 32] {
         use ark_ff::ToBytes;
         let mut params = blake2b_simd::Params::new();
@@ -50,7 +55,12 @@ impl SharedSecret {
     }
 }
 
-impl Keypair {
+type PublicKey<Affine: AffineCurve> = Affine;
+
+impl<Affine> Keypair<Affine>
+where
+    Affine: AffineCurve,
+{
     pub fn base() -> Affine {
         Affine::prime_subgroup_generator() //TODO: hash to curve to get generator
     }
@@ -58,7 +68,7 @@ impl Keypair {
         rng: &mut R,
     ) -> Self {
         use ark_std::UniformRand;
-        let secret = Scalar::rand(rng);
+        let secret = Affine::ScalarField::rand(rng);
         Self {
             secret,
             public: Self::base().mul(secret).into(),
@@ -66,13 +76,13 @@ impl Keypair {
     }
     pub fn nizkp<R: rand::Rng + rand::RngCore + rand::CryptoRng>(
         &self,
-        other: &PublicKey,
+        other: &Affine,
         rng: &mut R,
-    ) -> (SharedSecret, nizkp::NIZKP_Pallas) {
+    ) -> (SharedSecret<Affine>, NIZKP<Affine>) {
         let shared_secret = self.shared_secret(&other);
         (
             shared_secret.clone(),
-            nizkp::NIZKP_Pallas::dleq(
+            NIZKP::dleq(
                 &Self::base(),
                 &self.public,
                 &other,
@@ -82,15 +92,21 @@ impl Keypair {
             ),
         )
     }
-    pub fn shared_secret(&self, other: &PublicKey) -> SharedSecret {
-        SharedSecret {
+    pub fn shared_secret(
+        &self,
+        other: &PublicKey<Affine>,
+    ) -> SharedSecret<Affine> {
+        SharedSecret::<Affine> {
             s: other.mul(self.secret).into(),
         }
     }
 }
 
-impl AsymmetricKeypair {
-    pub fn public(&self) -> AsymmetricPublicKey {
+impl<Affine> AsymmetricKeypair<Affine>
+where
+    Affine: AffineCurve,
+{
+    pub fn public(&self) -> AsymmetricPublicKey<Affine> {
         AsymmetricPublicKey {
             enc: self.enc.public,
             dec: self.dec.public,
@@ -109,49 +125,55 @@ impl AsymmetricKeypair {
     }
     pub fn encrypt_shared_secret(
         &self,
-        decrypter: &AsymmetricPublicKey,
-    ) -> SharedSecret {
+        decrypter: &AsymmetricPublicKey<Affine>,
+    ) -> SharedSecret<Affine> {
         self.dec.shared_secret(&decrypter.enc).into()
     }
 
     pub fn decrypt_shared_secret(
         &self,
-        encrypter: &AsymmetricPublicKey,
-    ) -> SharedSecret {
+        encrypter: &AsymmetricPublicKey<Affine>,
+    ) -> SharedSecret<Affine> {
         self.enc.shared_secret(&encrypter.dec).into()
     }
 
     // Get key to encrypt a message to send to decrypter
-    pub fn encrypt_key(&self, decrypter: &AsymmetricPublicKey) -> [u8; 32] {
+    pub fn encrypt_key(
+        &self,
+        decrypter: &AsymmetricPublicKey<Affine>,
+    ) -> [u8; 32] {
         self.encrypt_shared_secret(decrypter).to_key()
     }
 
     // Get key to decrypt a message received from encrypter
-    pub fn decrypt_key(&self, encrypter: &AsymmetricPublicKey) -> [u8; 32] {
+    pub fn decrypt_key(
+        &self,
+        encrypter: &AsymmetricPublicKey<Affine>,
+    ) -> [u8; 32] {
         self.decrypt_shared_secret(encrypter).to_key()
     }
 
     // Make a NIZKP of the shared secret, using the encrypter's private key
     pub fn encrypter_nizkp<R: rand::Rng + rand::RngCore + rand::CryptoRng>(
         &self,
-        decrypter: &AsymmetricPublicKey,
+        decrypter: &AsymmetricPublicKey<Affine>,
         rng: &mut R,
-    ) -> (SharedSecret, nizkp::NIZKP_Pallas) {
+    ) -> (SharedSecret<Affine>, NIZKP<Affine>) {
         self.dec.nizkp(&decrypter.enc, rng)
     }
 
     // Make a NIZKP of the shared secret, using the decrypter's private key
     pub fn decrypter_nizkp<R: rand::Rng + rand::RngCore + rand::CryptoRng>(
         &self,
-        encrypter: &AsymmetricPublicKey,
+        encrypter: &AsymmetricPublicKey<Affine>,
         rng: &mut R,
-    ) -> (SharedSecret, nizkp::NIZKP_Pallas) {
+    ) -> (SharedSecret<Affine>, NIZKP<Affine>) {
         self.enc.nizkp(&encrypter.dec, rng)
     }
 
     pub fn decrypt_cipher(
         &self,
-        encrypter: &AsymmetricPublicKey,
+        encrypter: &AsymmetricPublicKey<Affine>,
     ) -> chacha20poly1305::XChaCha20Poly1305 {
         let shared_secret = self.decrypt_key(&encrypter);
         chacha20poly1305::XChaCha20Poly1305::new(&GenericArray::from_slice(
@@ -161,7 +183,7 @@ impl AsymmetricKeypair {
 
     pub fn encrypt_cipher(
         &self,
-        decrypter: &AsymmetricPublicKey,
+        decrypter: &AsymmetricPublicKey<Affine>,
     ) -> chacha20poly1305::XChaCha20Poly1305 {
         let shared_secret = self.encrypt_key(&decrypter);
         chacha20poly1305::XChaCha20Poly1305::new(&GenericArray::from_slice(
@@ -170,14 +192,17 @@ impl AsymmetricKeypair {
     }
 }
 
-impl AsymmetricPublicKey {
+impl<Affine> AsymmetricPublicKey<Affine>
+where
+    Affine: AffineCurve,
+{
     // Verify a NIZKP created by the sender of an encrypted message
 
     pub fn encrypter_nizkp_verify(
-        encrypter: &AsymmetricPublicKey,
-        decrypter: &AsymmetricPublicKey,
-        shared_secret: &SharedSecret,
-        nizkp: &nizkp::NIZKP_Pallas,
+        encrypter: &Self,
+        decrypter: &Self,
+        shared_secret: &SharedSecret<Affine>,
+        nizkp: &NIZKP<Affine>,
     ) -> bool {
         nizkp.dleq_verify(
             &Keypair::base(),
@@ -189,10 +214,10 @@ impl AsymmetricPublicKey {
 
     // Verify a NIZKP created by the recipient of an encrypted message
     pub fn decrypter_nizkp_verify(
-        encrypter: &AsymmetricPublicKey,
-        decrypter: &AsymmetricPublicKey,
-        shared_secret: &SharedSecret,
-        nizkp: &nizkp::NIZKP_Pallas,
+        encrypter: &Self,
+        decrypter: &Self,
+        shared_secret: &SharedSecret<Affine>,
+        nizkp: &NIZKP<Affine>,
     ) -> bool {
         nizkp.dleq_verify(
             &Keypair::base(),
