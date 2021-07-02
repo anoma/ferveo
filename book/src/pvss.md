@@ -30,3 +30,9 @@ A validator \\(i\\) recovers their private key shares \\(Z_{i,\omega_j}\\) from 
 ## Public Aggregation
 
 Multiple PVSS instances can be aggregated into one by a single validator, speeding up verification time. The aggregation and verification are similar to the Aggregatable DKG paper.
+
+## Consensus
+
+It is critical that all validators agree on which PVSS instances are used to create the final key; in particular, this is exactly what makes Ferveo depend on a synchronous consensus protocol like Tendermint. Therefore, the validators must all verify the PVSS instances and agree on the set of valid PVSS instances; or in the case where a validator has aggregated all PVSS instances, the validator set must agree on a valid aggregation of PVSS instances.
+
+However, although full nodes can certainly perform the verification of a PVSS instance or aggregation, full nodes do not need to verify either the PVSS instances or the aggregation. 
