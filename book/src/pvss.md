@@ -4,8 +4,8 @@ The PVSS scheme used is a modified Scrape PVSS.
 
 ## Dealer's role
 
-1. The dealer chooses a uniformly random polynomial \\(f(x) = \sum^t_i a_i x^i \\) of degree \\(t\\).
-2. Let \\(F_0, \ldots, F_t \leftarrow [a_0] G_1, \ldots, [a_t] G_1 \\)
+1. The dealer chooses a uniformly random polynomial \\(f(x) = \sum^p_i a_i x^i \\) of degree \\(t\\).
+2. Let \\(F_0, \ldots, F_p \leftarrow [a_0] G_1, \ldots, [a_t] G_1 \\)
 3. Let \\(\hat{u}_2 \rightarrow [a_0] \hat{u_1} \\)
 4. For each validator \\(i\\), for each \\(\omega_j \in \Omega_i\\), encrypt the evaluation \\( \hat{Y}_{i, \omega_j} \leftarrow [f(\omega_j)] ek_i  \\)
 4. Post the signed message \\(\tau, (F_0, \ldots, F_t), \hat{u}_2, (\hat{Y}_{i,\omega_j})\\) to the blockchain

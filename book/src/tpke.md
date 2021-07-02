@@ -59,8 +59,6 @@ The non-threshold version of the scheme is IND-CCA2 secure.
 
 Suppose there is an adversary that wins the IND-CCA2 game. Then on input \\((G, [a]G, [b]G, H)\\), there exists an adversary that computes  \\(e(G,H)^{ab}\\).
 
-
-
 #### Rekeyability
 
 The shared secret \\(s\\) can be rekeyed with respect to the secret key \\(Z_1\\) to a new secret key \\(\hat{Z} = [\alpha] Z_1 + Z_2\\), as the new shared secret \\(\hat{s} = s^{\alpha} e(U, Z_2) = e(U, [\alpha] Z_2)e(U, Z_2) = e(U, [\alpha]Z_1 + Z_2)\\).
