@@ -1,6 +1,6 @@
 # Preliminaries
 
-Ferveo is intended to integrate into an existing framework such as Tendermint, and so the validator set is the natural participant set for Ferveo. Therefore, Ferveo assumes that all \\(n\\) validators have an associated Ed25519 public key identity and have staked some amount of token for the current epoch. Ferveo derives from the staking amounts an associated relative weight $\\(w_i\\). The total weight \\(\sum_i w_i = W\\) is a fixed parameter of the system, determined by a performance tradeoff (higher total weight allows more identities, higher resolution of weights, but larger computation and communication complexity). For performance reasons, $W$ is ideally a power of two.
+Ferveo is intended to integrate into an existing framework such as Tendermint, and so the validator set is the natural participant set for Ferveo. Therefore, Ferveo assumes that all \\(n\\) validators have an associated Ed25519 public key identity and have staked some amount of token for the current epoch. Ferveo derives from the staking amounts an associated relative weight $\\(w_i\\). The total weight \\(\sum_i w_i = W\\) is a fixed parameter of the system, determined by a performance tradeoff (higher total weight allows more identities, higher resolution of weights, but larger computation and communication complexity). For performance reasons, \\(W\\) is ideally a power of two.
 
 ## Lower bounds on \\(W\\)
 

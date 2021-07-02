@@ -8,7 +8,7 @@ The PVSS scheme used is a modified Scrape PVSS.
 2. Let \\(F_0, \ldots, F_t \leftarrow [a_0] G_1, \ldots, [a_t] G_1 \\)
 3. Let \\(\hat{u}_2 \rightarrow [a_0] \hat{u_1} \\)
 4. For each validator \\(i\\), for each \\(\omega_j \in \Omega_i\\), encrypt the evaluation \\( \hat{Y}_{i, \omega_j} \leftarrow [f(\omega_j)] ek_i  \\)
-4. Post the signed message \\(\tau, (F_0, \ldots, F_t), \hat{u}_2, (\hat{Y}_{i,\omega_j})) to the blockchain
+4. Post the signed message \\(\tau, (F_0, \ldots, F_t), \hat{u}_2, (\hat{Y}_{i,\omega_j})\\) to the blockchain
 
 ## Public verification
 
@@ -16,6 +16,16 @@ The PVSS scheme used is a modified Scrape PVSS.
 2. Compute by FFT \\(A_1, \ldots, A_W \leftarrow [f(\omega_0)]G_1, \ldots, [f(\omega_W)]G_1 \\)
 3. Partition \\(A_1, \ldots, A_W\\) into \\(A_{i,\omega_j} \\) for validator \\(i\\)'s shares \\(\omega_j\\)
 4. For each encrypted share \\(\hat{Y}_{i,\omega_i} \\), check \\(e(G_1, \hat{Y}_{i,\omega_j}) = e(A_{i,\omega_j}, ek_i) \\)
+
+## Aggregation
+
+Two PVSS instances \\( (\{F_j\}, \hat{u}_2, \hat{Y}_{i,\omega_j}) \\) may be aggregated into a single PVSS instance by adding elementwise each of the corresponding group elements.
+
+## Validator decryption of private key shares
+
+A validator \\(i\\) recovers their private key shares \\(Z_{i,\omega_j}\\) from the shares encrypted to their public encryption key \\(ek_i\\):
+
+\\[Z_{i, \omega_j} = [dk_i^{-1}] \hat{Y}_{i, \omega_j} \\]
 
 ## Public Aggregation
 

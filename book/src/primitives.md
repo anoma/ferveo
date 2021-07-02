@@ -8,7 +8,13 @@ The default curve used is BLS12-381. Optionally, BLS12-377 may also be implement
 
 \\(\mathbb{G}_1\\) denotes the prime order subgroup of order \\(r\\) and \\(\mathbb{F}_r\\) is the scalar field of the curve with prime order \\(r\\). The pairing operation is \\(e(P,Q) : \mathbb{G}_1 \times \mathbb{G}_2 \rightarrow \mathbb{G}_T\\). The generator of \\(\mathbb{G}_1\\) and \\(\mathbb{G}_2\\) are denoted \\(G_1\\) and \\(G_2\\) respectively.
 
-Let \\(\omega\\) denote an \\(W\\)th root of unity in \\(\mathbb{F}_r\\).
+Let \\(\omega\\) denote an \\(W\\)th root of unity in \\(\mathbb{F}_r\\). For highest performance, \\(\mathbb{F}_r\\) should be a highly 2-adic field, such as the scalar field of BLS12-381, to allow for FFT operations.
+
+Let \\(G \in \mathbb{G}_1\\) and \\(H \in \mathbb{G}_2\\) denote an independent generator in each group. 
+
+### Notation
+
+\\(\mathbb{G}_1\\) and \\(\mathbb{G}_2\\) are written as additive groups, where the repeated group operation is multiplication of a point \\(P\\) by a scalar \\(s\\) is written as \\([s] P\\). \\(\mathbb{G_T}\\) is written as a multiplicative group where the repeated group operation is exponentiation of a point \\(g\\) by a scalar \\(s\\) is written as \\(g^s\\).
 
 ## Fast subgroup checks
 

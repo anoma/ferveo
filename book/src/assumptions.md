@@ -4,22 +4,6 @@ The security model is intended to match the Tendermint security model. Among the
 
 Synchronous VSS can achieve resiliance with threshold \\(t\\) when \\(W \ge 2t+1\\), implying \\(t < W/2\\). The privacy threshold \\(p\\) is the value such that subsets of nodes of weight at least \\(p+1\\) can always recover the key or perform operations using the key, and subsets nodes of weight at most \\(p\\) are unable to recover the key or perform operations using the key. It must be \\(p < W - t\\). The default values \\(t = W/3 - 1\\) and \\(p = 2W/3\\) are designed to match the resiliance of Tendermint.
 
-### Timing assumptions
+## Liveness guarantees
 
-Under the asynchronous model, node clocks are not synchronized and messages can be delayed for arbitrary periods of time.
-
-In practice a weak synchrony assumption is needed to assure liveness.
-Under weak synchrony, the time difference $delay(T)$ between the time a message was sent ($T$) and the time it is received doesn't grow indefinitely over time.
-
-#### Tendermint
-Tendermint works under the partially synchronous model.
-In this model, there exist a point in time (GST - Global Stabilization Time) after which messages are delivered within a specific time bound.
-The GST and time bound are not known in advance.
-Tendermint tolerates a $t$-limited Byzantine adversary, with resilience  
-$n \ge 3t+1$
-
-#### Ferveo
-Ferveo's model and resilience will be the most restrictive of the above:  
-$n \ge 3t+1$ under the partially synchronous mode.
-
-In addition, the assumption that $2W/3$ weight of validators are not malicious means that they honestly follow the protocol. This excludes honest-but-curious behavior, such as engaging in out-of-band collusion outside of the protocol, which will be addressed later.
+Ferveo depends on the liveness guarantees of the Tendermint protocol; if Tendermint fails to provide liveness, the DKG and threshold operations of Ferveo will also stop. Alternatively, whenever Tendermint can provide liveness, Ferveo's DKG and threshold operations will also be live. Therefore, any assumptions or improvements to Tendermint's liveness guarantees subsequently apply to Ferveo as well. Ferveo uses a Publicly Verifiable DKG specifically to match the liveness of the consensus layer.
