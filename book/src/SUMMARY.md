@@ -21,3 +21,4 @@
 - [Alternative Schemes](./alternative.md)
   - [Pedersen DKG](./pedersen.md)
   - [Fast KZG DKG](./fastkzg.md)
+    - [Threshold Encryption](./tpke-kzg-dkg.md)
