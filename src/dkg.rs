@@ -6,8 +6,7 @@
 
 use crate::*;
 use anyhow::anyhow;
-use ark_ec::AffineCurve;
-use ark_ec::ProjectiveCurve;
+use ark_ec::{AffineCurve, PairingEngine, ProjectiveCurve};
 use ark_ff::Zero;
 use ark_ff::{Field, One};
 use ark_poly::{
@@ -17,32 +16,28 @@ use ark_poly::{
 use ed25519_dalek as ed25519;
 use serde::*;
 
-pub mod context;
+pub mod common;
 pub mod participant;
 pub mod pedersen;
-pub use context::*;
+pub mod pv;
+pub use common::*;
 pub use participant::*;
 pub use pedersen::*;
+pub use pv::*;
 
 // DKG parameters
 #[derive(Copy, Clone, Debug)]
 pub struct Params {
+    pub tau: u64,
     pub failure_threshold: u32,  // failure threshold
     pub security_threshold: u32, // threshold
     pub total_weight: u32,       // total weight
 }
 
-#[derive(Clone)]
-pub enum DKGState<E>
-where
-    E: Engine,
-{
-    Init {
-        participants: Vec<ParticipantBuilder<E>>,
-    },
-    Sharing {
-        finalized_weight: u32,
-    },
+#[derive(Debug, Clone)]
+pub enum DKGState<A: Announcement> {
+    Init { announce_messages: Vec<A> },
+    Sharing { finalized_weight: u32 },
     Success,
     Failure,
 }
@@ -52,28 +47,6 @@ pub struct DistributedKeyShares<Scalar: PrimeField> {
     pub local_shares: Vec<Scalar>,
 }
 
-pub trait Engine: Sized {
-    // TODO: can these associated types be cleaned up?
-    type VSS: VSS<Self>;
-    type SessionKey: Serialize + de::DeserializeOwned + Clone;
-    type SessionKeypair: Clone;
-    type PublicKey: AffineCurve;
-    type Scalar: PrimeField + FftField;
-    type DealingMsg: Serialize + de::DeserializeOwned + Clone;
-    type ReadyMsg: Serialize + de::DeserializeOwned + Clone;
-    type FinalizeMsg: Serialize + de::DeserializeOwned + Clone;
-
-    fn new_session_keypair<R: Rng>(rng: &mut R) -> Self::SessionKeypair;
-    fn session_key_public(
-        session_keypair: &Self::SessionKeypair,
-    ) -> Self::SessionKey;
-    fn handle_other(
-        dkg: &mut Context<Self>,
-        signer: &ed25519::PublicKey,
-        payload: &MessagePayload<Self>,
-    ) -> Result<Option<SignedMessage>>;
-}
-
 #[test]
 fn dkg() {
     let rng = &mut ark_std::test_rng();
@@ -81,6 +54,7 @@ fn dkg() {
     use vss::dh;
 
     let params = Params {
+        tau: 0u64,
         failure_threshold: 1,
         security_threshold: 330,
         total_weight: 1000,
@@ -90,8 +64,7 @@ fn dkg() {
         let mut contexts = vec![];
         for _ in 0..10 {
             contexts.push(
-                Context::new(
-                    0u32, //tau
+                PedersenDKG::<Affine>::new(
                     ed25519::Keypair::generate(rng),
                     &params,
                     rng,
@@ -112,14 +85,17 @@ fn dkg() {
         }
 
         let msg_loop =
-            |contexts: &mut Vec<Context<PedersenDKG<Affine>>>,
+            |contexts: &mut Vec<PedersenDKG<Affine>>,
              messages: &mut VecDeque<SignedMessage>| loop {
                 if messages.is_empty() {
                     break;
                 }
-                let message = messages.pop_front().unwrap();
+                let signed_message = messages.pop_front().unwrap();
                 for node in contexts.iter_mut() {
-                    let new_msg = node.handle_message(&message).unwrap();
+                    let (_, message) = signed_message.verify().unwrap();
+                    let new_msg = node
+                        .handle_message(&signed_message.signer, &message)
+                        .unwrap();
                     if let Some(new_msg) = new_msg {
                         messages.push_back(new_msg);
                     }
@@ -134,10 +110,12 @@ fn dkg() {
 
         msg_loop(&mut contexts, &mut messages);
 
+        let mut dealt_weight = 0u32;
         for participant in contexts.iter_mut() {
-            let msg = participant.deal_if_turn(rng).unwrap();
-            if let Some(msg) = msg {
+            if dealt_weight < params.total_weight - params.security_threshold {
+                let msg = participant.share(rng).unwrap();
                 messages.push_back(msg);
+                dealt_weight += participant.participants[participant.me].weight;
             }
         }
 

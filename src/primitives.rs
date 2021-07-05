@@ -3,6 +3,9 @@ use crate::*;
 pub mod keypair;
 pub use keypair::*;
 
+pub mod subproductdomain;
+pub use subproductdomain::*;
+
 pub mod nizkp;
 pub use nizkp::*;
 
@@ -23,4 +26,8 @@ pub fn fast_multiexp<Projective: ProjectiveCurve>(
         scalars,
     );
     Projective::batch_normalization_into_affine(&exp)
+}
+
+pub fn batch_to_projective<A: AffineCurve>(p: &[A]) -> Vec<A::Projective> {
+    p.iter().map(|a| a.into_projective()).collect::<Vec<_>>()
 }

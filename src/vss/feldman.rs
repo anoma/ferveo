@@ -4,7 +4,7 @@ use crate::*;
 #[derive(Debug)]
 pub struct FeldmanVSS<Affine: AffineCurve> {
     pub dealer: u32,
-    pub encrypted_shares: EncryptedShares<Affine>,
+    pub encrypted_shares: FeldmanSharingMsg<Affine>,
     pub state: VSSState<Affine>,
     pub local_shares: Vec<Affine::ScalarField>,
     pub ready_msg: Vec<ed25519_dalek::PublicKey>, //TODO: Should be a set, but doesn't support comparison ops
@@ -13,7 +13,7 @@ pub struct FeldmanVSS<Affine: AffineCurve> {
 
 /// The dealer posts the Dealing to the blockchain to initiate the VSS
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct EncryptedShares<Affine: AffineCurve> {
+pub struct FeldmanSharingMsg<Affine: AffineCurve> {
     /// Commitment to the VSS polynomial, g^{\phi}
     #[serde(with = "crate::ark_serde")]
     pub coeffs: Vec<Affine>,
@@ -91,18 +91,10 @@ where
             Err(anyhow::anyhow!("FinalizeMsg: not currently sharing"))
         }
     }
-}
-impl<Affine> VSS<PedersenDKG<Affine>> for FeldmanVSS<Affine>
-where
-    Affine: AffineCurve,
-{
-    fn state(&self) -> VSSState<Affine> {
-        self.state.clone()
-    }
 
-    fn new<R: Rng>(
+    pub fn new<R: Rng>(
         s: &Affine::ScalarField,
-        dkg: &Context<PedersenDKG<Affine>>,
+        dkg: &PedersenDKG<Affine>,
         rng: &mut R,
     ) -> Result<Self> {
         let mut phi = DensePolynomial::<Affine::ScalarField>::rand(
@@ -154,7 +146,7 @@ where
         );
         let vss = Self {
             dealer: dkg.me as u32,
-            encrypted_shares: EncryptedShares { coeffs, shares },
+            encrypted_shares: FeldmanSharingMsg { coeffs, shares },
             state: VSSState::Sharing { weight_ready: 0u32 },
             local_shares: evals.evals
                 [dkg.participants[dkg.me].share_range.clone()]
@@ -168,10 +160,10 @@ where
 
         Ok(vss)
     }
-    fn recv(
+    pub fn recv(
         dealer: u32,
-        encrypted_shares: &EncryptedShares<Affine>,
-        dkg: &Context<PedersenDKG<Affine>>,
+        encrypted_shares: &FeldmanSharingMsg<Affine>,
+        dkg: &PedersenDKG<Affine>,
     ) -> Result<Self> {
         let me = &dkg.participants[dkg.me as usize];
 
@@ -203,21 +195,12 @@ where
             &local_shares.shares,
             Affine::Projective::prime_subgroup_generator(),
         );
-        /*assert_eq!(
-            commitment[0],
-            Affine::prime_subgroup_generator()
-                .mul(local_shares.shares[0])
-                .into_affine()
-        );*/
 
         for (i, j) in commitment[dkg.participants[dkg.me].share_range.clone()]
             .iter()
-            //.zip(local_shares.shares.iter())
             .zip(shares_commitment.iter())
         {
-            //let s = Affine::prime_subgroup_generator().mul(*j);
             if *i != *j {
-                //s.into_affine() {
                 return Err(anyhow!("share opening proof invalid"));
             }
         }
@@ -231,7 +214,7 @@ where
             ready_msg: vec![],
         })
     }
-    fn deal(&self) -> EncryptedShares<Affine> {
+    fn deal(&self) -> FeldmanSharingMsg<Affine> {
         self.encrypted_shares.clone()
     }
 }

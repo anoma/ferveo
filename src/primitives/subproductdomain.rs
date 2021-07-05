@@ -321,15 +321,7 @@ pub fn toeplitz_mul<E: PairingEngine, const normalize: bool>(
     }
 
     // NOTE: it is possible to avoid scaling by domain_size_inv, and defer this to later
-    if normalize {
-        domain.ifft_in_place(&mut tmp);
-    } else {
-        ec_fft::ec_fft::<E>(
-            &mut tmp,
-            domain.group_gen_inv,
-            domain.log_size_of_group,
-        );
-    }
+    domain.ifft_in_place(&mut tmp);
 
     Ok((
         tmp[..toeplitz_size].to_vec(),

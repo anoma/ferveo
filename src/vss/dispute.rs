@@ -22,10 +22,7 @@ impl<Affine> Dispute<Affine>
 where
     Affine: AffineCurve,
 {
-    pub fn send_dispute(
-        dkg: &mut Context<PedersenDKG<Affine>>,
-        dealer: u32,
-    ) -> Self {
+    pub fn send_dispute(dkg: &mut PedersenDKG<Affine>, dealer: u32) -> Self {
         let mut rng = rand::thread_rng();
         let dealer_dh_key = dkg.participants[dealer as usize].session_key;
         let (shared_secret, nizkp) = dkg
@@ -41,7 +38,7 @@ where
 
     pub fn handle_dispute(
         &self,
-        dkg: &mut Context<PedersenDKG<Affine>>,
+        dkg: &mut PedersenDKG<Affine>,
     ) -> DisputeResolution {
         if let Some(vss) = dkg.vss.get_mut(&self.dealer) {
             {

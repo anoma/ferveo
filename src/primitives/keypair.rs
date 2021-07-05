@@ -227,3 +227,52 @@ where
         )
     }
 }
+
+use ark_ec::PairingEngine;
+
+#[derive(Serialize, Deserialize, Copy, Clone, Debug)]
+pub struct PubliclyVerifiablePublicKey<E>
+where
+    E: PairingEngine,
+{
+    #[serde(with = "crate::ark_serde")]
+    pub encryption_key: E::G2Affine,
+
+    #[serde(with = "crate::ark_serde")]
+    pub verification_key: E::G1Affine,
+}
+
+#[derive(Clone)]
+pub struct PubliclyVerifiableKeypair<E>
+where
+    E: PairingEngine,
+{
+    pub decryption_key: E::Fr,
+    pub signing_key: E::Fr,
+}
+
+impl<E> PubliclyVerifiableKeypair<E>
+where
+    E: PairingEngine,
+{
+    pub fn public(&self) -> PubliclyVerifiablePublicKey<E> {
+        PubliclyVerifiablePublicKey::<E> {
+            encryption_key: E::G2Affine::prime_subgroup_generator()
+                .mul(self.decryption_key)
+                .into_affine(),
+            verification_key: E::G1Affine::prime_subgroup_generator()
+                .mul(self.signing_key)
+                .into_affine(),
+        }
+    }
+
+    pub fn new<R: rand::Rng + rand::RngCore + rand::CryptoRng>(
+        rng: &mut R,
+    ) -> Self {
+        use ark_std::UniformRand;
+        Self {
+            decryption_key: E::Fr::rand(rng),
+            signing_key: E::Fr::rand(rng),
+        }
+    }
+}

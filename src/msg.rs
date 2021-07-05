@@ -2,6 +2,7 @@ use ed25519_dalek as ed25519;
 use ed25519_dalek::Signer;
 
 use crate::*;
+use ark_std::{end_timer, start_timer};
 use serde::{Deserialize, Serialize};
 
 pub mod ark_serde {
@@ -29,19 +30,17 @@ pub mod ark_serde {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
-#[serde(bound = "")]
-pub struct Message<E: Engine> {
-    pub tau: u32,
-    pub payload: MessagePayload<E>,
-}
+/*pub trait Message {
+    fn sign(&self, tau: u64, key: &ed25519::Keypair) -> SignedMessage;
+}*/
 
 impl SignedMessage {
-    pub fn new<M>(msg: &M, key: &ed25519::Keypair) -> SignedMessage
+    pub fn sign<M>(tau: u64, msg: &M, key: &ed25519::Keypair) -> SignedMessage
     where
         M: Serialize,
     {
-        let msg_bytes = bincode::serialize(msg).unwrap();
+        print_time!("Signing Message");
+        let msg_bytes = bincode::serialize(&(tau, msg)).unwrap();
         let signature = key.sign(&msg_bytes);
         SignedMessage {
             msg_bytes,
@@ -49,10 +48,11 @@ impl SignedMessage {
             signer: key.public,
         }
     }
-    pub fn verify<'de, M>(&'de self) -> Result<M, anyhow::Error>
+    pub fn verify<'de, M>(&'de self) -> Result<(u64, M)>
     where
         M: Deserialize<'de>,
     {
+        print_time!("Verifying Message");
         self.signer
             .verify_strict(&self.msg_bytes, &self.signature)?;
         bincode::deserialize::<'de, _>(&self.msg_bytes).map_err(|e| e.into()) //TODO: handle error
@@ -64,17 +64,6 @@ pub struct SignedMessage {
     msg_bytes: Vec<u8>,
     signature: ed25519::Signature,
     pub signer: ed25519::PublicKey,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub enum MessagePayload<E: Engine> {
-    Announce {
-        stake: u64,
-        session_key: E::SessionKey,
-    },
-    VSS(E::DealingMsg),
-    Ready(E::ReadyMsg),
-    Finalize(E::FinalizeMsg),
 }
 
 #[test]
