@@ -1,28 +1,28 @@
 use crate::*;
 use ark_ec::PairingEngine;
+use ark_serialize::*;
 use itertools::Itertools;
 use serde::*;
 
 pub type ShareEncryptions<E: PairingEngine> = Vec<E::G2Affine>;
 
 /// The dealer posts the Dealing to the blockchain to initiate the VSS
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(CanonicalSerialize, CanonicalDeserialize, Clone, Debug)]
 pub struct PubliclyVerifiableSS<E: PairingEngine> {
     /// Feldman commitment to the VSS polynomial, F = g^{\phi}
-    #[serde(with = "crate::ark_serde")]
     pub coeffs: Vec<E::G1Affine>,
 
     // \hat{u}_2 = \hat{u}_1^{a_0}
-    #[serde(with = "crate::ark_serde")]
     pub u_hat_2: E::G2Affine,
 
     // ek_i^{f(\omega_j)}
-    #[serde(with = "crate::ark_serde")]
     pub shares: Vec<ShareEncryptions<E>>,
 
-    // Signature of Knowledge
-    #[serde(with = "crate::ark_serde")]
-    pub sigma: (E::G2Affine, E::G2Affine),
+    // Proof of Knowledge
+    pub sigma: E::G2Affine,
+
+    // A_i
+    pub commitment: Vec<E::G1Affine>,
 }
 
 #[derive(Clone)]
@@ -38,16 +38,26 @@ where
     pub fn verify_aggregation(
         &self,
         dkg: &PubliclyVerifiableDKG<E>,
-    ) -> Result<u32> {
-        self.verify(dkg)?;
+    ) -> Result<(u32, Vec<E::G2Affine>)> {
+        print_time!("PVSS verify_aggregation");
+        let local_shares = self.verify(dkg)?;
         let mut Y = E::G1Projective::zero();
         let mut weight = 0u32;
         for (dealer, pvss) in dkg.vss.iter() {
-            Y += pvss.coeffs[0].into_projective();
+            let c = pvss.coeffs[0].into_projective();
+            if E::pairing(c, E::G2Affine::prime_subgroup_generator())
+                != E::pairing(
+                    E::G1Affine::prime_subgroup_generator(),
+                    pvss.sigma,
+                )
+            {
+                return Err(anyhow!("PVSS sigma verification"));
+            }
+            Y += c;
             weight += dkg.participants[*dealer as usize].weight;
         }
         if Y.into_affine() == self.coeffs[0] {
-            Ok(weight)
+            Ok((weight, local_shares))
         } else {
             Err(anyhow!(
                 "aggregation does not match received PVSS instances"
@@ -57,18 +67,20 @@ where
 
     pub fn aggregate(
         dkg: &PubliclyVerifiableDKG<E>,
-        pvss: &[PubliclyVerifiableSS<E>],
+        pvss: &BTreeMap<u32, PubliclyVerifiableSS<E>>,
     ) -> Self {
-        let mut coeffs = batch_to_projective(&pvss[0].coeffs);
+        let mut pvss_iter = pvss.iter();
+        let (_, first_pvss) = pvss_iter.next().unwrap(); //TODO: unwrap?
+        let mut coeffs = batch_to_projective(&first_pvss.coeffs);
 
-        let mut u_hat_2 = pvss[0].u_hat_2.into_projective();
+        let mut u_hat_2 = first_pvss.u_hat_2.into_projective();
 
-        let mut shares = pvss[0]
+        let mut shares = first_pvss
             .shares
             .iter()
             .map(|a| batch_to_projective(a))
             .collect::<Vec<_>>();
-        for next in pvss[1..].iter() {
+        for (_, next) in pvss_iter {
             for (a, b) in coeffs.iter_mut().zip_eq(next.coeffs.iter()) {
                 *a += b.into_projective();
             }
@@ -84,12 +96,21 @@ where
             .map(|a| E::G2Projective::batch_normalization_into_affine(&a))
             .collect::<Vec<_>>();
 
-        let sigma = (E::G2Affine::zero(), E::G2Affine::zero());
+        let sigma = E::G2Affine::zero();
+
+        let mut commitment = coeffs.clone();
+        {
+            print_time!("commitment fft");
+            dkg.domain.fft_in_place(&mut commitment);
+        }
         Self {
             coeffs: E::G1Projective::batch_normalization_into_affine(&coeffs),
             u_hat_2: u_hat_2.into_affine(),
             shares,
             sigma,
+            commitment: E::G1Projective::batch_normalization_into_affine(
+                &commitment,
+            ),
         }
     }
 
@@ -126,50 +147,28 @@ where
 
         let u_hat_2 = dkg.pvss_params.u_hat_1.mul(*s).into_affine(); //TODO: new base
 
-        let sigma = (
-            E::G2Affine::prime_subgroup_generator().mul(*s).into(), //todo hash to curve
-            E::G2Affine::prime_subgroup_generator()
-                .mul(dkg.session_keypair.signing_key)
-                .into(),
-        );
+        let sigma = E::G2Affine::prime_subgroup_generator().mul(*s).into(); //todo hash to curve
 
         let vss = Self {
             coeffs,
             u_hat_2,
             shares,
             sigma,
+            commitment: vec![], // Optimistically avoid computing the commitment
         };
 
         Ok(vss)
     }
     pub fn verify(
         &self,
-        //dealer: u32,
-        //encrypted_shares: &PubliclyVerifiableSharingMsg<E>,
         dkg: &PubliclyVerifiableDKG<E>,
-    ) -> Result<()> {
+    ) -> Result<Vec<E::G2Affine>> {
+        print_time!("PVSS verify");
+
         let me = &dkg.participants[dkg.me as usize];
 
         if self.shares.len() != dkg.participants.len() {
             return Err(anyhow!("wrong vss length"));
-        }
-
-        {
-            print_time!("decrypt shares");
-
-            let local_shares = self.shares[dkg.me]
-                .iter()
-                .map(|p| p.mul(dkg.session_keypair.decryption_key))
-                .collect::<Vec<_>>();
-        }
-        let mut commitment = self
-            .coeffs
-            .iter()
-            .map(|p| p.into_projective())
-            .collect::<Vec<_>>();
-        {
-            print_time!("commitment fft");
-            dkg.domain.fft_in_place(&mut commitment);
         }
 
         // check e(F_0, u_hat_1) == e(g_1, u_hat_2)
@@ -178,29 +177,42 @@ where
         {
             return Err(anyhow!("invalid"));
         }
-        print_time!("check encryptions");
-        //check e()
-        dkg.participants.iter().zip(self.shares.iter()).all(
-            |(participant, shares)| {
-                let share_range = participant.share_range.clone();
-                let ek = participant.session_key.encryption_key;
-                let alpha = E::Fr::one(); //TODO: random number!
-                let mut powers_of_alpha = alpha;
-                let mut Y = E::G2Projective::zero();
-                let mut A = E::G1Projective::zero();
-                for (Y_i, A_i) in
-                    shares.iter().zip(commitment[share_range].iter())
-                {
-                    Y += Y_i.mul(powers_of_alpha);
-                    A += A_i.into_affine().mul(powers_of_alpha);
-                    powers_of_alpha *= alpha;
-                }
+        {
+            print_time!("check encryptions");
+            //check e()
+            dkg.participants.iter().zip(self.shares.iter()).all(
+                |(participant, shares)| {
+                    let share_range = participant.share_range.clone();
+                    let ek = participant.session_key.encryption_key;
+                    let alpha = E::Fr::one(); //TODO: random number!
+                    let mut powers_of_alpha = alpha;
+                    let mut Y = E::G2Projective::zero();
+                    let mut A = E::G1Projective::zero();
+                    for (Y_i, A_i) in shares
+                        .iter()
+                        .zip_eq(self.commitment[share_range].iter())
+                    {
+                        Y += Y_i.mul(powers_of_alpha);
+                        A += A_i.mul(powers_of_alpha);
+                        powers_of_alpha *= alpha;
+                    }
 
-                E::pairing(dkg.pvss_params.g_1, Y) == E::pairing(A, ek)
-            },
-        );
+                    E::pairing(dkg.pvss_params.g_1, Y) == E::pairing(A, ek)
+                },
+            );
+        }
 
-        Ok(())
+        let local_shares = {
+            print_time!("decrypt shares");
+
+            self.shares[dkg.me]
+                .iter()
+                .map(|p| p.mul(dkg.session_keypair.decryption_key))
+                .collect::<Vec<_>>()
+        };
+        Ok(E::G2Projective::batch_normalization_into_affine(
+            &local_shares,
+        ))
     }
 }
 /*

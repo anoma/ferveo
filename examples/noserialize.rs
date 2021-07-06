@@ -11,8 +11,8 @@ pub fn pvdkg<E: ark_ec::PairingEngine>() {
     let params = Params {
         tau: 0u64,
         failure_threshold: 1,
-        security_threshold: 512 / 3,
-        total_weight: 512,
+        security_threshold: 8192 / 3,
+        total_weight: 8192,
     };
 
     let pvss_params = PubliclyVerifiableParams::<E> {
@@ -22,7 +22,7 @@ pub fn pvdkg<E: ark_ec::PairingEngine>() {
 
     for _ in 0..1 {
         let mut contexts = vec![];
-        for _ in 0..10 {
+        for _ in 0..25 {
             contexts.push(
                 PubliclyVerifiableDKG::<E>::new(
                     ed25519_dalek::Keypair::generate(rng),
@@ -70,11 +70,17 @@ pub fn pvdkg<E: ark_ec::PairingEngine>() {
         msg_loop(&mut contexts, &mut messages);
 
         let mut dealt_weight = 0u32;
+        let mut pvss = vec![];
         for participant in contexts.iter_mut() {
             if dealt_weight < params.total_weight - params.security_threshold {
-                let msg = participant.share(rng).unwrap();
-                messages.push_back(msg);
+                let msg = participant.share_without_serialize(rng).unwrap();
+                pvss.push((participant.ed_key.public.clone(), msg));
                 dealt_weight += participant.participants[participant.me].weight;
+            }
+        }
+        for msg in pvss.iter() {
+            for node in contexts.iter_mut() {
+                node.handle_message(&msg.0, msg.1.clone()).unwrap();
             }
         }
         msg_loop(&mut contexts, &mut messages);
@@ -86,7 +92,6 @@ pub fn pvdkg<E: ark_ec::PairingEngine>() {
                 .unwrap();
             //assert_eq!(participant.state, DKGState::Success);
         }
-
         contexts[0].final_key();
     }
 }

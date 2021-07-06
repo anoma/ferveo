@@ -15,7 +15,7 @@ where
     pub domain: ark_poly::Radix2EvaluationDomain<E::Fr>,
     pub state: DKGState<PubliclyVerifiableAnnouncement<E>>,
     pub me: usize,
-    // pub final_state: Option<DistributedKeyShares<E::G2Affine::ScalarField>>,
+    pub local_shares: Vec<E::G2Affine>,
 }
 
 impl<E> PubliclyVerifiableDKG<E>
@@ -46,9 +46,26 @@ where
                 announce_messages: vec![],
             },
             me: 0, // TODO: invalid value
-                   //final_state: None,
+            //final_state: None,
+            local_shares: vec![],
         })
     }
+    pub fn share_without_serialize<R: Rng>(
+        &mut self,
+        rng: &mut R,
+    ) -> Result<PubliclyVerifiableMessage<E>> {
+        use ark_std::UniformRand;
+        print_time!("PVSS Sharing");
+
+        let vss =
+            PubliclyVerifiableSS::<E>::new(&E::Fr::rand(rng), &self, rng)?;
+
+        let sharing = vss.clone();
+        self.vss.insert(self.me as u32, vss);
+
+        Ok(PubliclyVerifiableMessage::Sharing(sharing))
+    }
+
     pub fn share<R: Rng>(&mut self, rng: &mut R) -> Result<SignedMessage> {
         use ark_std::UniformRand;
         print_time!("PVSS Sharing");
@@ -64,6 +81,12 @@ where
             &PubliclyVerifiableMessage::Sharing(sharing),
             &self.ed_key,
         ))
+    }
+    pub fn aggregate_without_serialize(
+        &mut self,
+    ) -> PubliclyVerifiableMessage<E> {
+        let pvss = PubliclyVerifiableSS::<E>::aggregate(self, &self.vss);
+        PubliclyVerifiableMessage::Aggregate(pvss)
     }
 
     //TODO: this is not a good workaround for finding dealer from ed_key
@@ -126,8 +149,7 @@ where
                         if self.vss.contains_key(&dealer) {
                             return Err(anyhow!("Repeat dealer {}", dealer));
                         }
-                        print_time!("PVSS verify");
-                        sharing.verify(self)?;
+                        //sharing.verify(self)?;
                         self.vss.insert(dealer, sharing);
                     }
                 }
@@ -138,8 +160,10 @@ where
                     let minimum_weight = self.params.total_weight
                     //- self.params.failure_threshold
                     - self.params.security_threshold;
-                    let verified_weight = vss.verify_aggregation(&self)?;
+                    let (verified_weight, local_shares) =
+                        vss.verify_aggregation(&self)?;
                     if verified_weight >= minimum_weight {
+                        self.local_shares = local_shares;
                         self.state = DKGState::Success;
                     } else {
                         self.state = DKGState::Sharing {
@@ -154,15 +178,6 @@ where
     }
 }
 
-/*encryption_key: G2Affine::prime_subgroup_generator()
-.into_projective()
-.mul(self.decryption_key.inverse().unwrap())
-.into_affine(),
-verification_key: G2Affine::prime_subgroup_generator()
-.into_projective()
-.mul(&self.signing_key.inverse().unwrap())
-.into_affine(),*/
-
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(bound = "")]
 pub enum PubliclyVerifiableMessage<E: PairingEngine> {
@@ -170,7 +185,9 @@ pub enum PubliclyVerifiableMessage<E: PairingEngine> {
         stake: u64,
         session_key: PubliclyVerifiablePublicKey<E>,
     },
+    #[serde(with = "ark_serde")]
     Sharing(PubliclyVerifiableSS<E>),
+    #[serde(with = "ark_serde")]
     Aggregate(PubliclyVerifiableSS<E>),
 }
 
@@ -325,10 +342,8 @@ fn test_serialize() {
         coeffs,
         u_hat_2: G2::prime_subgroup_generator(),
         shares,
-        sigma: (
-            G2::prime_subgroup_generator(),
-            G2::prime_subgroup_generator(),
-        ),
+        sigma: G2::prime_subgroup_generator(),
+        commitment: vec![],
     };
     let msg =
         SignedMessage::sign(0, &PubliclyVerifiableMessage::Sharing(pvss), &key);
@@ -358,10 +373,8 @@ fn test_deserialize() {
         coeffs,
         u_hat_2: G2::prime_subgroup_generator(),
         shares,
-        sigma: (
-            G2::prime_subgroup_generator(),
-            G2::prime_subgroup_generator(),
-        ),
+        sigma: G2::prime_subgroup_generator(),
+        commitment: vec![],
     };
     let msg =
         SignedMessage::sign(0, &PubliclyVerifiableMessage::Sharing(pvss), &key);
