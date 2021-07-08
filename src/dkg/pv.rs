@@ -50,7 +50,7 @@ where
             local_shares: vec![],
         })
     }
-    pub fn share_without_serialize<R: Rng>(
+    pub fn share<R: Rng>(
         &mut self,
         rng: &mut R,
     ) -> Result<PubliclyVerifiableMessage<E>> {
@@ -66,25 +66,7 @@ where
         Ok(PubliclyVerifiableMessage::Sharing(sharing))
     }
 
-    pub fn share<R: Rng>(&mut self, rng: &mut R) -> Result<SignedMessage> {
-        use ark_std::UniformRand;
-        print_time!("PVSS Sharing");
-
-        let vss =
-            PubliclyVerifiableSS::<E>::new(&E::Fr::rand(rng), &self, rng)?;
-
-        let sharing = vss.clone();
-        self.vss.insert(self.me as u32, vss);
-
-        Ok(SignedMessage::sign(
-            self.params.tau,
-            &PubliclyVerifiableMessage::Sharing(sharing),
-            &self.ed_key,
-        ))
-    }
-    pub fn aggregate_without_serialize(
-        &mut self,
-    ) -> PubliclyVerifiableMessage<E> {
+    pub fn aggregate(&mut self) -> PubliclyVerifiableMessage<E> {
         let pvss = PubliclyVerifiableSS::<E>::aggregate(self, &self.vss);
         PubliclyVerifiableMessage::Aggregate(pvss)
     }
@@ -149,7 +131,6 @@ where
                         if self.vss.contains_key(&dealer) {
                             return Err(anyhow!("Repeat dealer {}", dealer));
                         }
-                        //sharing.verify(self)?;
                         self.vss.insert(dealer, sharing);
                     }
                 }
@@ -227,157 +208,4 @@ where
             share_range,
         }
     }
-}
-
-#[test]
-pub fn test_pvdkg_bls() {
-    test_pvdkg::<ark_bls12_381::Bls12_381>();
-}
-
-#[cfg(test)]
-pub fn test_pvdkg<E: PairingEngine>() {
-    use ark_ec::{AffineCurve, ProjectiveCurve};
-    let rng = &mut ark_std::test_rng();
-
-    let params = Params {
-        tau: 0u64,
-        failure_threshold: 1,
-        security_threshold: 8192 / 3,
-        total_weight: 8192,
-    };
-
-    let pvss_params = PubliclyVerifiableParams::<E> {
-        g_1: E::G1Projective::prime_subgroup_generator(),
-        u_hat_1: E::G2Affine::prime_subgroup_generator(),
-    };
-
-    for _ in 0..1 {
-        let mut contexts = vec![];
-        for _ in 0..150 {
-            contexts.push(
-                PubliclyVerifiableDKG::<E>::new(
-                    ed25519_dalek::Keypair::generate(rng),
-                    params.clone(),
-                    pvss_params.clone(),
-                    rng,
-                )
-                .unwrap(),
-            );
-        }
-        use std::collections::VecDeque;
-        let mut messages = VecDeque::new();
-
-        use itertools::Itertools;
-        let mut stake = (1..151u64)
-            .map(|i| if i < 10 { 1000 } else { 1 })
-            .collect::<Vec<_>>();
-
-        for (participant, stake) in contexts.iter_mut().zip_eq(stake.iter()) {
-            let announce = participant.announce(*stake);
-            messages.push_back(announce);
-        }
-
-        let msg_loop =
-            |contexts: &mut Vec<PubliclyVerifiableDKG<E>>,
-             messages: &mut VecDeque<SignedMessage>| loop {
-                if messages.is_empty() {
-                    break;
-                }
-                let signed_message = messages.pop_front().unwrap();
-                for node in contexts.iter_mut() {
-                    let (_, message) = signed_message.verify().unwrap();
-                    let new_msg = node
-                        .handle_message(&signed_message.signer, message)
-                        .unwrap();
-                    if let Some(new_msg) = new_msg {
-                        messages.push_back(new_msg);
-                    }
-                }
-            };
-
-        msg_loop(&mut contexts, &mut messages);
-
-        for participant in contexts.iter_mut() {
-            participant.finish_announce().unwrap();
-        }
-
-        msg_loop(&mut contexts, &mut messages);
-
-        let mut dealt_weight = 0u32;
-        for participant in contexts.iter_mut() {
-            if dealt_weight < params.total_weight - params.security_threshold {
-                let msg = participant.share(rng).unwrap();
-                messages.push_back(msg);
-                dealt_weight += participant.participants[participant.me].weight;
-                dbg!(participant.participants[participant.me].weight);
-            }
-        }
-        msg_loop(&mut contexts, &mut messages);
-
-        contexts[0].final_key();
-    }
-}
-
-#[test]
-fn test_serialize() {
-    use ark_ec::{AffineCurve, ProjectiveCurve};
-    let rng = &mut ark_std::test_rng();
-    type G1 = ark_bls12_381::G1Affine;
-    type G2 = ark_bls12_381::G2Affine;
-
-    let key = ed25519_dalek::Keypair::generate(rng);
-
-    let num_shares = 8192 / 150;
-    let coeffs = (0..(8192 / 3))
-        .map(|i| G1::prime_subgroup_generator())
-        .collect::<Vec<_>>();
-    let shares = (0..150)
-        .map(|i| {
-            (0..num_shares)
-                .map(|j| G2::prime_subgroup_generator())
-                .collect::<Vec<_>>()
-        })
-        .collect::<Vec<_>>();
-    let pvss = PubliclyVerifiableSS::<ark_bls12_381::Bls12_381> {
-        coeffs,
-        u_hat_2: G2::prime_subgroup_generator(),
-        shares,
-        sigma: G2::prime_subgroup_generator(),
-        commitment: vec![],
-    };
-    let msg =
-        SignedMessage::sign(0, &PubliclyVerifiableMessage::Sharing(pvss), &key);
-}
-
-#[test]
-fn test_deserialize() {
-    use ark_ec::{AffineCurve, ProjectiveCurve};
-    let rng = &mut ark_std::test_rng();
-    type G1 = ark_bls12_381::G1Affine;
-    type G2 = ark_bls12_381::G2Affine;
-
-    let key = ed25519_dalek::Keypair::generate(rng);
-
-    let num_shares = 8192 / 150;
-    let coeffs = (0..(8192 / 3))
-        .map(|i| G1::prime_subgroup_generator())
-        .collect::<Vec<_>>();
-    let shares = (0..150)
-        .map(|i| {
-            (0..num_shares)
-                .map(|j| G2::prime_subgroup_generator())
-                .collect::<Vec<_>>()
-        })
-        .collect::<Vec<_>>();
-    let pvss = PubliclyVerifiableSS::<ark_bls12_381::Bls12_381> {
-        coeffs,
-        u_hat_2: G2::prime_subgroup_generator(),
-        shares,
-        sigma: G2::prime_subgroup_generator(),
-        commitment: vec![],
-    };
-    let msg =
-        SignedMessage::sign(0, &PubliclyVerifiableMessage::Sharing(pvss), &key);
-    let msg: PubliclyVerifiableMessage<ark_bls12_381::Bls12_381> =
-        msg.verify().unwrap().1;
 }

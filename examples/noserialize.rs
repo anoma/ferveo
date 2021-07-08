@@ -7,10 +7,11 @@ pub fn main() {
 pub fn pvdkg<E: ark_ec::PairingEngine>() {
     use ark_ec::{AffineCurve, ProjectiveCurve};
     let rng = &mut ark_std::test_rng();
+    use rand::SeedableRng;
+    let ed_rng = &mut rand::rngs::StdRng::from_seed([0u8; 32]);
 
     let params = Params {
         tau: 0u64,
-        failure_threshold: 1,
         security_threshold: 8192 / 3,
         total_weight: 8192,
     };
@@ -25,7 +26,7 @@ pub fn pvdkg<E: ark_ec::PairingEngine>() {
         for _ in 0..25 {
             contexts.push(
                 PubliclyVerifiableDKG::<E>::new(
-                    ed25519_dalek::Keypair::generate(rng),
+                    ed25519_dalek::Keypair::generate(ed_rng),
                     params.clone(),
                     pvss_params.clone(),
                     rng,
@@ -73,7 +74,7 @@ pub fn pvdkg<E: ark_ec::PairingEngine>() {
         let mut pvss = vec![];
         for participant in contexts.iter_mut() {
             if dealt_weight < params.total_weight - params.security_threshold {
-                let msg = participant.share_without_serialize(rng).unwrap();
+                let msg = participant.share(rng).unwrap();
                 pvss.push((participant.ed_key.public.clone(), msg));
                 dealt_weight += participant.participants[participant.me].weight;
             }
@@ -84,7 +85,7 @@ pub fn pvdkg<E: ark_ec::PairingEngine>() {
             }
         }
         msg_loop(&mut contexts, &mut messages);
-        let agg = contexts[0].aggregate_without_serialize();
+        let agg = contexts[0].aggregate();
         let agg_signer = contexts[0].ed_key.public.clone();
         for participant in contexts.iter_mut() {
             participant

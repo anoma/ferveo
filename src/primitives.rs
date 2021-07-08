@@ -6,9 +6,6 @@ pub use keypair::*;
 pub mod subproductdomain;
 pub use subproductdomain::*;
 
-pub mod nizkp;
-pub use nizkp::*;
-
 pub fn fast_multiexp<Projective: ProjectiveCurve>(
     scalars: &[Projective::ScalarField],
     base: Projective,
