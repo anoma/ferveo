@@ -3,15 +3,12 @@ Operations involving polynomials.
 */
 
 use ark_bls12_381::{Fr, G1Affine, G1Projective};
-use ark_ec::wnaf::WnafContext;
 use ark_ec::ProjectiveCurve;
 use ark_ff::{Field, UniformRand};
 use ark_poly::polynomial::multivariate::{SparsePolynomial, SparseTerm, Term};
 use ark_poly::polynomial::univariate::DensePolynomial;
 use ark_poly::polynomial::{MVPolynomial, Polynomial, UVPolynomial};
 use num::{One, Zero};
-
-use crate::fft;
 
 pub type Scalar = Fr;
 
@@ -24,16 +21,6 @@ fn powers(x: Scalar, n: usize) -> Vec<Scalar> {
         xi *= x
     }
     res
-}
-
-// Scalar exponentiation by u64. `exp(x, y) = x^y`
-fn scalar_exp_u64(x: Scalar, y: u64) -> Scalar {
-    x.pow([u64::to_le(y)])
-}
-
-// Scalar exponentiation by usize. `exp(x, y) = x^y`
-fn scalar_exp_usize(x: Scalar, y: usize) -> Scalar {
-    scalar_exp_u64(x, y as u64)
 }
 
 // Univariate polynomial
@@ -234,90 +221,39 @@ pub fn public(secret: &Secret) -> Public {
         .collect()
 }
 
-pub fn public_wnaf(secret: &Secret) -> Public {
-    let window_size = 4; // arbitrarily chosen
-    let wnaf = WnafContext::new(window_size);
-    secret
-        .coeffs()
-        .iter()
-        .map(|coeffs| {
-            coeffs
-                .iter()
-                .map(|coeff| {
-                    wnaf.mul(G1Projective::prime_subgroup_generator(), coeff)
-                        .into_affine()
-                })
-                .collect()
-        })
-        .collect()
-}
-
 // Generate the `j`th secret share
-pub fn share(secret: &Secret, j: Scalar) -> Share {
-    secret.eval_fst(j)
+pub fn share(secret: &Secret, j: u32) -> Share {
+    secret.eval_fst(j.into())
 }
 
-/// Generate `participants` many secret shares
-pub fn multi_share(secret: &Secret, participants: usize) -> Vec<Share> {
-    let domain = fft::domain(participants);
-    let (omega, log_n) = (domain.group_gen, domain.log_size_of_group);
+// Scalar exponentiation by u64. `exp(x, y) = x^y`
+fn scalar_exp_u64(x: Scalar, y: u64) -> Scalar {
+    x.pow([u64::to_le(y)])
+}
 
-    let num_eval_pts =
-        usize::max(participants, secret.fst_degree() + 1).next_power_of_two();
-
-    let mut evals = Vec::with_capacity(secret.snd_degree() + 1);
-    for col in secret.coeffs().iter() {
-        let mut row = Vec::with_capacity(num_eval_pts);
-        row.extend(col.iter());
-        row.resize(num_eval_pts, Scalar::zero());
-        fft::fft(&mut row, omega, log_n);
-        evals.push(row);
-    }
-    let mut shares = Vec::with_capacity(secret.snd_degree() + 1);
-    let mut evals_iters: Vec<_> = evals.iter_mut().map(|e| e.iter()).collect();
-
-    for _ in 0..=secret.snd_degree() {
-        let mut share = Vec::with_capacity(num_eval_pts);
-        for i in &mut evals_iters {
-            if let Some(v) = i.next() {
-                share.push(*v);
-            }
-        }
-        shares.push(Share::from_coefficients_vec(share));
-    }
-    shares
+// Scalar exponentiation by usize. `exp(x, y) = x^y`
+fn scalar_exp_usize(x: Scalar, y: usize) -> Scalar {
+    scalar_exp_u64(x, y as u64)
 }
 
 // Verify that the given share with index `i` is consistent with the public polynomial.
-pub fn verify_share(p: &Public, s: &Share, i: Scalar) -> bool {
+pub fn verify_share(p: &Public, s: &Share, i: u32) -> bool {
     // ∀ l ∈ [0, t]. 1_{G1} * s_l = ∑_{j=0}^t (p_j_l * i^j)
     s.coeffs().iter().enumerate().all(|(l, s_l)| {
         let lhs = mul_g1proj(G1Projective::prime_subgroup_generator(), *s_l);
         let mut rhs = G1Projective::zero();
         for (j, pj) in p.iter().enumerate() {
-            rhs += mul_g1proj(pj[l].into(), scalar_exp_usize(i, j))
-        }
-        lhs == rhs
-    })
-}
-
-// Verify that the given share with x coordinate `x` is consistent with the public polynomial.
-fn verify_share_fft(p: &Public, s: &Share, x: Scalar) -> bool {
-    // ∀ l ∈ [0, t]. 1_{G1} * s_l = ∑_{j=0}^t (p_j_l * i^j)
-    s.iter().enumerate().all(|(l, sl)| {
-        let lhs = mul_g1proj(G1Projective::prime_subgroup_generator(), *sl);
-        let mut rhs = G1Projective::zero();
-        let mut X = Scalar::one();
-        for pj in p.iter() {
-            rhs += mul_g1proj(pj[l].into(), X);
-            X *= x;
+            rhs += mul_g1proj(pj[l].into(), scalar_exp_usize(i.into(), j))
         }
         lhs == rhs
     })
 }
 
 // Verify that a given point from node `m` with index `i` is consistent with the public polynomial.
-pub fn verify_point(p: &Public, i: Scalar, m: Scalar, x: Scalar) -> bool {
+pub fn verify_point(p: &Public, i: u32, m: u32, x: Scalar) -> bool {
+    let i = Scalar::from(i);
+    let m = Scalar::from(m);
+
     // 1_{G1} * x = ∑_{j,l=0}^t (p_j_l * m^j * i^l)
     let lhs = mul_g1proj(G1Projective::prime_subgroup_generator(), x);
     let rhs: G1Projective = p
@@ -407,7 +343,7 @@ mod tests {
         let secret = random_secret(threshold, Scalar::rand(&mut rng), &mut rng);
         let public = public(&secret);
         for i in 0..(threshold * 2) {
-            assert!(verify_share(&public, &share(&secret, i.into()), i.into()))
+            assert!(verify_share(&public, &share(&secret, i), i))
         }
     }
 
@@ -418,34 +354,11 @@ mod tests {
         let secret = random_secret(threshold, Scalar::rand(&mut rng), &mut rng);
         let public = public(&secret);
         for i in 0..threshold {
-            let share = share(&secret, i.into());
+            let share = share(&secret, i);
             for j in 0..threshold {
                 let point = share.evaluate(&j.into());
-                assert!(verify_point(&public, j.into(), i.into(), point))
+                assert!(verify_point(&public, j, i, point))
             }
-        }
-    }
-
-    #[test]
-    fn test_multi_share() {
-        let participants = 100u32;
-        let threshold = 50u32;
-
-        use rand::SeedableRng;
-        let mut rng = rand::rngs::StdRng::seed_from_u64(1u64);
-
-        let s = Scalar::rand(&mut rng);
-        let secret = random_secret(threshold, s, &mut rng);
-        let shares = multi_share(&secret, participants as usize);
-        let omega = fft::domain(participants as usize).group_gen;
-
-        let mut x = Scalar::one();
-        for share in shares.iter() {
-            let actual = secret.eval_fst(x);
-            for (coeff, actual_coeff) in share.iter().zip(actual.iter()) {
-                assert_eq!(coeff, actual_coeff);
-            }
-            x *= omega;
         }
     }
 }
