@@ -35,6 +35,11 @@ impl<E> PubliclyVerifiableSS<E>
 where
     E: PairingEngine,
 {
+    /// Verify that this PVSS instance is a valid aggregation of
+    /// the PVSS instances, produced by `aggregate`,
+    /// and received by the DKG context `dkg`
+    /// Returns the total valid weight of the aggregated PVSS,
+    ///  and the local private keyshares
     pub fn verify_aggregation(
         &self,
         dkg: &PubliclyVerifiableDKG<E>,
@@ -65,6 +70,8 @@ where
         }
     }
 
+    /// Aggregate the PVSS instances in `pvss` from DKG session `dkg` ]
+    /// into a new PVSS instance
     pub fn aggregate(
         dkg: &PubliclyVerifiableDKG<E>,
         pvss: &BTreeMap<u32, PubliclyVerifiableSS<E>>,
@@ -113,7 +120,10 @@ where
             ),
         }
     }
-
+    /// Create a new PVSS instance
+    /// `s`: the secret constant coefficient to share
+    /// `dkg`: the current DKG session
+    /// `rng` a cryptographic random number generator
     pub fn new<R: Rng>(
         s: &E::Fr,
         dkg: &PubliclyVerifiableDKG<E>,
@@ -159,6 +169,8 @@ where
 
         Ok(vss)
     }
+
+    /// Verify the PVSS instance `self` is a valid PVSS instance for the DKG context `dkg`
     pub fn verify(
         &self,
         dkg: &PubliclyVerifiableDKG<E>,

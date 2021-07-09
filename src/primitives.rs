@@ -6,6 +6,9 @@ pub use keypair::*;
 pub mod subproductdomain;
 pub use subproductdomain::*;
 
+/// Compute a fast multiexp of many scalars times the same base
+/// Only convenient for when called once with given base; if called
+/// more than once, it's faster to save the generated window table
 pub fn fast_multiexp<Projective: ProjectiveCurve>(
     scalars: &[Projective::ScalarField],
     base: Projective,

@@ -17,10 +17,8 @@ use ed25519_dalek as ed25519;
 use serde::*;
 
 pub mod common;
-pub mod participant;
 pub mod pv;
 pub use common::*;
-pub use participant::*;
 pub use pv::*;
 
 // DKG parameters
@@ -32,9 +30,13 @@ pub struct Params {
 }
 
 #[derive(Debug, Clone)]
-pub enum DKGState<A: Announcement> {
-    Init { announce_messages: Vec<A> },
-    Sharing { finalized_weight: u32 },
+pub enum DKGState<E: ark_ec::PairingEngine> {
+    Init {
+        announce_messages: Vec<PubliclyVerifiableAnnouncement<E>>,
+    },
+    Sharing {
+        finalized_weight: u32,
+    },
     Success,
     Failure,
 }

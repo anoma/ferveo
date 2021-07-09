@@ -9,6 +9,7 @@ pub mod ark_serde {
     use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
     use serde_bytes::{Deserialize, Serialize};
 
+    /// Serialize an ark type with serde
     pub fn serialize<S, T>(data: &T, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -19,6 +20,7 @@ pub mod ark_serde {
         data.serialize(&mut bytes).map_err(S::Error::custom)?;
         serde_bytes::Bytes::new(&bytes).serialize(serializer)
     }
+    /// Deserialize an ark type with serde
     pub fn deserialize<'d, D, T>(deserializer: D) -> Result<T, D::Error>
     where
         D: serde::Deserializer<'d>,
@@ -29,10 +31,6 @@ pub mod ark_serde {
         T::deserialize(bytes.as_slice()).map_err(D::Error::custom)
     }
 }
-
-/*pub trait Message {
-    fn sign(&self, tau: u64, key: &ed25519::Keypair) -> SignedMessage;
-}*/
 
 impl SignedMessage {
     pub fn sign<M>(tau: u64, msg: &M, key: &ed25519::Keypair) -> SignedMessage

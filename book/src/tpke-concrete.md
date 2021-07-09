@@ -44,17 +44,28 @@ The ephemeral shared secret \\(S\\) can be used to derive a shared symmetric enc
 
 Then \\((U,W)\\) is the ciphertext and \\(S\\) is the ephemeral shared secret. 
 
+## `TPKE.VerifyBlinding()`
+
+On input \\([b_i] Z_{i_\omega}\\) and \\([b_i] H \\)
+
+\\[ e(A_i + [\alpha] G, [b_i] H) = e(G, [b_i]Z_i + [\alpha * b] H) \\]
+
 ## `TPKE.CiphertextValidity(U,W)`
 
 To provide chosen ciphertext security, ciphertext validity must be checked for each ciphertext \\((U,W)\\) separately. The ciphertext can be checked by:
 
 \\[e(U, H_{\mathbb{G}_2} (U)) = e(G, W)\\]
 
+\\[\prod_j e(\alpha_j U_j, H_{\mathbb{G}_2} (U_j)) = e(G, \sum_j \alpha_j W_j) \\]
+
 ## `TPKE.VerifyDecryptionShares`
 
 Given many valid ciphertexts \\((U_j,W_j)\\), on input potential decryption shares for each ciphertext \\(\{D_{i,j}\}\\) from a single validator \\(i\\) with blinded public key \\(B_i\\), the validity of those shares can be checked by:
 
-\\[ e(\sum_j \alpha_j D_i, \sum_j \alpha_j^{-1} P_i) = e(U, H) \\]
+\\[D_{i,j} = [b_i^{-1}] U_j\\]
+\\[P_i = [b_i] H \\]
+
+\\[ e(\sum_j [\alpha_j] D_{i,j}, P_i) = e(\sum_j [\alpha_j] U_j, H) \\]
 
 Total cost: 2 pairings per validator, plus 1 \\(\mathbb{G}_1\\) multiply and 1 \\(\mathbb{G}_2\\) multiply per ciphertext.
 
@@ -62,7 +73,7 @@ Total cost: 2 pairings per validator, plus 1 \\(\mathbb{G}_1\\) multiply and 1 \
 
 Given many valid ciphertexts \\((U_j,W_j)\\), on input 2/3 weight of potential decryption shares for each ciphertext \\(\{D_{i,j}\}\\), corresponding to validator set \\(\{i\}\\) with blinded public keys \\(B_i\\), the validity of those shares can be checked:
 
-\\[ e(\sum_{i,j} \alpha_{i,j} D_i, \sum_{i,j} \alpha_{i,j}^{-1} P_i) = e(U, H) \\]
+\\[ \prod_i e(\sum_{j} [\alpha_{i,j}] D_i, P_i) = e(\sum_{i,j} [\alpha_{i,j}^{-1} U_j], H) \\]
 
 Total cost: 2 pairings, plus 1 \\(\mathbb{G}_1\\) multiply and 1 \\(\mathbb{G}_2\\) multiply per ciphertext.
 

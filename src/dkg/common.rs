@@ -1,19 +1,29 @@
 use crate::*;
 
-pub fn partition_domain<A>(
+/// partition_domain takes as input a vector of Announcement messages from
+/// participants in the DKG, containing their total stake amounts
+/// and their ephemeral encryption key
+///
+/// The Announcement messages are stable-sorted by staking weight
+/// (so highest weight participants come first, then by announcement order)
+/// and the DKG share domain is partitioned into continuous segments roughly
+/// the same relative size as the staked weight.
+///
+/// partition_domain returns a vector of DKG participants
+pub fn partition_domain<E>(
     params: &Params,
-    announce_messages: &mut Vec<A>,
-) -> Result<Vec<A::Participant>>
+    announce_messages: &mut Vec<PubliclyVerifiableAnnouncement<E>>,
+) -> Result<Vec<PubliclyVerifiableParticipant<E>>>
 where
-    A: Announcement,
+    E: ark_ec::PairingEngine,
 {
     print_time!("Partition domain");
     // Sort participants from greatest to least stake
-    announce_messages.sort_by(|a, b| b.stake().cmp(&a.stake()));
+    announce_messages.sort_by(|a, b| b.stake.cmp(&a.stake));
     // Compute the total amount staked
     let total_stake: f64 = announce_messages
         .iter()
-        .map(|p| p.stake() as f64)
+        .map(|p| p.stake as f64)
         .sum::<f64>()
         .into();
 
@@ -21,7 +31,7 @@ where
     let mut weights = announce_messages
         .iter()
         .map(|p| {
-            ((params.total_weight as f64) * p.stake() as f64 / total_stake)
+            ((params.total_weight as f64) * p.stake as f64 / total_stake)
                 .floor() as u32
         })
         .collect::<Vec<u32>>();
@@ -44,7 +54,12 @@ where
     for (announcement, weight) in announce_messages.iter().zip(weights) {
         let share_range = allocated_weight..allocated_weight + weight as usize;
 
-        participants.push(announcement.participant(weight, share_range));
+        participants.push(PubliclyVerifiableParticipant::<E> {
+            ed_key: announcement.signer,
+            session_key: announcement.session_key,
+            weight,
+            share_range,
+        });
         allocated_weight = allocated_weight
             .checked_add(weight as usize)
             .ok_or_else(|| anyhow!("allocated weight overflow"))?;

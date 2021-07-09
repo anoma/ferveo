@@ -24,6 +24,7 @@ impl<E> PubliclyVerifiableKeypair<E>
 where
     E: PairingEngine,
 {
+    /// Returns the public session key for the publicly verifiable DKG participant
     pub fn public(&self) -> PubliclyVerifiablePublicKey<E> {
         PubliclyVerifiablePublicKey::<E> {
             encryption_key: E::G2Affine::prime_subgroup_generator()
@@ -32,6 +33,7 @@ where
         }
     }
 
+    /// Creates a new ephemeral session key for participating in the DKG
     pub fn new<R: Rng>(rng: &mut R) -> Self {
         use ark_std::UniformRand;
         Self {
