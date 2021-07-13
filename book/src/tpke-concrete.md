@@ -44,11 +44,27 @@ The ephemeral shared secret \\(S\\) can be used to derive a shared symmetric enc
 
 Then \\((U,W)\\) is the ciphertext and \\(S\\) is the ephemeral shared secret. 
 
+## `TPKE.Blind`
+
+On input private key shares \\( Z_{i, \omega_j} \\), generate a random scalar \\(b\\) and output 
+
+\\[ B_{i, \omega_j} = [b] Z_{i, \omega_j} \\] 
+
+\\[ P_i = [b] H \\]
+
+Total cost:
+* 1 \\(\mathbb{G}_1\\) multiply per key share
+* 1 \\(\mathbb{G}_1\\) multiply
+  
 ## `TPKE.VerifyBlinding()`
 
 On input \\([b_i] Z_{i_\omega}\\) and \\([b_i] H \\)
 
 \\[ e(A_i + [\alpha] G, [b_i] H) = e(G, [b_i]Z_i + [\alpha * b] H) \\]
+
+Total cost:
+* 1 `G2Prepared` per key share
+* 1 `G2Prepared` per validator
 
 ## `TPKE.CiphertextValidity(U,W)`
 
@@ -56,7 +72,19 @@ To provide chosen ciphertext security, ciphertext validity must be checked for e
 
 \\[e(U, H_{\mathbb{G}_2} (U)) = e(G, W)\\]
 
+Total cost:
+* 1 \\(\mathbb{G}_1\\) and 1 \\(\mathbb{G}_2\\) deserialize per ciphertext
+* 1 product of pairings
+* 
+## `TPKE.BatchCiphertextValidity( {U,W} )`
+
+Once a block proposer has verified ciphertext validity, the entire block can be optimistically verified:
+
 \\[\prod_j e(\alpha_j U_j, H_{\mathbb{G}_2} (U_j)) = e(G, \sum_j \alpha_j W_j) \\]
+
+Total cost:
+* 1 \\(\mathbb{G}_1\\) and 1 \\(\mathbb{G}_2\\) deserialize per ciphertext
+* 1 product of pairings
 
 ## `TPKE.VerifyDecryptionShares`
 
@@ -67,7 +95,10 @@ Given many valid ciphertexts \\((U_j,W_j)\\), on input potential decryption shar
 
 \\[ e(\sum_j [\alpha_j] D_{i,j}, P_i) = e(\sum_j [\alpha_j] U_j, H) \\]
 
-Total cost: 2 pairings per validator, plus 1 \\(\mathbb{G}_1\\) multiply and 1 \\(\mathbb{G}_2\\) multiply per ciphertext.
+Total cost:
+* 1 \\(\mathbb{G}_1\\) deserialize per validator per ciphertext
+* 2 pairings per validator
+* 1 \\(\mathbb{G}_1\\) multiply and 1 \\(\mathbb{G}_2\\) multiply per ciphertext.
 
 ## `TPKE.BatchVerifyDecryptionShares`
 
@@ -75,23 +106,27 @@ Given many valid ciphertexts \\((U_j,W_j)\\), on input 2/3 weight of potential d
 
 \\[ \prod_i e(\sum_{j} [\alpha_{i,j}] D_i, P_i) = e(\sum_{i,j} [\alpha_{i,j}^{-1} U_j], H) \\]
 
-Total cost: 2 pairings, plus 1 \\(\mathbb{G}_1\\) multiply and 1 \\(\mathbb{G}_2\\) multiply per ciphertext.
+Total cost:
+* 1 G1 deserialize per validator
+* V+1 pairings
+* 1 \\(\mathbb{G}_1\\) multiply and 1 \\(\mathbb{G}_2\\) multiply, per ciphertext.
 
 ## `TPKE.CombineDecryptionShares()`
 
 For a given ciphertext \\((U_j,W_j)\\), on input 2/3 weight of valid decryption shares \\(\{D_{i,j}\}\\) as checked by ``TPKE.VerifyDecryptionShares`, corresponding to validator set \\(\{i\}\\).
 
-Then a partial combined share \\(S_{i,j}\\) for that transaction can be computed with one pairing:
+Then a partial combined share \\(S_{i,j}\\) for that ciphertext can be computed with one pairing:
 
 \\[ S_{i,j} = e( D_{i,j}, [\sum_{\omega_j \in \Omega_i} \lambda_{\omega_j}(0)] [b] Z_{i,\omega_j}  ) \\]
 
 and combined to get the final combined share \\(S_j = \prod_i S_{i,j}\\).
 
-Total cost: 1 pairing and 1 \\(\mathbb{G}_T\\) multiply per validator 
+Total cost: 
+* 1 pairing and 1 \\(\mathbb{G}_T\\) multiply per validator 
 
 ## `TPKE.VerifyCombination`
 
-Verifying \\(S_j\\) for many transactions with the same decrypting validator set can be done faster than generating each \\(S_j\\) separately. For each ciphertext \\((U_j, W_j)\\) with valid decryption shares \\( D_{i,j}\\), combined shares \\(\{S_j\}\\) and random scalars \\(\alpha_j\\), for each validator \\(i\\), an aggregated decryption share: 
+Verifying \\(S_j\\) for many ciphertexts with the same decrypting validator set can be done faster than generating each \\(S_j\\) separately. For each ciphertext \\((U_j, W_j)\\) with valid decryption shares \\( D_{i,j}\\), combined shares \\(\{S_j\}\\) and random scalars \\(\alpha_j\\), for each validator \\(i\\), an aggregated decryption share: 
 
 \\[\hat{D}_i = \sum_j \alpha_j D_{i,j} \\]
 
@@ -103,4 +138,6 @@ and combined to get an aggregated final combined share \\( \hat{S} = \prod_i \ha
 
 \\[ \hat{S} = \sum_j \alpha_j S_j \\]
 
-Total cost: 1 pairing and 1 \\(\mathbb{G}_T\\) multiply per validator, plus 1 \\(\mathbb{G}_1\\) multiply and 1 \\(\mathbb{G}_T\\) multiply per ciphertext.
+Total cost:
+* 1 pairing and 1 \\(\mathbb{G}_T\\) multiply per validator
+* 1 \\(\mathbb{G}_1\\) multiply and 1 \\(\mathbb{G}_T\\) multiply per ciphertext.

@@ -17,7 +17,6 @@ pub fn partition_domain<E>(
 where
     E: ark_ec::PairingEngine,
 {
-    print_time!("Partition domain");
     // Sort participants from greatest to least stake
     announce_messages.sort_by(|a, b| b.stake.cmp(&a.stake));
     // Compute the total amount staked

@@ -7,18 +7,13 @@ pub fn main() {
 pub fn pvdkg<E: ark_ec::PairingEngine>() {
     use ark_ec::{AffineCurve, ProjectiveCurve};
     let rng = &mut ark_std::test_rng();
-    use rand::SeedableRng;
-    let ed_rng = &mut rand::rngs::StdRng::from_seed([0u8; 32]);
+    use rand_old::SeedableRng;
+    let ed_rng = &mut rand_old::rngs::StdRng::from_seed([0u8; 32]);
 
     let params = Params {
         tau: 0u64,
         security_threshold: 512 / 3,
         total_weight: 512,
-    };
-
-    let pvss_params = PubliclyVerifiableParams::<E> {
-        g_1: E::G1Projective::prime_subgroup_generator(),
-        u_hat_1: E::G2Affine::prime_subgroup_generator(),
     };
 
     for _ in 0..1 {
@@ -28,7 +23,6 @@ pub fn pvdkg<E: ark_ec::PairingEngine>() {
                 PubliclyVerifiableDKG::<E>::new(
                     ed25519_dalek::Keypair::generate(ed_rng),
                     params.clone(),
-                    pvss_params.clone(),
                     rng,
                 )
                 .unwrap(),

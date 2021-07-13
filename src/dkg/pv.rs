@@ -27,12 +27,10 @@ where
     /// Every identity in the DKG is linked to an ed25519 public key;
     /// `ed_key` is the local identity.
     /// `params` contains the parameters of the DKG such as number of shares
-    /// `pvss_params` contains the elliptic curve generators that should be used in the PVSS
     /// `rng` is a cryptographic random number generator
     pub fn new<R: Rng>(
         ed_key: ed25519::Keypair,
         params: Params,
-        pvss_params: PubliclyVerifiableParams<E>,
         rng: &mut R,
     ) -> Result<Self> {
         use ark_std::UniformRand;
@@ -45,7 +43,10 @@ where
             ed_key,
             session_keypair: PubliclyVerifiableKeypair::<E>::new(rng),
             params,
-            pvss_params,
+            pvss_params: PubliclyVerifiableParams::<E> {
+                g_1: E::G1Projective::prime_subgroup_generator(),
+                u_hat_1: E::G2Affine::prime_subgroup_generator(),
+            },
             participants: vec![],
             vss: BTreeMap::new(),
             domain,

@@ -33,8 +33,8 @@ criterion_main!(benches);
 pub fn pvdkg<E: ark_ec::PairingEngine>() {
     use ark_ec::{AffineCurve, ProjectiveCurve};
     let rng = &mut ark_std::test_rng();
-    use rand::SeedableRng;
-    let ed_rng = &mut rand::rngs::StdRng::from_seed([0u8; 32]);
+    use rand_old::SeedableRng;
+    let ed_rng = &mut rand_old::rngs::StdRng::from_seed([0u8; 32]);
 
     let params = Params {
         tau: 0u64,

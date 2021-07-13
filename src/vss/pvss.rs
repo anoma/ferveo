@@ -183,6 +183,8 @@ where
             return Err(anyhow!("wrong vss length"));
         }
 
+        //let pairings = vec![];
+        //let random_coefficients = vec![];
         // check e(F_0, u_hat_1) == e(g_1, u_hat_2)
         if E::pairing(self.coeffs[0], dkg.pvss_params.u_hat_1)
             != E::pairing(dkg.pvss_params.g_1, self.u_hat_2)
