@@ -86,6 +86,11 @@ Total cost:
 * 1 \\(\mathbb{G}_1\\) and 1 \\(\mathbb{G}_2\\) deserialize per ciphertext
 * 1 product of pairings
 
+## `TPKE.CreateDecryptionShare`
+
+\\[D_{i,j} = [b_i^{-1}] U_j\\]
+
+
 ## `TPKE.VerifyDecryptionShares`
 
 Given many valid ciphertexts \\((U_j,W_j)\\), on input potential decryption shares for each ciphertext \\(\{D_{i,j}\}\\) from a single validator \\(i\\) with blinded public key \\(B_i\\), the validity of those shares can be checked by:
