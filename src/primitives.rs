@@ -6,6 +6,9 @@ pub use keypair::*;
 pub mod subproductdomain;
 pub use subproductdomain::*;
 
+pub mod batch_inverse;
+pub use batch_inverse::*;
+
 /// Compute a fast multiexp of many scalars times the same base
 /// Only convenient for when called once with given base; if called
 /// more than once, it's faster to save the generated window table

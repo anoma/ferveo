@@ -109,7 +109,7 @@ Total cost:
 
 Given many valid ciphertexts \\((U_j,W_j)\\), on input 2/3 weight of potential decryption shares for each ciphertext \\(\{D_{i,j}\}\\), corresponding to validator set \\(\{i\}\\) with blinded public keys \\(B_i\\), the validity of those shares can be checked:
 
-\\[ \prod_i e(\sum_{j} [\alpha_{i,j}] D_i, P_i) = e(\sum_{i,j} [\alpha_{i,j}^{-1} U_j], H) \\]
+\\[ \prod_i e(\sum_{j} [\alpha_{i,j}] D_{i,j}, P_i) = e(\sum_{j} [ \sum_i \alpha_{i,j} U_j], H) \\]
 
 Total cost:
 * 1 G1 deserialize per validator

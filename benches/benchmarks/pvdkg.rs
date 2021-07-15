@@ -42,11 +42,6 @@ pub fn pvdkg<E: ark_ec::PairingEngine>() {
         total_weight: 300,
     };
 
-    let pvss_params = PubliclyVerifiableParams::<E> {
-        g_1: E::G1Projective::prime_subgroup_generator(),
-        u_hat_1: E::G2Affine::prime_subgroup_generator(),
-    };
-
     for _ in 0..1 {
         let mut contexts = vec![];
         for _ in 0..10 {
@@ -54,7 +49,6 @@ pub fn pvdkg<E: ark_ec::PairingEngine>() {
                 PubliclyVerifiableDKG::<E>::new(
                     ed25519_dalek::Keypair::generate(ed_rng),
                     params.clone(),
-                    pvss_params.clone(),
                     rng,
                 )
                 .unwrap(),
