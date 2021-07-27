@@ -109,12 +109,35 @@ Total cost:
 
 Given many valid ciphertexts \\((U_j,W_j)\\), on input 2/3 weight of potential decryption shares for each ciphertext \\(\{D_{i,j}\}\\), corresponding to validator set \\(\{i\}\\) with blinded public keys \\(B_i\\), the validity of those shares can be checked:
 
-\\[ \prod_i e(\sum_{j} [\alpha_{i,j}] D_{i,j}, P_i) = e(\sum_{j} [ \sum_i \alpha_{i,j} U_j], H) \\]
+\\[ \prod_i e(\sum_{j} [\alpha_{i,j}] D_{i,j}, P_i) = e([\sum_{i,j} \alpha_{i,j}] U_j, H) \\]
 
 Total cost:
 * 1 G1 deserialize per validator
 * V+1 pairings
 * 1 \\(\mathbb{G}_1\\) multiply and 1 \\(\mathbb{G}_2\\) multiply, per ciphertext.
+
+## `TPKE.AggregateDecryptionShares`
+
+Given many valid ciphertexts \\((U_j,W_j)\\), on input 2/3 weight of potential decryption shares for each ciphertext \\(\{D_{i,j}\}\\) sharing the same validator set, if decryption shares are only needed to check the validity of the decryption process, the decryption shares of many ciphertexts can be aggregated into one decryption share set. 
+
+For each ciphertext \\(j\\) compute the scalar coefficient:
+
+\\[ \rho_j = H(U_1, \ldots, U_k, j) \\]
+
+which can be used to compute the aggregated decryption share for validator \\(i\\):
+
+\\[\hat{D}_i = \sum_j \rho_j D_{i,j} \\]
+
+
+## `TPKE.VerifyAggregatedDecryptionShares`
+Given many valid ciphertexts \\((U_j,W_j)\\) and an aggregated decryption share set for those ciphertexts, the validity of the aggregation can be checked by computing the publicly known coefficients:
+
+\\[ \rho_j = H(U_1, \ldots, U_k, j) \\]
+
+and checking the pairing equation:
+
+\\[ \prod_i e(\sum_{j} [\rho_i] \hat{D}_{i}, P_i) = e([\sum_{i,j} \rho_i] U_j, H) \\]
+
 
 ## `TPKE.CombineDecryptionShares()`
 
@@ -129,11 +152,15 @@ and combined to get the final combined share \\(S_j = \prod_i S_{i,j}\\).
 Total cost: 
 * 1 pairing and 1 \\(\mathbb{G}_T\\) multiply per validator 
 
-## `TPKE.VerifyCombination`
+## `TPKE.VerifyAggregatedCombination`
 
-Verifying \\(S_j\\) for many ciphertexts with the same decrypting validator set can be done faster than generating each \\(S_j\\) separately. For each ciphertext \\((U_j, W_j)\\) with valid decryption shares \\( D_{i,j}\\), combined shares \\(\{S_j\}\\) and random scalars \\(\alpha_j\\), for each validator \\(i\\), an aggregated decryption share: 
+Verifying \\(\prod_j S_j\\) for many ciphertexts with the same decrypting validator set can be done faster than generating each \\(S_j\\) separately. For ciphertexts \\((U_j, W_j)\\) with valid aggregated decryption shares \\( \hat{D}_{i}\\) (checked by `TPKE.VerifyAggregatedDecryptionShares`), combined shares \\(\{S_j\}\\) and random scalars \\(\rho_j\\), for each validator \\(i\\), an aggregated decryption share: 
 
-\\[\hat{D}_i = \sum_j \alpha_j D_{i,j} \\]
+\\[\hat{D}_i = \sum_j \rho_j D_{i,j} \\]
+
+computed using unknown \\(D_{i,j}\\) but with the publicly known coefficients:
+
+\\[ \rho_j = H(U_1, \ldots, U_k, j) \\]
 
 can be used to compute an aggregated partial combined share \\(\hat{S}_i \\):
 

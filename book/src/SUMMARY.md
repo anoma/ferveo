@@ -10,7 +10,8 @@
   - [Initialization](./dkginit.md)
   - [Publicly Verifiable Secret Sharing](./pvss.md)
 - [Threshold Encryption Scheme](./tpke.md)
-  - [Complete Concrete Scheme](./tpke-concrete.md )
+  - [Lagrange Interpolation](./lagrange.md)
+  - [Complete Concrete Scheme](./tpke-concrete.md)
   - [Performance](./performance.md)
 - [Encrypted Transactions](./tx.md)
 
