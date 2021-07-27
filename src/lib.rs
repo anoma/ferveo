@@ -39,6 +39,3 @@ use ark_ec::msm::FixedBaseMSM;
 use ark_ff::PrimeField;
 
 use measure_time::print_time;
-
-pub mod tpke;
-pub use tpke::*;
