@@ -27,8 +27,15 @@ pub fn dkgs(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, dkgs);
-criterion_main!(benches);
+use pprof::criterion::{Output, PProfProfiler};
+
+criterion_group!{
+    name = pvdkg_bls;
+    config = Criterion::default().with_profiler(PProfProfiler::new(100, Output::Flamegraph(None)));
+    targets = dkgs
+}
+
+criterion_main!(pvdkg_bls);
 
 pub fn pvdkg<E: ark_ec::PairingEngine>() {
     use ark_ec::{AffineCurve, ProjectiveCurve};
