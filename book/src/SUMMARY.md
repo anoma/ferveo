@@ -11,6 +11,7 @@
   - [Publicly Verifiable Secret Sharing](./pvss.md)
 - [Threshold Encryption Scheme](./tpke.md)
   - [Lagrange Interpolation](./lagrange.md)
+  - [Decryption Share Aggregation](./aggregation.md)
   - [Complete Concrete Scheme](./tpke-concrete.md)
   - [Performance](./performance.md)
 - [Encrypted Transactions](./tx.md)
