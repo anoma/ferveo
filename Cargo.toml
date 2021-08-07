@@ -55,7 +55,8 @@ version = "0.9.0"
 features = ["alloc"]
 
 [dev-dependencies]
-criterion = "0.3"
+criterion = "=0.3.4"
+pprof = { version = "0.4", features = ["flamegraph", "criterion"] }
 
 # local override for bls12-381
 #[patch.crates-io]
@@ -86,6 +87,11 @@ debug = true
 #harness = false
 #debug = false
 
+#[[bench]]
+#name = "bench_main"
+#harness = false
+
 [[bench]]
-name = "bench_main"
+name = "pvdkg"
+path = "benches/benchmarks/pvdkg.rs"
 harness = false
