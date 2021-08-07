@@ -32,15 +32,14 @@ Total cost: \\( O(p \log p) \\)
 
 ## `TPKE.Encrypt(Y)`
 
-`TPKE.Encrypt(Y)` creates a new, random ciphertext \\((U,W)\\) encrypted to the public key \\(Y\\), and a corresponding ephemeral shared secret \\(S\\) such that the private key associated with \\(Y\\) can efficiently compute \\(S\\) from the ciphertext \\((U,W)\\). 
+`TPKE.Encrypt(Y, aad)` creates a new, random ciphertext \\((U,W)\\) encrypted to the public key \\(Y\\), and a corresponding ephemeral shared secret \\(S\\) such that the private key associated with \\(Y\\) can efficiently compute \\(S\\) from the ciphertext \\((U,W)\\). Additional authenticated data `aad` may be attached to the ciphertext.
 
 The ephemeral shared secret \\(S\\) can be used to derive a shared symmetric encryption key.
-
 
 1. Let \\(r\\) be a uniformly random scalar.
 2. Let \\(S = e([r] Y, H)\\)
 3. Let \\(U = [r] G\\)
-4. Let \\(W = [r] H_{\mathbb{G}_2} (U)\\)
+4. Let \\(W = [r] H_{\mathbb{G}_2} (U, aad)\\)
 
 Then \\((U,W)\\) is the ciphertext and \\(S\\) is the ephemeral shared secret. 
 
