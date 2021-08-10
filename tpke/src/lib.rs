@@ -204,4 +204,24 @@ mod tests {
         let plaintext = decrypt_with_shared_secret(&ciphertext, &s);
         assert!(plaintext == msg)
     }
+
+    #[test]
+    fn batch_verify() {
+        let rng = &mut ark_std::test_rng();
+        let shares_num = 120;
+        let threshold = shares_num * 2 / 3;
+        let num_entities = 120;
+        let msg: &[u8] = "abc".as_bytes();
+    
+        let (pubkey, _, contexts) = setup::<E>(threshold, shares_num, num_entities);
+        let ciphertext = encrypt::<_, E>(msg, pubkey, rng);
+        let mut shares: Vec<DecryptionShare<E>> = vec![];
+        for context in contexts.iter() {
+            shares.push(context.create_share(&ciphertext));
+        }
+        let ciphertext = (0..100).map(|_| ciphertext.clone()).collect::<Vec<_>>();
+        let shares = (0..100).map(|_| shares.clone()).collect::<Vec<_>>();
+        assert!(contexts[0].batch_verify_decryption_shares(&ciphertext, &shares, rng));
+    }
+
 }

@@ -63,18 +63,34 @@ impl<E: PairingEngine> PrivateDecryptionContext<E> {
 
         let mut sum_D_j = vec![E::G1Projective::zero(); num_shares];
 
+
+        println!("bp4");
+        use ark_ec::msm::VariableBaseMSM;
         // sum_D_j = { [\sum_j \alpha_{i,j} ] D_i }
-        for (D, alpha_j) in izip!(shares.iter(), alpha_ij.iter()) {
-            for (sum_alpha_D_i, Dij, alpha) in izip!(sum_D_j.iter_mut(), D.iter(), alpha_j.iter()) {
-                *sum_alpha_D_i += Dij.decryption_share.mul(*alpha);
-            }
+        for (D, alpha_j, sum_alpha_D_i) in izip!(shares.iter(), alpha_ij.iter(), sum_D_j.iter_mut())
+        {
+            let Dj: Vec<E::G1Affine> = D.iter().map(|Dij| Dij.decryption_share).collect::<Vec<_>>();
+            let alpha_j: Vec<<<E as ark_ec::PairingEngine>::Fr as PrimeField>::BigInt> = alpha_j.iter().map(|a| a.into_repr()).collect::<Vec<_>>();
+            *sum_alpha_D_i = VariableBaseMSM::multi_scalar_mul(&Dj, &alpha_j);
         }
+
+        // sum_D_j = { [\sum_j \alpha_{i,j} ] D_i }
+        // for (D, alpha_j) in izip!(shares.iter(), alpha_ij.iter()) {
+        //     for (sum_alpha_D_i, Dij, alpha) in izip!(sum_D_j.iter_mut(), D.iter(), alpha_j.iter()) {
+        //         *sum_alpha_D_i += Dij.decryption_share.mul(*alpha);
+        //     }
+        // }
 
         // e([\sum_j \alpha_{i,j} ] D_i, B_i)
         for (D_i, B_i) in izip!(sum_D_j.iter(), blinding_keys.iter()) {
             pairings.push((E::G1Prepared::from(D_i.into_affine()), B_i.clone()));
         }
 
-        E::product_of_pairings(&pairings) == E::Fqk::one()
+        // E::product_of_pairings(&pairings) == E::Fqk::one()
+        println!("bp6");
+        let ret = E::product_of_pairings(&pairings) == E::Fqk::one();
+        println!("bp7, ret= {}", ret);
+        return ret;
+
     }
 }
