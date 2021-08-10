@@ -32,7 +32,7 @@ pub fn bench_decryption(c: &mut Criterion) {
 
             dec_shares.push(Vec::with_capacity(threshold));
             for i in 0..num_entities {
-                dec_shares[j].push(contexts[i].create_share(&ciphertexts[j]));
+                dec_shares[j].push(contexts[i].create_decryption_share(&ciphertexts[j]));
             }
         }
         let prepared_blinded_key_shares = contexts[0].prepare_combine(&dec_shares[0]);
@@ -78,7 +78,7 @@ pub fn bench_decryption(c: &mut Criterion) {
 
             dec_shares.push(Vec::with_capacity(threshold));
             for i in 0..num_entities {
-                dec_shares[j].push(contexts[i].create_share(&ciphertexts[j]));
+                dec_shares[j].push(contexts[i].create_decryption_share(&ciphertexts[j]));
             }
         }
 

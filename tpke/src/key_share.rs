@@ -2,12 +2,12 @@ use crate::*;
 use ark_ec::ProjectiveCurve;
 use itertools::Itertools;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct PublicKeyShares<E: PairingEngine> {
     pub public_key_shares: Vec<E::G1Affine>, // A_{i, \omega_i}
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct BlindedKeyShares<E: PairingEngine> {
     pub blinding_key: E::G2Affine,                         // [b] H
     pub blinding_key_prepared: E::G2Prepared,              // [b] H
@@ -51,6 +51,7 @@ impl<E: PairingEngine> BlindedKeyShares<E> {
             (alpha_A_i, E::G2Prepared::from(self.blinding_key)),
         ]) == E::Fqk::one()
     }
+
     pub fn get_window_table(
         &self,
         window_size: usize,
@@ -67,12 +68,13 @@ impl<E: PairingEngine> BlindedKeyShares<E> {
             })
             .collect::<Vec<_>>()
     }
+
     pub fn multiply_by_omega_inv(&mut self, domain_inv: &[E::Fr]) {
         izip!(self.blinded_key_shares.iter_mut(), domain_inv.iter())
             .for_each(|(key, omega_inv)| *key = key.mul(-*omega_inv).into_affine())
     }
 }
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct BlindedKeyShareWindowTable<E: PairingEngine> {
     pub window_table: Vec<Vec<E::G2Affine>>,
 }

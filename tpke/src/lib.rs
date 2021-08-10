@@ -69,8 +69,6 @@ pub fn setup<E: PairingEngine>(
     let rng = &mut ark_std::test_rng();
     let g = E::G1Affine::prime_subgroup_generator();
     let h = E::G2Affine::prime_subgroup_generator();
-    let g_inv = E::G1Prepared::from(-g);
-    let h_inv = E::G2Prepared::from(-h);
 
     assert!(shares_num >= threshold);
     let threshold_poly = DensePolynomial::<E::Fr>::rand(threshold - 1, rng);
