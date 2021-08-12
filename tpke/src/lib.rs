@@ -71,10 +71,11 @@ pub fn setup<E: PairingEngine>(
     let h = E::G2Affine::prime_subgroup_generator();
 
     assert!(shares_num >= threshold);
-    let threshold_poly = DensePolynomial::<E::Fr>::rand(threshold - 1, rng);
 
+    let threshold_poly = DensePolynomial::<E::Fr>::rand(threshold - 1, rng);
     let fft_domain = ark_poly::Radix2EvaluationDomain::<E::Fr>::new(shares_num).unwrap();
     let evals = threshold_poly.evaluate_over_domain_by_ref(fft_domain);
+
     let mut domain_points = Vec::with_capacity(shares_num);
     let mut point = E::Fr::one();
     let mut domain_points_inv = Vec::with_capacity(shares_num);
@@ -189,7 +190,7 @@ mod tests {
 
         let mut shares: Vec<DecryptionShare<E>> = vec![];
         for context in contexts.iter() {
-            shares.push(context.create_share(&ciphertext));
+            shares.push(context.create_decryption_share(&ciphertext));
         }
         /*for pub_context in contexts[0].public_decryption_contexts.iter() {
             assert!(pub_context
