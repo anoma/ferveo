@@ -7,51 +7,48 @@ There are optimizations that can be done to increase decryption throughput when 
 The DKG and TPKE schemes support the following key operations:
 
 * `DKG.GenerateEpochKeypair() -> (ek, dk)`
-* `DKG.PartitionDomain() `
+* `DKG.PartitionDomain({ek_i, s_i}) -> {(ek_i, Omega_i)} `
 * `DKG.GeneratePVSS(tau, total_weight, {(s_i, ek_i)})`
-* `DKG.VerifyPVSS`
-* `DKG.AggregatePVSS`
+* `DKG.VerifyPVSS(tau, PVSS) -> bool`
+* `DKG.AggregatePVSS({PVSS_i}) -> PVSS`
+* `DKG.VerifyAggregatedPVSS({PVSS_i}, PVSS) -> bool`
 
 And supports the following ciphertext operations:
 
-* `TPKE.Encrypt(Y)` inputs a public threshold key \\(Y\\) and outputs a random ciphertext \\((U,W)\\) encrypted to that public key
-* `TPKE.Blind`
+* `TPKE.Encrypt(Y, aad)` inputs a public threshold key \\(Y\\) and outputs a random ciphertext \\((U,W)\\) encrypted to that public key
 * `TPKE.CiphertextValidity(U,W)` tests if $\\((U,W)\\) is a valid ciphertext
 * `TPKE.CreateDecryptionShare(dk_j, U_i,W_i) -> D_{i,j}`
-* `TPKE.VerifyDecryptionShares`
-* `TPKE.BatchVerifyDecryptionShares`
-* `TPKE.CombineDecryptionShares` combines decryption shares 
+* `TPKE.VerifyDecryptionShares(ek_i, { U_j }, { D_{i,j} }) -> bool`
+* `TPKE.BatchVerifyDecryptionShares({ek_i}, { U_j }, { D_{i,j} }) -> bool`
+* `TPKE.CombineDecryptionShares( {U_j}, {D_{i,j}) -> {S_j}` combines decryption shares 
 * `TPKE.VerifyCombination` verifies a combination for many 
-* `TPKE.DeriveSymmetricKey`
+* `TPKE.DeriveSymmetricKey(S_j) -> k_j`
 
 ## `DKG.GenerateEpochKeypair() -> (ek, dk)`
 
 Choose a uniformly random scalar \\(dk \in \mathbb{F}_r \\) and compute \\( ek = [dk] H \\)
 
-## `DKG.PartitionDomain() -> {(Omega_i, ek_i)}`
+## `DKG.PartitionDomain({ek_i, s_i}) -> {(ek_i, Omega_i)}`
 
-## `DKG.GeneratePVSS(tau, total_weight, {(Omega_i, ek_i)}) -> `
+## `DKG.GeneratePVSS(tau, total_weight, {(ek_i, Omega_i)}) -> PVSS`
 
-2. Choose a uniformly random polynomial \\(f(x) = \sum^p_i a_i x^i \\) of degree \\(t\\).
-3. Let \\(F_0, \ldots, F_p \leftarrow = [a_0] G, \ldots, [a_t] G \\)
-5. For each validator \\(i\\), for each \\(\omega_j \in \Omega_i\\), encrypt the evaluation \\( \hat{Y}_{i, \omega_j} \leftarrow [f(\omega_j)] ek_i  \\)
+1. Choose a uniformly random polynomial \\(f(x) = \sum^p_i a_i x^i \\) of degree \\(t\\).
+2. Let \\(F_0, \ldots, F_t \leftarrow = [a_0] G, \ldots, [a_t] G \\)
+3. For each validator \\(i\\), for each \\(\omega_j \in \Omega_i\\), encrypt the evaluation \\( Z_{i, \omega_j} \leftarrow [f(\omega_j)] ek_i  \\)
+4. \\(\sigma = [a_0] H_{\mathbb{G}_2}(tau,F_0) \\)
 
+Output PVSS = \\( ((F_0, sigma), (F_1, ldots, F_t), {Z_{i,\omega_j}}) \\)
 
-## `DKG.VerifyPVSS`
+## `DKG.VerifyPVSS(tau, PVSS) -> bool`
 
-## `DKG.AggregatePVSS`
+0. Decode \\( ((F_0, sigma), (F_1, ldots, F_t), {Z_{i,\omega_j}}) \leftarrow \\) PVSS
+1. Compute by FFT \\(A_1, \ldots, A_W \leftarrow \operatorname{FFT}(F_0, \ldots, F_t) \\)
+2. Compute \\(W\\) random scalars \\(\alpha_i \\)
+3. Check \\(\mathcal{O} = \prod_i e(-G_1, Z_{i,\omega_j})e(A_{i,\omega_j}, ek_i) \\)
 
-4. 
-4. Post the signed message \\(\tau, (F_0, \ldots, F_t), \hat{u}_2, (\hat{Y}_{i,\omega_j})\\) to the blockchain
+## `DKG.AggregatePVSS({PVSS_i}) -> PVSS`
 
-## `DKG.VerifyAggregatedPVSS`
-
-## Public verification
-
-1. Check \\(e(F_0, \hat{u}_1)=  e(G_1, \hat{u_2})\\)
-2. Compute by FFT \\(A_1, \ldots, A_W \leftarrow [f(\omega_0)]G_1, \ldots, [f(\omega_W)]G_1 \\)
-3. Partition \\(A_1, \ldots, A_W\\) into \\(A_{i,\omega_j} \\) for validator \\(i\\)'s shares \\(\omega_j\\)
-4. For each encrypted share \\(\hat{Y}_{i,\omega_i} \\), check \\(e(G_1, \hat{Y}_{i,\omega_j}) = e(A_{i,\omega_j}, ek_i) \\)
+## `DKG.VerifyAggregatedPVSS({PVSS_i}, PVSS) -> bool`
 
 ## Lagrange Coefficients
 
@@ -85,7 +82,8 @@ To provide chosen ciphertext security, ciphertext validity must be checked for e
 Total cost:
 * 1 \\(\mathbb{G}_1\\) and 1 \\(\mathbb{G}_2\\) deserialize per ciphertext
 * 1 product of pairings
-* 
+
+
 ## `TPKE.BatchCiphertextValidity( {U,W} ) -> bool`
 
 Once a block proposer has verified ciphertext validity, the entire block can be optimistically verified:
@@ -180,3 +178,7 @@ and combined to get an aggregated final combined share \\( \hat{S} = \prod_i \ha
 Total cost:
 * 1 pairing and 1 \\(\mathbb{G}_T\\) multiply per validator
 * 1 \\(\mathbb{G}_1\\) multiply and 1 \\(\mathbb{G}_T\\) multiply per ciphertext.
+
+## `TPKE.DeriveSymmetricKey(S_j) -> k_j`
+
+Use HKDF(S_j)

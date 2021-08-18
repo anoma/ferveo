@@ -12,9 +12,6 @@ pub struct PubliclyVerifiableSS<E: PairingEngine> {
     /// Feldman commitment to the VSS polynomial, F = g^{\phi}
     pub coeffs: Vec<E::G1Affine>,
 
-    // \hat{u}_2 = \hat{u}_1^{a_0}
-    pub u_hat_2: E::G2Affine,
-
     // ek_i^{f(\omega_j)}
     pub shares: Vec<ShareEncryptions<E>>,
 
@@ -80,8 +77,6 @@ where
         let (_, first_pvss) = pvss_iter.next().unwrap(); //TODO: unwrap?
         let mut coeffs = batch_to_projective(&first_pvss.coeffs);
 
-        let mut u_hat_2 = first_pvss.u_hat_2.into_projective();
-
         let mut shares = first_pvss
             .shares
             .iter()
@@ -91,7 +86,6 @@ where
             for (a, b) in coeffs.iter_mut().zip_eq(next.coeffs.iter()) {
                 *a += b.into_projective();
             }
-            u_hat_2 += next.u_hat_2.into_projective();
             for (a, b) in shares.iter_mut().zip_eq(next.shares.iter()) {
                 for (c, d) in a.iter_mut().zip_eq(b.iter()) {
                     *c += d.into_projective();
@@ -112,7 +106,6 @@ where
         }
         Self {
             coeffs: E::G1Projective::batch_normalization_into_affine(&coeffs),
-            u_hat_2: u_hat_2.into_affine(),
             shares,
             sigma,
             commitment: E::G1Projective::batch_normalization_into_affine(
@@ -155,13 +148,10 @@ where
 
         //phi.zeroize(); // TODO zeroize?
 
-        let u_hat_2 = dkg.pvss_params.u_hat_1.mul(*s).into_affine(); //TODO: new base
-
         let sigma = E::G2Affine::prime_subgroup_generator().mul(*s).into(); //todo hash to curve
 
         let vss = Self {
             coeffs,
-            u_hat_2,
             shares,
             sigma,
             commitment: vec![], // Optimistically avoid computing the commitment
@@ -183,14 +173,6 @@ where
             return Err(anyhow!("wrong vss length"));
         }
 
-        //let pairings = vec![];
-        //let random_coefficients = vec![];
-        // check e(F_0, u_hat_1) == e(g_1, u_hat_2)
-        if E::pairing(self.coeffs[0], dkg.pvss_params.u_hat_1)
-            != E::pairing(dkg.pvss_params.g_1, self.u_hat_2)
-        {
-            return Err(anyhow!("invalid"));
-        }
         {
             print_time!("check encryptions");
             //check e()

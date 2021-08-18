@@ -34,7 +34,6 @@ where
                 .floor() as u32
         })
         .collect::<Vec<u32>>();
-    //dbg!(&weights);
     // Add any excess weight to the largest weight participants
     let adjust_weight = params
         .total_weight

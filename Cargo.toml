@@ -15,7 +15,7 @@ authors = ["Heliax AG <hello@heliax.dev>"]
 [dependencies]
 ark-poly-commit = "0.3" 
 ark-std = "0.3"
-ark-pallas = "0.3"
+#ark-pallas = "0.3"
 ark-bls12-381 = "0.3"
 ark-ec = "0.3"
 ark-ff = "0.3"
@@ -30,8 +30,8 @@ miracl_core = "2.3.0"
 num = "0.4"
 sha2 = "0.9.1"
 ed25519-dalek = { version = "1", features = ["serde", "batch"] }
-x25519-dalek = { version = "1.1", features = ["serde"] }
-curve25519-dalek = { version = "3.0", features = ["serde"] }
+#x25519-dalek = { version = "1.1", features = ["serde"] }
+#curve25519-dalek = { version = "3.0", features = ["serde"] }
 serde = { version = "1.0", features = ["derive"] }
 blake2 = "0.9.1"
 rand_chacha = "0.3.0"
@@ -46,9 +46,9 @@ borsh = "0.9"
 subtle = "2.4"
 itertools = "0.10.1"
 measure_time = "0.7"
-redjubjub = "0.4.0"
-ark-ed-on-bls12-381 = "0.3.0"
-group-threshold-cryptography = {path = "./tpke/"}
+#redjubjub = "0.4.0"
+#ark-ed-on-bls12-381 = "0.3.0"
+#group-threshold-cryptography = {path = "./tpke/"}
 rand_core = "0.6"
 
 [dependencies.digest]
