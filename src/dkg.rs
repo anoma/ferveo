@@ -40,14 +40,3 @@ pub enum DKGState {
     Success,
     Invalid
 }
-// pub enum DKGState<E: ark_ec::PairingEngine> {
-//     Init {
-//         announce_messages: Vec<PubliclyVerifiableAnnouncement<E>>,
-//     },
-//     Sharing {
-//         finalized_weight: u32,
-//     },
-//     Success,
-//     Failure,
-// }
-
