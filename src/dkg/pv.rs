@@ -158,6 +158,8 @@ where
                         }
                         self.vss.insert(dealer, sharing);
                     }
+                    // TODO: Shall we add here a check whether enough dealers (> 66%) have shared their PVSS? If so, we'd move to a Dealt state.
+                    // Once we are in a dealt state, we'd trigger the generation of the transcript and share the decryption keys
                 }
                 Ok(None)
             }
