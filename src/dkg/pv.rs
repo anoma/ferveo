@@ -212,3 +212,261 @@ pub struct PubliclyVerifiableAnnouncement<E: PairingEngine> {
     pub session_key: PubliclyVerifiablePublicKey<E>,
     pub stake: u64,
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::dkg::PubliclyVerifiableDKG;
+    use crate::*;
+    use ark_bls12_381::G1Affine;
+    use ark_ec::{bls12::Bls12, PairingEngine};
+    use ark_std::{end_timer, start_timer};
+    use group_threshold_cryptography::{
+        decrypt_with_shared_secret, encrypt, setup, Ciphertext,
+        DecryptionShare, PrivateDecryptionContext, PrivateKeyShare,
+        PublicDecryptionContext, PublicKeyShares,
+    };
+    use itertools::izip;
+
+    // #[test]
+    // pub fn test_pv() {
+    //     extern crate rand_old;
+    //     use rand_old::rngs::OsRng;
+    //     use ark_bls12_381::Bls12_381;
+
+    //     let mut rng = &mut ark_std::test_rng();
+    //     let mut csprng = OsRng{};
+
+    //     let shares_num = 8192;
+    //     let threshold = shares_num*2/3;
+    //     let num_entities = 150;
+
+    //     let dkg_params = Params {
+    //         tau: 0,
+    //         security_threshold: threshold,
+    //         total_weight: shares_num
+    //     };
+
+    //     let ed_key: ed25519::Keypair = ed25519::Keypair::generate(&mut csprng);
+    //     let mut dkg: PubliclyVerifiableDKG<Bls12_381> = PubliclyVerifiableDKG::new(ed_key, dkg_params, rng).unwrap();
+    //     let pubkey = dkg.final_key();
+    //     let share_msg = dkg.share(rng).unwrap();
+
+    // }
+
+    #[test]
+    pub fn test_pvdkg_tpke() {
+        use ark_ec::{AffineCurve, ProjectiveCurve};
+        let rng = &mut ark_std::test_rng();
+        use rand_old::SeedableRng;
+        let ed_rng = &mut rand_old::rngs::StdRng::from_seed([0u8; 32]);
+
+        let params = Params {
+            tau: 0u64,
+            security_threshold: 300 / 3,
+            total_weight: 300,
+        };
+
+        // for _ in 0..1 {
+        let mut contexts = vec![];
+        for _ in 0..10 {
+            contexts.push(
+                PubliclyVerifiableDKG::<ark_bls12_381::Bls12_381>::new(
+                    ed25519_dalek::Keypair::generate(ed_rng),
+                    params.clone(),
+                    rng,
+                )
+                .unwrap(),
+            );
+        }
+        use std::collections::VecDeque;
+        let mut messages = VecDeque::new();
+
+        let stake = (0..150u64).map(|i| i).collect::<Vec<_>>();
+
+        for (participant, stake) in contexts.iter_mut().zip(stake.iter()) {
+            let announce = participant.announce(*stake);
+            messages.push_back(announce);
+        }
+
+        let msg_loop =
+            |contexts: &mut Vec<
+                PubliclyVerifiableDKG<ark_bls12_381::Bls12_381>,
+            >,
+             messages: &mut VecDeque<SignedMessage>| loop {
+                if messages.is_empty() {
+                    break;
+                }
+                let signed_message = messages.pop_front().unwrap();
+                for node in contexts.iter_mut() {
+                    let (_, message) = signed_message.verify().unwrap();
+                    let new_msg = node
+                        .handle_message(&signed_message.signer, message)
+                        .unwrap();
+                    if let Some(new_msg) = new_msg {
+                        messages.push_back(new_msg);
+                    }
+                }
+            };
+
+        msg_loop(&mut contexts, &mut messages);
+
+        for participant in contexts.iter_mut() {
+            participant.finish_announce().unwrap();
+        }
+
+        msg_loop(&mut contexts, &mut messages);
+
+        let mut dealt_weight = 0u32;
+        let mut pvss = vec![];
+        for participant in contexts.iter_mut() {
+            if dealt_weight < params.total_weight - params.security_threshold {
+                let msg = participant.share(rng).unwrap();
+                let msg: PubliclyVerifiableMessage<ark_bls12_381::Bls12_381> =
+                    msg; //.verify().unwrap().1;
+                pvss.push((participant.ed_key.public.clone(), msg));
+                //messages.push_back(msg);
+                dealt_weight += participant.participants[participant.me].weight;
+            }
+        }
+        for msg in pvss.iter() {
+            for node in contexts.iter_mut() {
+                node.handle_message(&msg.0, msg.1.clone()).unwrap();
+            }
+        }
+        msg_loop(&mut contexts, &mut messages);
+
+        let tpke_pubkey = contexts[0].final_key();
+
+        ///////////////////////////////////////// TPKE /////////////////////////////////////////
+        let threshold = contexts[0].params.security_threshold as usize; //16 * 2 / 3;
+        let shares_num = contexts[0].params.total_weight as usize; //16;
+        let num_entities = contexts.len();
+        let msg: &[u8] = "abc".as_bytes();
+
+        // let (_, privkey, tpke_contexts) = setup::<ark_bls12_381::Bls12_381>(
+        //     threshold,
+        //     shares_num,
+        //     num_entities,
+        // );
+
+        use ark_std::UniformRand;
+        let rng = &mut ark_std::test_rng();
+
+        let window_size = FixedBaseMSM::get_mul_window_size(100);
+        let scalar_bits = <Bls12<ark_bls12_381::Parameters> as PairingEngine>::Fr::size_in_bits();
+        let g = <Bls12<ark_bls12_381::Parameters> as PairingEngine>::G1Affine::prime_subgroup_generator();
+        let h = <Bls12<ark_bls12_381::Parameters> as PairingEngine>::G2Affine::prime_subgroup_generator();
+
+        let mut private_contexts = vec![];
+        let mut public_contexts = vec![];
+
+        // pub struct PubliclyVerifiableDKG<E>
+        // {
+        //     pub ed_key: ed25519::Keypair,
+        // pub params: Params,
+        //     pub pvss_params: PubliclyVerifiableParams<E>,
+        // pub session_keypair: PubliclyVerifiableKeypair<E>,
+        //     pub participants: Vec<PubliclyVerifiableParticipant<E>>,
+        //     pub vss: BTreeMap<u32, PubliclyVerifiableSS<E>>,
+        //     pub domain: ark_poly::Radix2EvaluationDomain<E::Fr>,
+        //     pub state: DKGState<E>,
+        //     pub me: usize,
+        //     pub local_shares: Vec<E::G2Affine>,
+        // }
+
+        let fft_domain = ark_poly::Radix2EvaluationDomain::<
+            <Bls12<ark_bls12_381::Parameters> as PairingEngine>::Fr,
+        >::new(shares_num)
+        .unwrap();
+        let mut domain_points = Vec::with_capacity(shares_num);
+        let mut point =
+            <Bls12<ark_bls12_381::Parameters> as PairingEngine>::Fr::one();
+        let mut domain_points_inv = Vec::with_capacity(shares_num);
+        let mut point_inv =
+            <Bls12<ark_bls12_381::Parameters> as PairingEngine>::Fr::one();
+
+        for _ in 0..shares_num {
+            domain_points.push(point);
+            point *= fft_domain.group_gen;
+            domain_points_inv.push(point_inv);
+            point_inv *= fft_domain.group_gen_inv;
+        }
+
+        // let pubkey_shares: Vec<
+        //     <Bls12<ark_bls12_381::Parameters> as PairingEngine>::G1Affine,
+        // > = vec![];
+
+        // for context in contexts {
+        for (_, (context, domain, domain_inv, public)) in izip!(
+            contexts,
+            domain_points.chunks(shares_num / num_entities),
+            domain_points_inv.chunks(shares_num / num_entities),
+            pubkey_shares.chunks(shares_num / num_entities),
+        )
+        .enumerate()
+        {
+            let b =
+                <Bls12<ark_bls12_381::Parameters> as PairingEngine>::Fr::rand(
+                    rng,
+                );
+            let private_key_share = PrivateKeyShare::<ark_bls12_381::Bls12_381> {
+                private_key_shares: context.local_shares,
+            };
+            let mut blinded_key_shares = private_key_share.blind(b.clone());
+            blinded_key_shares.multiply_by_omega_inv(domain_inv);
+
+            private_contexts.push(PrivateDecryptionContext::<ark_bls12_381::Bls12_381> {
+                index: context.me,
+                b,
+                b_inv: b.inverse().unwrap(),
+                private_key_share,
+                public_decryption_contexts: vec![],
+                g,
+                g_inv: <Bls12<ark_bls12_381::Parameters> as PairingEngine>::G1Prepared::from(-g),
+                h_inv: <Bls12<ark_bls12_381::Parameters> as PairingEngine>::G2Prepared::from(-h),
+                scalar_bits,
+                window_size,
+            });
+            let mut lagrange_N_0 = domain.iter().product::<<Bls12<ark_bls12_381::Parameters> as PairingEngine>::Fr>();
+            if domain.len() % 2 == 1 {
+                lagrange_N_0 = -lagrange_N_0;
+            }
+            public_contexts.push(PublicDecryptionContext::<
+                ark_bls12_381::Bls12_381,
+            > {
+                domain: domain.to_vec(),
+                public_key_shares: PublicKeyShares::<ark_bls12_381::Bls12_381> {
+                    public_key_shares: public.to_vec(),
+                },
+                blinded_key_shares,
+                lagrange_N_0,
+            });
+        }
+        for private in private_contexts.iter_mut() {
+            private.public_decryption_contexts = public_contexts.clone();
+        }
+
+        let ciphertext =
+            encrypt::<_, ark_bls12_381::Bls12_381>(msg, tpke_pubkey, rng);
+
+        // create Decryption Shares
+        let mut shares: Vec<DecryptionShare<ark_bls12_381::Bls12_381>> = vec![];
+        for context in private_contexts.iter() {
+            shares.push(context.create_decryption_share(&ciphertext));
+        }
+
+        let prepared_blinded_key_shares =
+            private_contexts[0].prepare_combine(&shares);
+        let s = private_contexts[0].share_combine(
+            &ciphertext,
+            &shares,
+            &prepared_blinded_key_shares,
+        );
+
+        let plaintext = decrypt_with_shared_secret(&ciphertext, &s);
+        assert!(plaintext == msg)
+
+        // }
+    }
+}

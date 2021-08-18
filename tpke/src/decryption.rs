@@ -8,7 +8,7 @@ pub struct DecryptionShare<E: PairingEngine> {
 }
 
 impl<E: PairingEngine> PrivateDecryptionContext<E> {
-    pub fn create_share(&self, ciphertext: &Ciphertext<E>) -> DecryptionShare<E> {
+    pub fn create_decryption_share(&self, ciphertext: &Ciphertext<E>) -> DecryptionShare<E> {
         let decryption_share = ciphertext.nonce.mul(self.b_inv).into_affine();
 
         DecryptionShare {

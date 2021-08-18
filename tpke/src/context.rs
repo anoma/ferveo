@@ -1,6 +1,6 @@
 use crate::*;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct PublicDecryptionContext<E: PairingEngine> {
     pub domain: Vec<E::Fr>,
     pub public_key_shares: PublicKeyShares<E>,
@@ -9,6 +9,7 @@ pub struct PublicDecryptionContext<E: PairingEngine> {
     pub lagrange_N_0: E::Fr,
 }
 
+#[derive(Debug)]
 pub struct PrivateDecryptionContext<E: PairingEngine> {
     pub index: usize,
     pub b: E::Fr,

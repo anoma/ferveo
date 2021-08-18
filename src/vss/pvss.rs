@@ -278,13 +278,13 @@ fn test_pvss() {
 
 #[test]
 fn test_pvss() {
-    let rng = &mut ark_std::test_rng();
+    let mut rng = &mut ark_std::test_rng();
     use ark_bls12_381::Bls12_381;
     type Fr = <Bls12_381 as PairingEngine>::Fr;
     type G1 = <Bls12_381 as PairingEngine>::G1Affine;
     type G2 = <Bls12_381 as PairingEngine>::G2Affine;
 
-    let mut phi = DensePolynomial::<Fr>::rand(8192 / 3, rng);
+    let mut phi = DensePolynomial::<Fr>::rand(8192 / 3, &mut rng);
     use ark_std::UniformRand;
     let domain = ark_poly::Radix2EvaluationDomain::<Fr>::new(8192)
         .ok_or_else(|| anyhow!("unable to construct domain"))
@@ -310,4 +310,19 @@ fn test_pvss() {
             )
         })
         .collect::<Vec<_>>();
+
+    // use group_threshold_cryptography::*;
+    // // let mut rng = test_rng
+    // let shares_num = 8192;();
+    // let threshold = shares_num*2/3;
+    // let num_entities = 150;
+
+    // let msg: &[u8] = "abc".as_bytes();
+
+    // // let (pubkey, privkey, _) = setup::<Bls12_381>(threshold, shares_num, num_entities);
+
+    // let ciphertext = encrypt::<ark_std::rand::rngs::StdRng, Bls12_381>(msg, pubkey, &mut rng);
+    // let plaintext = decrypt(&ciphertext, privkey);
+
+    // assert!(msg == plaintext)
 }
