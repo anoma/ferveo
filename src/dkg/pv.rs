@@ -55,7 +55,8 @@ where
             me: 0, // TODO: invalid value
             //final_state: None,
             local_shares: vec![],
-            // TODO: Read from storage
+            // TODO: Validators don't announce themselves through DKG
+            // TODO: Instead, we read stakes from storage
             announce_messages: vec![],
         })
     }
@@ -110,20 +111,6 @@ where
             .into_affine()
     }
 
-    /// Create an `Announce` message
-    /// `stake`: the amount staked by this participant in the DKG
-    /// Returns an Announcement nessage to post on chain
-    // pub fn announce(&mut self, stake: u64) -> SignedMessage {
-    //     SignedMessage::sign(
-    //         self.params.tau,
-    //         &PubliclyVerifiableMessage::Announce {
-    //             stake,
-    //             session_key: self.session_keypair.public(),
-    //         },
-    //         &self.ed_key,
-    //     )
-    // }
-
     /// Handle a DKG related message posted on chain
     /// `signer` is the ed25519 public key of the sender of the message
     /// `payload` is the content of the message
@@ -133,20 +120,6 @@ where
         payload: PubliclyVerifiableMessage<E>,
     ) -> Result<Option<SignedMessage>> {
         match payload {
-            // TODO: Validators don't announce themselves through DKG
-            // TODO: Instead, we read stakes from storage
-            // PubliclyVerifiableMessage::Announce { stake, session_key } => {
-            //     if let DKGState::Init { announce_messages } = &mut self.state {
-            //         announce_messages.push(
-            //             PubliclyVerifiableAnnouncement::<E> {
-            //                 stake,
-            //                 session_key,
-            //                 signer: *signer,
-            //             },
-            //         );
-            //     }
-            //     Ok(None)
-            // }
             PubliclyVerifiableMessage::Deal(sharing) => {
                 if let DKGState::Init = self.state {
                     let dealer = self.find_by_key(signer).ok_or_else(|| {
@@ -189,10 +162,6 @@ where
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(bound = "")]
 pub enum PubliclyVerifiableMessage<E: PairingEngine> {
-    // Announce {
-    //     stake: u64,
-    //     session_key: PubliclyVerifiablePublicKey<E>,
-    // },
     #[serde(with = "ark_serde")]
     Deal(PubliclyVerifiableSS<E>),
     #[serde(with = "ark_serde")]
