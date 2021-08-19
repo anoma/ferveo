@@ -7,25 +7,35 @@ Transactions sent to the mempool should be encrypted to this public key, and blo
 An encrypted transaction consists of:
 
 - The public key ciphertext \\(U, W\\) associated with this transaction
-- The ChaCha20 encrypted payload of the transaction, with symmetric key derived from \\(U, W\\)
-- A BLAKE2b hash of the transaction payload
+- The key-committing AEAD encrypted payload of the transaction, with symmetric key derived from \\(U, W\\)
 - Transaction fee payment details
+- The epoch number that the tx is being encrypted to. 
 
 The inclusion of fee payment outside of the payload ensures that the network is not saturated with invalid transactions.
+
+The encryption method is then ran roughly as:
+1. Sample private key `k`.
+2. Compute Ciphertext as `CT = KC_AEAD.Encrypt(key=Hash(k * threshold_pubkey), msg={state machine tx}, additional_data={empty})`
+3. Run Threshold Encryption as `TE.Encrypt(private_key=k, threshold_pubkey, ciphertext=ct, additional_data={tx fee details, epoch number})`
 
 ## Block proposal
 
 A block proposal, therefore, consists of:
 
 1.  Validator-selected encrypted transactions (likely ordered by fee)
-2.  Combined decryption shares for all transactions in the previous block
-3.  Decryptions of transactions from the previous block.   
- 
-Availability of decryption shares for those transactions is guaranteed by new block finalization rules, and it is the block proposer's responsibility to combine the decryption shares to derive each transaction's symmetric key, and to compute the ChaCha20 decryption of each encrypted transaction's payload.
+2.  Decryption data for all transactions in the previous block
+
+Availability of decryption shares for those transactions is guaranteed by new block finalization rules, and it is the block proposer's responsibility to combine the decryption shares to derive each transaction's symmetric key, and to compute the AEAD decryption of each encrypted transaction's payload.
+
+The decryption data for a tx is oneof (`encryption_private_key`, `list of decryption shares`). For a validly constructed transaction, the decryption shares can be combined to get the symmetric key. The combined share can then be included within the block, and every node can check its validity by correctness of the key-committing AEAD.
+
+If the tx was invalidly constructed, then all of the constituent decryption shares must get posted on-chain for verifyability.**
 
 Constructing a valid block proposal therefore executes 1 `TPKE.CombineDecryptionShares` operation per transaction per block signer in the previous block.
 
 Verifying the validity of a block proposal therefore executes 1 `TPKE.VerifyCombination` operation per block signer in the previous block. 
+
+** There is an optimization where we only need one list of 'cross-tx combined' decryption shares, for all invalid txs per block.
 
 ## Block finalization
 
