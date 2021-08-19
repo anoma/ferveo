@@ -30,13 +30,13 @@ pub struct Params {
 }
 
 #[derive(Debug, Clone)]
-pub enum DKGState<E: ark_ec::PairingEngine> {
-    Init {
-        announce_messages: Vec<PubliclyVerifiableAnnouncement<E>>,
-    },
-    Sharing {
-        finalized_weight: u32,
+pub enum DKGState {
+    Init,
+    Dealt,
+    Shared,
+    Aggregated {
+        finalized_weight: u32
     },
     Success,
-    Failure,
+    Invalid
 }
