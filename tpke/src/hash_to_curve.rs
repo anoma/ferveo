@@ -17,6 +17,7 @@ fn ceil(a: usize, b: usize) -> usize {
     (a - 1) / b + 1
 }
 
+#[allow(dead_code)]
 fn hash_to_field_bls12381(
     hash: usize,
     hlen: usize,
@@ -80,6 +81,7 @@ fn hash_to_field2_bls12381(
     u
 }
 
+#[allow(dead_code)]
 pub fn htp_bls12381_g1(msg: &[u8]) -> ark_bls12_381::G1Affine {
     let dst = "QUUX-V01-CS02-with-BLS12381G1_XMD:SHA-256_SSWU_RO_".as_bytes();
     let u = hash_to_field_bls12381(hmac::MC_SHA2, ecp::HASH_TYPE, dst, msg, 2);
@@ -136,11 +138,13 @@ mod tests {
         hex::decode_to_slice(expected_hex_string, &mut expected_compressed)
             .expect("Failed to decode hex");
 
-        let mut expected_compressed_rev = expected_compressed.clone();
+        let mut expected_compressed_rev = expected_compressed;
         expected_compressed_rev[0] &= (1 << 5) - 1;
         expected_compressed_rev.reverse();
 
-        let expected = ark_bls12_381::G1Affine::deserialize(&expected_compressed_rev[..]).unwrap();
+        let expected =
+            ark_bls12_381::G1Affine::deserialize(&expected_compressed_rev[..])
+                .unwrap();
 
         let res = htp_bls12381_g1(msg);
 
@@ -152,11 +156,13 @@ mod tests {
         hex::decode_to_slice(expected_hex_string, &mut expected_compressed)
             .expect("Failed to decode hex");
 
-        let mut expected_compressed_rev = expected_compressed.clone();
+        let mut expected_compressed_rev = expected_compressed;
         expected_compressed_rev[0] &= (1 << 5) - 1;
         expected_compressed_rev.reverse();
 
-        let expected = ark_bls12_381::G2Affine::deserialize(&expected_compressed_rev[..]).unwrap();
+        let expected =
+            ark_bls12_381::G2Affine::deserialize(&expected_compressed_rev[..])
+                .unwrap();
 
         let res = htp_bls12381_g2(msg);
 

@@ -3,7 +3,7 @@ use ark_ec::PairingEngine;
 use ark_std::{end_timer, start_timer};
 
 /// The DKG context that holds all of the local state for participating in the DKG
-pub struct PubliclyVerifiableDKG<E>
+pub struct PubliclyVerifiableDkg<E>
 where
     E: PairingEngine,
 {
@@ -14,12 +14,12 @@ where
     pub participants: Vec<PubliclyVerifiableParticipant<E>>,
     pub vss: BTreeMap<u32, PubliclyVerifiableSS<E>>,
     pub domain: ark_poly::Radix2EvaluationDomain<E::Fr>,
-    pub state: DKGState<E>,
+    pub state: DkgState<E>,
     pub me: usize,
     pub local_shares: Vec<E::G2Affine>,
 }
 
-impl<E> PubliclyVerifiableDKG<E>
+impl<E> PubliclyVerifiableDkg<E>
 where
     E: PairingEngine,
 {
@@ -50,7 +50,7 @@ where
             participants: vec![],
             vss: BTreeMap::new(),
             domain,
-            state: DKGState::<E>::Init {
+            state: DkgState::<E>::Init {
                 announce_messages: vec![],
             },
             me: 0, // TODO: invalid value
@@ -92,13 +92,13 @@ where
     /// Partitions the share domain among the announced participants
     /// and begins the sharing phase of the DKG
     pub fn finish_announce(&mut self) -> Result<()> {
-        if let DKGState::Init { announce_messages } = &mut self.state {
+        if let DkgState::Init { announce_messages } = &mut self.state {
             self.participants =
                 partition_domain(&self.params, announce_messages)?;
             self.me = self
                 .find_by_key(&self.ed_key.public)
                 .ok_or_else(|| anyhow!("self not found"))?;
-            self.state = DKGState::Sharing {
+            self.state = DkgState::Sharing {
                 finalized_weight: 0u32,
             };
         }
@@ -137,7 +137,7 @@ where
     ) -> Result<Option<SignedMessage>> {
         match payload {
             PubliclyVerifiableMessage::Announce { stake, session_key } => {
-                if let DKGState::Init { announce_messages } = &mut self.state {
+                if let DkgState::Init { announce_messages } = &mut self.state {
                     announce_messages.push(
                         PubliclyVerifiableAnnouncement::<E> {
                             stake,
@@ -149,7 +149,10 @@ where
                 Ok(None)
             }
             PubliclyVerifiableMessage::Sharing(sharing) => {
-                if let DKGState::Sharing { finalized_weight } = self.state {
+                if let DkgState::Sharing {
+                    finalized_weight: _,
+                } = self.state
+                {
                     let dealer = self.find_by_key(signer).ok_or_else(|| {
                         anyhow!("received dealing from unknown dealer")
                     })? as u32;
@@ -163,7 +166,10 @@ where
                 Ok(None)
             }
             PubliclyVerifiableMessage::Aggregate(vss) => {
-                if let DKGState::Sharing { finalized_weight } = self.state {
+                if let DkgState::Sharing {
+                    finalized_weight: _,
+                } = self.state
+                {
                     let minimum_weight = self.params.total_weight
                     //- self.params.failure_threshold
                     - self.params.security_threshold;
@@ -171,16 +177,15 @@ where
                         vss.verify_aggregation(&self)?;
                     if verified_weight >= minimum_weight {
                         self.local_shares = local_shares;
-                        self.state = DKGState::Success;
+                        self.state = DkgState::Success;
                     } else {
-                        self.state = DKGState::Sharing {
+                        self.state = DkgState::Sharing {
                             finalized_weight: verified_weight,
                         };
                     }
                 }
                 Ok(None)
-            }
-            _ => Err(anyhow!("Unknown message type for this DKG engine")),
+            } //_ => Err(anyhow!("Unknown message type for this DKG engine")),
         }
     }
 }

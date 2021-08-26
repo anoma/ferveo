@@ -4,7 +4,7 @@ use ferveo::*;
 pub fn dkgs(c: &mut Criterion) {
     // use a fixed seed for reproducability
     use rand::SeedableRng;
-    let mut rng = rand::rngs::StdRng::seed_from_u64(0);
+    let _rng = rand::rngs::StdRng::seed_from_u64(0);
 
     let mut group = c.benchmark_group("compare DKGs with 8192 shares");
     group.sample_size(10);
@@ -23,13 +23,13 @@ pub fn dkgs(c: &mut Criterion) {
     // 2130.7 seconds per iteration to verify pairwise
     group.measurement_time(core::time::Duration::new(60, 0));
     group.bench_function("PVDKG BLS12-381", |b| {
-        b.iter(|| pvdkg::<ark_bls12_381::Bls12_381>())
+        b.iter(pvdkg::<ark_bls12_381::Bls12_381>)
     });
 }
 
 use pprof::criterion::{Output, PProfProfiler};
 
-criterion_group!{
+criterion_group! {
     name = pvdkg_bls;
     config = Criterion::default().with_profiler(PProfProfiler::new(100, Output::Flamegraph(None)));
     targets = dkgs
@@ -38,7 +38,6 @@ criterion_group!{
 criterion_main!(pvdkg_bls);
 
 pub fn pvdkg<E: ark_ec::PairingEngine>() {
-    use ark_ec::{AffineCurve, ProjectiveCurve};
     let rng = &mut ark_std::test_rng();
     use rand_old::SeedableRng;
     let ed_rng = &mut rand_old::rngs::StdRng::from_seed([0u8; 32]);
@@ -53,9 +52,9 @@ pub fn pvdkg<E: ark_ec::PairingEngine>() {
         let mut contexts = vec![];
         for _ in 0..10 {
             contexts.push(
-                PubliclyVerifiableDKG::<E>::new(
+                PubliclyVerifiableDkg::<E>::new(
                     ed25519_dalek::Keypair::generate(ed_rng),
-                    params.clone(),
+                    params,
                     rng,
                 )
                 .unwrap(),
@@ -64,7 +63,7 @@ pub fn pvdkg<E: ark_ec::PairingEngine>() {
         use std::collections::VecDeque;
         let mut messages = VecDeque::new();
 
-        let stake = (0..150u64).map(|i| i).collect::<Vec<_>>();
+        let stake = (0..150u64).collect::<Vec<_>>();
 
         for (participant, stake) in contexts.iter_mut().zip(stake.iter()) {
             let announce = participant.announce(*stake);
@@ -72,7 +71,7 @@ pub fn pvdkg<E: ark_ec::PairingEngine>() {
         }
 
         let msg_loop =
-            |contexts: &mut Vec<PubliclyVerifiableDKG<E>>,
+            |contexts: &mut Vec<PubliclyVerifiableDkg<E>>,
              messages: &mut VecDeque<SignedMessage>| loop {
                 if messages.is_empty() {
                     break;
@@ -103,7 +102,7 @@ pub fn pvdkg<E: ark_ec::PairingEngine>() {
             if dealt_weight < params.total_weight - params.security_threshold {
                 let msg = participant.share(rng).unwrap();
                 let msg: PubliclyVerifiableMessage<E> = msg; //.verify().unwrap().1;
-                pvss.push((participant.ed_key.public.clone(), msg));
+                pvss.push((participant.ed_key.public, msg));
                 //messages.push_back(msg);
                 dealt_weight += participant.participants[participant.me].weight;
             }

@@ -1,7 +1,6 @@
-use crate::*;
-use chacha20poly1305::aead::{generic_array::GenericArray, Aead, NewAead};
-
 use ark_ec::PairingEngine;
+
+use crate::*;
 
 #[derive(Serialize, Deserialize, Copy, Clone, Debug)]
 pub struct PubliclyVerifiablePublicKey<E>

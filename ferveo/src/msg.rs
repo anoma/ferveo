@@ -2,7 +2,6 @@ use ed25519_dalek as ed25519;
 use ed25519_dalek::Signer;
 
 use crate::*;
-use ark_std::{end_timer, start_timer};
 use serde::{Deserialize, Serialize};
 
 pub mod ark_serde {

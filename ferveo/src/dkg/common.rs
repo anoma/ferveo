@@ -23,8 +23,7 @@ where
     let total_stake: f64 = announce_messages
         .iter()
         .map(|p| p.stake as f64)
-        .sum::<f64>()
-        .into();
+        .sum::<f64>();
 
     // Compute the weight of each participant rounded down
     let mut weights = announce_messages

@@ -30,7 +30,7 @@ pub struct Params {
 }
 
 #[derive(Debug, Clone)]
-pub enum DKGState<E: ark_ec::PairingEngine> {
+pub enum DkgState<E: ark_ec::PairingEngine> {
     Init {
         announce_messages: Vec<PubliclyVerifiableAnnouncement<E>>,
     },

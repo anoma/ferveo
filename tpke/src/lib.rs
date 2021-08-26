@@ -3,12 +3,11 @@ use crate::subproductdomain::SubproductDomain;
 use ark_ec::{msm::FixedBaseMSM, AffineCurve, PairingEngine};
 use ark_ff::{Field, One, PrimeField, ToBytes, UniformRand, Zero};
 use ark_poly::EvaluationDomain;
-use ark_poly::{univariate::DensePolynomial, Polynomial, UVPolynomial};
+use ark_poly::{univariate::DensePolynomial, UVPolynomial};
 use ark_serialize::CanonicalSerialize;
 use itertools::izip;
 
 use rand_core::RngCore;
-use rayon::prelude::*;
 use std::usize;
 use thiserror::Error;
 
@@ -53,7 +52,10 @@ fn hash_to_g2<T: ark_serialize::CanonicalDeserialize>(message: &[u8]) -> T {
     T::deserialize(&point_ser[..]).unwrap()
 }
 
-fn construct_tag_hash<E: PairingEngine>(u: E::G1Affine, stream_ciphertext: &[u8]) -> E::G2Affine {
+fn construct_tag_hash<E: PairingEngine>(
+    u: E::G1Affine,
+    stream_ciphertext: &[u8],
+) -> E::G2Affine {
     let mut hash_input = Vec::<u8>::new();
     u.write(&mut hash_input).unwrap();
     hash_input.extend_from_slice(stream_ciphertext);
@@ -69,13 +71,14 @@ pub fn setup<E: PairingEngine>(
     let rng = &mut ark_std::test_rng();
     let g = E::G1Affine::prime_subgroup_generator();
     let h = E::G2Affine::prime_subgroup_generator();
-    let g_inv = E::G1Prepared::from(-g);
-    let h_inv = E::G2Prepared::from(-h);
+    let _g_inv = E::G1Prepared::from(-g);
+    let _h_inv = E::G2Prepared::from(-h);
 
     assert!(shares_num >= threshold);
     let threshold_poly = DensePolynomial::<E::Fr>::rand(threshold - 1, rng);
 
-    let fft_domain = ark_poly::Radix2EvaluationDomain::<E::Fr>::new(shares_num).unwrap();
+    let fft_domain =
+        ark_poly::Radix2EvaluationDomain::<E::Fr>::new(shares_num).unwrap();
     let evals = threshold_poly.evaluate_over_domain_by_ref(fft_domain);
     let mut domain_points = Vec::with_capacity(shares_num);
     let mut point = E::Fr::one();
@@ -92,8 +95,10 @@ pub fn setup<E: PairingEngine>(
     let window_size = FixedBaseMSM::get_mul_window_size(100);
     let scalar_bits = E::Fr::size_in_bits();
 
-    let pubkey_shares = subproductdomain::fast_multiexp(&evals.evals, g.into_projective());
-    let privkey_shares = subproductdomain::fast_multiexp(&evals.evals, h.into_projective());
+    let pubkey_shares =
+        subproductdomain::fast_multiexp(&evals.evals, g.into_projective());
+    let privkey_shares =
+        subproductdomain::fast_multiexp(&evals.evals, h.into_projective());
 
     let x = threshold_poly.coeffs[0];
     let pubkey = g.mul(x);
@@ -114,7 +119,7 @@ pub fn setup<E: PairingEngine>(
             private_key_shares: private.to_vec(),
         };
         let b = E::Fr::rand(rng);
-        let mut blinded_key_shares = private_key_share.blind(b.clone());
+        let mut blinded_key_shares = private_key_share.blind(b);
         blinded_key_shares.multiply_by_omega_inv(domain_inv);
         /*blinded_key_shares.window_tables =
         blinded_key_shares.get_window_table(window_size, scalar_bits, domain_inv);*/
@@ -130,9 +135,9 @@ pub fn setup<E: PairingEngine>(
             scalar_bits,
             window_size,
         });
-        let mut lagrange_N_0 = domain.iter().product::<E::Fr>();
+        let mut lagrange_n_0 = domain.iter().product::<E::Fr>();
         if domain.len() % 2 == 1 {
-            lagrange_N_0 = -lagrange_N_0;
+            lagrange_n_0 = -lagrange_n_0;
         }
         public_contexts.push(PublicDecryptionContext::<E> {
             domain: domain.to_vec(),
@@ -140,7 +145,7 @@ pub fn setup<E: PairingEngine>(
                 public_key_shares: public.to_vec(),
             },
             blinded_key_shares,
-            lagrange_N_0,
+            lagrange_n_0,
         });
     }
     for private in private_contexts.iter_mut() {
@@ -150,7 +155,10 @@ pub fn setup<E: PairingEngine>(
     (pubkey.into(), privkey.into(), private_contexts)
 }
 
-pub fn generate_random<R: RngCore, E: PairingEngine>(n: usize, rng: &mut R) -> Vec<E::Fr> {
+pub fn generate_random<R: RngCore, E: PairingEngine>(
+    n: usize,
+    rng: &mut R,
+) -> Vec<E::Fr> {
     (0..n).map(|_| E::Fr::rand(rng)).collect::<Vec<_>>()
 }
 
@@ -170,9 +178,11 @@ mod tests {
 
         let msg: &[u8] = "abc".as_bytes();
 
-        let (pubkey, privkey, _) = setup::<E>(threshold, shares_num, num_entities);
+        let (pubkey, privkey, _) =
+            setup::<E>(threshold, shares_num, num_entities);
 
-        let ciphertext = encrypt::<ark_std::rand::rngs::StdRng, E>(msg, pubkey, &mut rng);
+        let ciphertext =
+            encrypt::<ark_std::rand::rngs::StdRng, E>(msg, pubkey, &mut rng);
         let plaintext = decrypt(&ciphertext, privkey);
 
         assert!(msg == plaintext)
@@ -186,7 +196,8 @@ mod tests {
         let num_entities = 5;
         let msg: &[u8] = "abc".as_bytes();
 
-        let (pubkey, privkey, contexts) = setup::<E>(threshold, shares_num, num_entities);
+        let (pubkey, _privkey, contexts) =
+            setup::<E>(threshold, shares_num, num_entities);
         let ciphertext = encrypt::<_, E>(msg, pubkey, rng);
 
         let mut shares: Vec<DecryptionShare<E>> = vec![];
@@ -199,7 +210,11 @@ mod tests {
                 .verify_blinding(&pub_context.public_key_shares, rng));
         }*/
         let prepared_blinded_key_shares = contexts[0].prepare_combine(&shares);
-        let s = contexts[0].share_combine(&ciphertext, &shares, &prepared_blinded_key_shares);
+        let s = contexts[0].share_combine(
+            &ciphertext,
+            &shares,
+            &prepared_blinded_key_shares,
+        );
 
         let plaintext = decrypt_with_shared_secret(&ciphertext, &s);
         assert!(plaintext == msg)

@@ -2,9 +2,8 @@ use crate::*;
 use ark_ec::PairingEngine;
 use ark_serialize::*;
 use itertools::Itertools;
-use serde::*;
 
-pub type ShareEncryptions<E: PairingEngine> = Vec<E::G2Affine>;
+pub type ShareEncryptions<E> = Vec<<E as PairingEngine>::G2Affine>;
 
 /// The dealer posts the Dealing to the blockchain to initiate the VSS
 #[derive(CanonicalSerialize, CanonicalDeserialize, Clone, Debug)]
@@ -42,11 +41,11 @@ where
     ///  and the local private keyshares
     pub fn verify_aggregation(
         &self,
-        dkg: &PubliclyVerifiableDKG<E>,
+        dkg: &PubliclyVerifiableDkg<E>,
     ) -> Result<(u32, Vec<E::G2Affine>)> {
         print_time!("PVSS verify_aggregation");
         let local_shares = self.verify(dkg)?;
-        let mut Y = E::G1Projective::zero();
+        let mut y = E::G1Projective::zero();
         let mut weight = 0u32;
         for (dealer, pvss) in dkg.vss.iter() {
             let c = pvss.coeffs[0].into_projective();
@@ -58,10 +57,10 @@ where
             {
                 return Err(anyhow!("PVSS sigma verification"));
             }
-            Y += c;
+            y += c;
             weight += dkg.participants[*dealer as usize].weight;
         }
-        if Y.into_affine() == self.coeffs[0] {
+        if y.into_affine() == self.coeffs[0] {
             Ok((weight, local_shares))
         } else {
             Err(anyhow!(
@@ -73,7 +72,7 @@ where
     /// Aggregate the PVSS instances in `pvss` from DKG session `dkg` ]
     /// into a new PVSS instance
     pub fn aggregate(
-        dkg: &PubliclyVerifiableDKG<E>,
+        dkg: &PubliclyVerifiableDkg<E>,
         pvss: &BTreeMap<u32, PubliclyVerifiableSS<E>>,
     ) -> Self {
         let mut pvss_iter = pvss.iter();
@@ -126,7 +125,7 @@ where
     /// `rng` a cryptographic random number generator
     pub fn new<R: Rng>(
         s: &E::Fr,
-        dkg: &PubliclyVerifiableDKG<E>,
+        dkg: &PubliclyVerifiableDkg<E>,
         rng: &mut R,
     ) -> Result<Self> {
         let mut phi = DensePolynomial::<E::Fr>::rand(
@@ -173,11 +172,11 @@ where
     /// Verify the PVSS instance `self` is a valid PVSS instance for the DKG context `dkg`
     pub fn verify(
         &self,
-        dkg: &PubliclyVerifiableDKG<E>,
+        dkg: &PubliclyVerifiableDkg<E>,
     ) -> Result<Vec<E::G2Affine>> {
         print_time!("PVSS verify");
 
-        let me = &dkg.participants[dkg.me as usize];
+        let _me = &dkg.participants[dkg.me as usize];
 
         if self.shares.len() != dkg.participants.len() {
             return Err(anyhow!("wrong vss length"));
@@ -200,18 +199,18 @@ where
                     let ek = participant.session_key.encryption_key;
                     let alpha = E::Fr::one(); //TODO: random number!
                     let mut powers_of_alpha = alpha;
-                    let mut Y = E::G2Projective::zero();
-                    let mut A = E::G1Projective::zero();
-                    for (Y_i, A_i) in shares
+                    let mut y = E::G2Projective::zero();
+                    let mut a = E::G1Projective::zero();
+                    for (y_i, a_i) in shares
                         .iter()
                         .zip_eq(self.commitment[share_range].iter())
                     {
-                        Y += Y_i.mul(powers_of_alpha);
-                        A += A_i.mul(powers_of_alpha);
+                        y += y_i.mul(powers_of_alpha);
+                        a += a_i.mul(powers_of_alpha);
                         powers_of_alpha *= alpha;
                     }
 
-                    E::pairing(dkg.pvss_params.g_1, Y) == E::pairing(A, ek)
+                    E::pairing(dkg.pvss_params.g_1, y) == E::pairing(a, ek)
                 },
             );
         }
@@ -284,8 +283,7 @@ fn test_pvss() {
     type G1 = <Bls12_381 as PairingEngine>::G1Affine;
     type G2 = <Bls12_381 as PairingEngine>::G2Affine;
 
-    let mut phi = DensePolynomial::<Fr>::rand(8192 / 3, rng);
-    use ark_std::UniformRand;
+    let phi = DensePolynomial::<Fr>::rand(8192 / 3, rng);
     let domain = ark_poly::Radix2EvaluationDomain::<Fr>::new(8192)
         .ok_or_else(|| anyhow!("unable to construct domain"))
         .unwrap();
@@ -294,12 +292,10 @@ fn test_pvss() {
 
     let g_1 = G1::prime_subgroup_generator();
     // commitment to coeffs
-    let coeffs = fast_multiexp(&phi.coeffs, g_1.into_projective());
-
-    use itertools::Itertools;
+    let _coeffs = fast_multiexp(&phi.coeffs, g_1.into_projective());
 
     let weight = 8192 / 150;
-    let shares = (0..150)
+    let _shares = (0..150)
         .map(|participant| {
             let share_range =
                 (participant * weight)..((participant + 1) * weight);

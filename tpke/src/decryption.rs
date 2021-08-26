@@ -8,7 +8,10 @@ pub struct DecryptionShare<E: PairingEngine> {
 }
 
 impl<E: PairingEngine> PrivateDecryptionContext<E> {
-    pub fn create_share(&self, ciphertext: &Ciphertext<E>) -> DecryptionShare<E> {
+    pub fn create_share(
+        &self,
+        ciphertext: &Ciphertext<E>,
+    ) -> DecryptionShare<E> {
         let decryption_share = ciphertext.nonce.mul(self.b_inv).into_affine();
 
         DecryptionShare {
@@ -29,8 +32,8 @@ impl<E: PairingEngine> PrivateDecryptionContext<E> {
         // Get [b_i] H for each of the decryption shares
         let blinding_keys = shares[0]
             .iter()
-            .map(|D| {
-                self.public_decryption_contexts[D.decryptor_index]
+            .map(|d| {
+                self.public_decryption_contexts[d.decryptor_index]
                     .blinded_key_shares
                     .blinding_key_prepared
                     .clone()
@@ -51,7 +54,7 @@ impl<E: PairingEngine> PrivateDecryptionContext<E> {
             .collect::<Vec<_>>();
 
         // Compute \sum_j [ \sum_i \alpha_{i,j} ] U_j
-        let sum_U_j = E::G1Prepared::from(
+        let sum_u_j = E::G1Prepared::from(
             izip!(ciphertexts.iter(), sum_alpha_i.iter())
                 .map(|(c, alpha_j)| c.nonce.mul(*alpha_j))
                 .sum::<E::G1Projective>()
@@ -59,20 +62,23 @@ impl<E: PairingEngine> PrivateDecryptionContext<E> {
         );
 
         // e(\sum_j [ \sum_i \alpha_{i,j} ] U_j, -H)
-        pairings.push((sum_U_j, self.h_inv.clone()));
+        pairings.push((sum_u_j, self.h_inv.clone()));
 
-        let mut sum_D_j = vec![E::G1Projective::zero(); num_shares];
+        let mut sum_d_j = vec![E::G1Projective::zero(); num_shares];
 
         // sum_D_j = { [\sum_j \alpha_{i,j} ] D_i }
-        for (D, alpha_j) in izip!(shares.iter(), alpha_ij.iter()) {
-            for (sum_alpha_D_i, Dij, alpha) in izip!(sum_D_j.iter_mut(), D.iter(), alpha_j.iter()) {
-                *sum_alpha_D_i += Dij.decryption_share.mul(*alpha);
+        for (d, alpha_j) in izip!(shares.iter(), alpha_ij.iter()) {
+            for (sum_alpha_d_i, d_ij, alpha) in
+                izip!(sum_d_j.iter_mut(), d.iter(), alpha_j.iter())
+            {
+                *sum_alpha_d_i += d_ij.decryption_share.mul(*alpha);
             }
         }
 
         // e([\sum_j \alpha_{i,j} ] D_i, B_i)
-        for (D_i, B_i) in izip!(sum_D_j.iter(), blinding_keys.iter()) {
-            pairings.push((E::G1Prepared::from(D_i.into_affine()), B_i.clone()));
+        for (d_i, b_i) in izip!(sum_d_j.iter(), blinding_keys.iter()) {
+            pairings
+                .push((E::G1Prepared::from(d_i.into_affine()), b_i.clone()));
         }
 
         E::product_of_pairings(&pairings) == E::Fqk::one()

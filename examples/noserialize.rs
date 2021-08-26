@@ -85,7 +85,7 @@ pub fn pvdkg<E: ark_ec::PairingEngine>() {
             participant
                 .handle_message(&agg_signer, agg.clone())
                 .unwrap();
-            //assert_eq!(participant.state, DKGState::Success);
+            //assert_eq!(participant.state, DkgState::Success);
         }
         contexts[0].final_key();
     }
