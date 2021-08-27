@@ -12,28 +12,25 @@ use crate::*;
 /// partition_domain returns a vector of DKG participants
 pub fn partition_domain<E>(
     params: &Params,
-    announce_messages: &mut Vec<PubliclyVerifiableAnnouncement<E>>,
+    validator_set: &tendermint::validator::Set,
+    //announce_messages: &mut Vec<PubliclyVerifiableAnnouncement<E>>,
 ) -> Result<Vec<PubliclyVerifiableParticipant<E>>>
 where
     E: ark_ec::PairingEngine,
 {
+    let validators = validator_set.validators();
     // Sort participants from greatest to least stake
-    announce_messages.sort_by(|a, b| b.stake.cmp(&a.stake));
+
     // Compute the total amount staked
-    let total_stake: f64 = announce_messages
-        .iter()
-        .map(|p| p.stake as f64)
-        .sum::<f64>()
-        .into();
+    let total_stake = params.total_weight as f64
+        / validator_set.total_voting_power().value() as f64;
 
     // Compute the weight of each participant rounded down
-    let mut weights = announce_messages
+    let mut weights = validators
         .iter()
-        .map(|p| {
-            ((params.total_weight as f64) * p.stake as f64 / total_stake)
-                .floor() as u32
-        })
-        .collect::<Vec<u32>>();
+        .map(|p| (p.power() as f64 * total_stake).floor() as u32)
+        .collect::<Vec<_>>();
+
     // Add any excess weight to the largest weight participants
     let adjust_weight = params
         .total_weight
@@ -49,11 +46,11 @@ where
 
     let mut allocated_weight = 0usize;
     let mut participants = vec![];
-    for (announcement, weight) in announce_messages.iter().zip(weights) {
+    for (announcement, weight) in validators.iter().zip(weights) {
         let share_range = allocated_weight..allocated_weight + weight as usize;
 
         participants.push(PubliclyVerifiableParticipant::<E> {
-            ed_key: announcement.signer,
+            //ed_key: announcement.signer,
             session_key: announcement.session_key,
             weight,
             share_range,

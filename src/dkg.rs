@@ -2,8 +2,6 @@
 #![allow(non_snake_case)]
 #![allow(unused_imports)]
 
-//use ark_poly_commit::kzg10::{Powers, VerifierKey};
-
 use crate::*;
 use anyhow::anyhow;
 use ark_ec::{AffineCurve, PairingEngine, ProjectiveCurve};
@@ -14,7 +12,6 @@ use ark_poly::{
     EvaluationDomain, Polynomial,
 };
 use ed25519_dalek as ed25519;
-use serde::*;
 
 pub mod common;
 pub mod pv;
@@ -34,9 +31,7 @@ pub enum DKGState {
     Init,
     Dealt,
     Shared,
-    Aggregated {
-        finalized_weight: u32
-    },
+    Aggregated { finalized_weight: u32 },
     Success,
-    Invalid
+    Invalid,
 }

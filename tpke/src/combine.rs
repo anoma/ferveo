@@ -1,3 +1,5 @@
+#![allow(non_snake_case)]
+#![allow(dead_code)]
 use crate::*;
 use ark_ec::ProjectiveCurve;
 
@@ -46,7 +48,7 @@ impl<E: PairingEngine> PrivateDecryptionContext<E> {
     }
     pub fn share_combine(
         &self,
-        ciphertext: &Ciphertext<E>,
+        //ciphertext: &Ciphertext<E>,
         shares: &[DecryptionShare<E>],
         prepared_key_shares: &[E::G2Prepared],
     ) -> E::Fqk {

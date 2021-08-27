@@ -2,7 +2,6 @@ use ed25519_dalek as ed25519;
 use ed25519_dalek::Signer;
 
 use crate::*;
-use ark_std::{end_timer, start_timer};
 use serde::{Deserialize, Serialize};
 
 pub mod ark_serde {
@@ -66,15 +65,14 @@ pub struct SignedMessage {
 
 #[test]
 fn test_ark_serde() {
-    use ark_pallas::Affine;
-    //use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+    use ark_bls12_381::G1Affine;
     #[derive(Serialize, Deserialize)]
     struct Test {
         #[serde(with = "ark_serde")]
-        pub p: Affine,
+        pub p: G1Affine,
     }
     use ark_ec::AffineCurve;
-    let p = Affine::prime_subgroup_generator();
+    let p = G1Affine::prime_subgroup_generator();
     let t = Test { p };
     let m = serde_json::to_string(&t).unwrap();
     let _t2: Test = serde_json::from_str(&m).unwrap();

@@ -1,6 +1,7 @@
 #![allow(non_snake_case)]
 #![allow(clippy::many_single_char_names)]
 #![allow(clippy::zero_prefixed_literal)]
+#![allow(dead_code)]
 
 use ark_serialize::CanonicalDeserialize;
 use miracl_core::bls12381::big::BIG;

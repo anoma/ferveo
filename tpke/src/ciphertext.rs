@@ -19,7 +19,6 @@ impl<E: PairingEngine> Ciphertext<E> {
         ]) == E::Fqk::one()
     }
     fn construct_tag_hash(&self) -> E::G2Affine {
-        use ark_ff::ToBytes;
         let mut hash_input = Vec::<u8>::new();
         self.nonce.write(&mut hash_input).unwrap();
         hash_input.extend_from_slice(&self.ciphertext);

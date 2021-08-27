@@ -1,3 +1,4 @@
+#![allow(unused_imports)]
 pub mod dkg;
 pub mod msg;
 pub mod vss;
@@ -16,15 +17,15 @@ use crate::msg::*;
 
 use ark_ec::AffineCurve;
 use ark_ec::ProjectiveCurve;
-use ark_ff::Zero;
-use ark_ff::{FftField, Field, One};
+use ark_ff::{Field, FftField, Zero, One};
 use ark_poly::{
     polynomial::univariate::DensePolynomial, polynomial::UVPolynomial,
-    EvaluationDomain, Polynomial,
+    EvaluationDomain,
 };
 use ed25519_dalek as ed25519;
 use serde::*;
 
+use ark_std::{end_timer, start_timer};
 use num::integer::div_ceil;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::rc::Rc;

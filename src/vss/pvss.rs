@@ -2,7 +2,7 @@ use crate::*;
 use ark_ec::PairingEngine;
 use ark_serialize::*;
 use itertools::Itertools;
-use serde::*;
+//use serde::*;
 
 pub type ShareEncryptions<E: PairingEngine> = Vec<E::G2Affine>;
 
@@ -24,8 +24,8 @@ pub struct PubliclyVerifiableSS<E: PairingEngine> {
 
 #[derive(Clone)]
 pub struct PubliclyVerifiableParams<E: PairingEngine> {
-    pub g_1: E::G1Projective,
-    pub u_hat_1: E::G2Affine,
+    pub g: E::G1Projective,
+    pub h: E::G2Projective,
 }
 
 impl<E> PubliclyVerifiableSS<E>
@@ -40,9 +40,10 @@ where
     pub fn verify_aggregation(
         &self,
         dkg: &PubliclyVerifiableDKG<E>,
-    ) -> Result<(u32, Vec<E::G2Affine>)> {
+    ) -> Result<u32> {
         print_time!("PVSS verify_aggregation");
-        let local_shares = self.verify(dkg)?;
+        //let local_shares = self.verify(dkg)?;
+        self.verify(dkg);
         let mut Y = E::G1Projective::zero();
         let mut weight = 0u32;
         for (dealer, pvss) in dkg.vss.iter() {
@@ -59,7 +60,7 @@ where
             weight += dkg.participants[*dealer as usize].weight;
         }
         if Y.into_affine() == self.coeffs[0] {
-            Ok((weight, local_shares))
+            Ok(weight)
         } else {
             Err(anyhow!(
                 "aggregation does not match received PVSS instances"
@@ -131,7 +132,7 @@ where
         let evals = phi.evaluate_over_domain_by_ref(dkg.domain);
 
         // commitment to coeffs
-        let coeffs = fast_multiexp(&phi.coeffs, dkg.pvss_params.g_1);
+        let coeffs = fast_multiexp(&phi.coeffs, dkg.pvss_params.g);
 
         let shares = dkg
             .participants
@@ -161,16 +162,13 @@ where
     }
 
     /// Verify the PVSS instance `self` is a valid PVSS instance for the DKG context `dkg`
-    pub fn verify(
-        &self,
-        dkg: &PubliclyVerifiableDKG<E>,
-    ) -> Result<Vec<E::G2Affine>> {
+    pub fn verify(&self, dkg: &PubliclyVerifiableDKG<E>) -> bool {
         print_time!("PVSS verify");
 
-        let me = &dkg.participants[dkg.me as usize];
+        //let me = &dkg.participants[dkg.me as usize];
 
         if self.shares.len() != dkg.participants.len() {
-            return Err(anyhow!("wrong vss length"));
+            return false; //Err(anyhow!("wrong vss length"));
         }
 
         {
@@ -193,12 +191,12 @@ where
                         powers_of_alpha *= alpha;
                     }
 
-                    E::pairing(dkg.pvss_params.g_1, Y) == E::pairing(A, ek)
+                    E::pairing(dkg.pvss_params.g, Y) == E::pairing(A, ek)
                 },
             );
         }
 
-        let local_shares = {
+        /*let local_shares = {
             print_time!("decrypt shares");
 
             self.shares[dkg.me]
@@ -208,7 +206,8 @@ where
         };
         Ok(E::G2Projective::batch_normalization_into_affine(
             &local_shares,
-        ))
+        ))*/
+        true
     }
 }
 /*
@@ -266,8 +265,8 @@ fn test_pvss() {
     type G1 = <Bls12_381 as PairingEngine>::G1Affine;
     type G2 = <Bls12_381 as PairingEngine>::G2Affine;
 
-    let mut phi = DensePolynomial::<Fr>::rand(8192 / 3, &mut rng);
-    use ark_std::UniformRand;
+    let mut phi = DensePolynomial::<Fr>::rand(2 * 128 / 3, &mut rng);
+    //use ark_std::UniformRand;
     let domain = ark_poly::Radix2EvaluationDomain::<Fr>::new(8192)
         .ok_or_else(|| anyhow!("unable to construct domain"))
         .unwrap();
@@ -280,8 +279,8 @@ fn test_pvss() {
 
     use itertools::Itertools;
 
-    let weight = 8192 / 150;
-    let shares = (0..150)
+    let weight = 128 / 4;
+    let shares = (0..4)
         .map(|participant| {
             let share_range =
                 (participant * weight)..((participant + 1) * weight);

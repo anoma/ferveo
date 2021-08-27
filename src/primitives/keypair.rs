@@ -3,7 +3,7 @@ use chacha20poly1305::aead::{generic_array::GenericArray, Aead, NewAead};
 
 use ark_ec::PairingEngine;
 
-#[derive(Serialize, Deserialize, Copy, Clone, Debug)]
+#[derive(Serialize, Deserialize, Copy, Clone, Debug, std::hash::Hash)]
 pub struct PubliclyVerifiablePublicKey<E>
 where
     E: PairingEngine,

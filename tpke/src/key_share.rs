@@ -1,3 +1,6 @@
+#![allow(non_snake_case)]
+#![allow(dead_code)]
+
 use crate::*;
 use ark_ec::ProjectiveCurve;
 use itertools::Itertools;

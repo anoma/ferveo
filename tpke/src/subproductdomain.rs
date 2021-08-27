@@ -1,3 +1,6 @@
+#![allow(non_snake_case)]
+#![allow(dead_code)]
+
 use ark_ec::{msm::FixedBaseMSM, PairingEngine, ProjectiveCurve};
 use ark_ff::{FftField, Field, PrimeField, Zero};
 use ark_poly::polynomial::univariate::DensePolynomial as Poly;

@@ -1,14 +1,16 @@
+#![allow(non_snake_case)]
+#![allow(dead_code)]
 use crate::hash_to_curve::htp_bls12381_g2;
 use crate::subproductdomain::SubproductDomain;
 use ark_ec::{msm::FixedBaseMSM, AffineCurve, PairingEngine};
 use ark_ff::{Field, One, PrimeField, ToBytes, UniformRand, Zero};
 use ark_poly::EvaluationDomain;
-use ark_poly::{univariate::DensePolynomial, Polynomial, UVPolynomial};
+use ark_poly::{univariate::DensePolynomial, UVPolynomial};
 use ark_serialize::CanonicalSerialize;
 use itertools::izip;
 
 use rand_core::RngCore;
-use rayon::prelude::*;
+//use rayon::prelude::*;
 use std::usize;
 use thiserror::Error;
 
@@ -198,7 +200,7 @@ mod tests {
                 .verify_blinding(&pub_context.public_key_shares, rng));
         }*/
         let prepared_blinded_key_shares = contexts[0].prepare_combine(&shares);
-        let s = contexts[0].share_combine(&ciphertext, &shares, &prepared_blinded_key_shares);
+        let s = contexts[0].share_combine(&shares, &prepared_blinded_key_shares);
 
         let plaintext = decrypt_with_shared_secret(&ciphertext, &s);
         assert!(plaintext == msg)
