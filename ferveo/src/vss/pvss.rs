@@ -2,9 +2,9 @@ use crate::*;
 use ark_ec::PairingEngine;
 use ark_serialize::*;
 use itertools::Itertools;
-//use serde::*;
+use std::collections::BTreeMap;
 
-pub type ShareEncryptions<E: PairingEngine> = Vec<E::G2Affine>;
+pub type ShareEncryptions<E> = Vec<<E as PairingEngine>::G2Affine>;
 
 /// The dealer posts the Dealing to the blockchain to initiate the VSS
 #[derive(CanonicalSerialize, CanonicalDeserialize, Clone, Debug)]
@@ -28,10 +28,7 @@ pub struct PubliclyVerifiableParams<E: PairingEngine> {
     pub h: E::G2Projective,
 }
 
-impl<E> PubliclyVerifiableSS<E>
-where
-    E: PairingEngine,
-{
+impl<E: PairingEngine> PubliclyVerifiableSS<E> {
     /// Verify that this PVSS instance is a valid aggregation of
     /// the PVSS instances, produced by `aggregate`,
     /// and received by the DKG context `dkg`
@@ -39,12 +36,11 @@ where
     ///  and the local private keyshares
     pub fn verify_aggregation(
         &self,
-        dkg: &PubliclyVerifiableDKG<E>,
+        dkg: &PubliclyVerifiableDkg<E>,
     ) -> Result<u32> {
         print_time!("PVSS verify_aggregation");
-        //let local_shares = self.verify(dkg)?;
         self.verify(dkg);
-        let mut Y = E::G1Projective::zero();
+        let mut y = E::G1Projective::zero();
         let mut weight = 0u32;
         for (dealer, pvss) in dkg.vss.iter() {
             let c = pvss.coeffs[0].into_projective();
@@ -56,10 +52,10 @@ where
             {
                 return Err(anyhow!("PVSS sigma verification"));
             }
-            Y += c;
-            weight += dkg.participants[*dealer as usize].weight;
+            y += c;
+            weight += dkg.validators[*dealer as usize].weight;
         }
-        if Y.into_affine() == self.coeffs[0] {
+        if y.into_affine() == self.coeffs[0] {
             Ok(weight)
         } else {
             Err(anyhow!(
@@ -71,7 +67,7 @@ where
     /// Aggregate the PVSS instances in `pvss` from DKG session `dkg` ]
     /// into a new PVSS instance
     pub fn aggregate(
-        dkg: &PubliclyVerifiableDKG<E>,
+        dkg: &PubliclyVerifiableDkg<E>,
         pvss: &BTreeMap<u32, PubliclyVerifiableSS<E>>,
     ) -> Self {
         let mut pvss_iter = pvss.iter();
@@ -120,7 +116,7 @@ where
     /// `rng` a cryptographic random number generator
     pub fn new<R: Rng>(
         s: &E::Fr,
-        dkg: &PubliclyVerifiableDKG<E>,
+        dkg: &PubliclyVerifiableDkg<E>,
         rng: &mut R,
     ) -> Result<Self> {
         let mut phi = DensePolynomial::<E::Fr>::rand(
@@ -135,14 +131,12 @@ where
         let coeffs = fast_multiexp(&phi.coeffs, dkg.pvss_params.g);
 
         let shares = dkg
-            .participants
+            .validators
             .iter()
-            .map(|participant| {
-                let share_range = participant.share_range.clone();
-
+            .map(|validator| {
                 fast_multiexp(
-                    &evals.evals[share_range],
-                    participant.session_key.encryption_key.into_projective(),
+                    &evals.evals[validator.share_start..validator.share_end],
+                    validator.key.encryption_key.into_projective(),
                 )
             })
             .collect::<Vec<ShareEncryptions<E>>>();
@@ -162,51 +156,37 @@ where
     }
 
     /// Verify the PVSS instance `self` is a valid PVSS instance for the DKG context `dkg`
-    pub fn verify(&self, dkg: &PubliclyVerifiableDKG<E>) -> bool {
+    pub fn verify(&self, dkg: &PubliclyVerifiableDkg<E>) -> bool {
         print_time!("PVSS verify");
 
-        //let me = &dkg.participants[dkg.me as usize];
-
-        if self.shares.len() != dkg.participants.len() {
+        if self.shares.len() != dkg.validators.len() {
             return false; //Err(anyhow!("wrong vss length"));
         }
 
         {
             print_time!("check encryptions");
             //check e()
-            dkg.participants.iter().zip(self.shares.iter()).all(
-                |(participant, shares)| {
-                    let share_range = participant.share_range.clone();
-                    let ek = participant.session_key.encryption_key;
+            dkg.validators.iter().zip(self.shares.iter()).all(
+                |(validator, shares)| {
+                    let ek = validator.key.encryption_key;
                     let alpha = E::Fr::one(); //TODO: random number!
                     let mut powers_of_alpha = alpha;
-                    let mut Y = E::G2Projective::zero();
-                    let mut A = E::G1Projective::zero();
-                    for (Y_i, A_i) in shares
-                        .iter()
-                        .zip_eq(self.commitment[share_range].iter())
-                    {
-                        Y += Y_i.mul(powers_of_alpha);
-                        A += A_i.mul(powers_of_alpha);
+                    let mut y = E::G2Projective::zero();
+                    let mut a = E::G1Projective::zero();
+                    for (y_i, a_i) in shares.iter().zip_eq(
+                        self.commitment
+                            [validator.share_start..validator.share_end]
+                            .iter(),
+                    ) {
+                        y += y_i.mul(powers_of_alpha);
+                        a += a_i.mul(powers_of_alpha);
                         powers_of_alpha *= alpha;
                     }
 
-                    E::pairing(dkg.pvss_params.g, Y) == E::pairing(A, ek)
+                    E::pairing(dkg.pvss_params.g, y) == E::pairing(a, ek)
                 },
             );
         }
-
-        /*let local_shares = {
-            print_time!("decrypt shares");
-
-            self.shares[dkg.me]
-                .iter()
-                .map(|p| p.mul(dkg.session_keypair.decryption_key))
-                .collect::<Vec<_>>()
-        };
-        Ok(E::G2Projective::batch_normalization_into_affine(
-            &local_shares,
-        ))*/
         true
     }
 }
@@ -275,9 +255,7 @@ fn test_pvss() {
 
     let g_1 = G1::prime_subgroup_generator();
     // commitment to coeffs
-    let coeffs = fast_multiexp(&phi.coeffs, g_1.into_projective());
-
-    use itertools::Itertools;
+    let _coeffs = fast_multiexp(&phi.coeffs, g_1.into_projective());
 
     let weight = 128 / 4;
     let shares = (0..4)

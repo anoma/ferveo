@@ -27,7 +27,7 @@ pub struct Params {
 }
 
 #[derive(Debug, Clone)]
-pub enum DKGState {
+pub enum DkgState {
     Init,
     Dealt,
     Shared,

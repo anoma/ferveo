@@ -3,21 +3,16 @@ pub mod dkg;
 pub mod msg;
 pub mod vss;
 
-pub use msg::ark_serde;
-
-impl Rng for ark_std::rand::prelude::StdRng {}
-
-pub trait Rng: ark_std::rand::CryptoRng + ark_std::rand::RngCore {}
-
 pub mod primitives;
 pub use primitives::*;
+
+use ferveo_common::Rng;
 
 use crate::dkg::*;
 use crate::msg::*;
 
-use ark_ec::AffineCurve;
-use ark_ec::ProjectiveCurve;
-use ark_ff::{Field, FftField, Zero, One};
+use ark_ec::{AffineCurve, ProjectiveCurve};
+use ark_ff::{Field, One, Zero};
 use ark_poly::{
     polynomial::univariate::DensePolynomial, polynomial::UVPolynomial,
     EvaluationDomain,
@@ -26,17 +21,16 @@ use ed25519_dalek as ed25519;
 use serde::*;
 
 use ark_std::{end_timer, start_timer};
-use num::integer::div_ceil;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+//use num::integer::div_ceil;
 use std::rc::Rc;
 
 use anyhow::{anyhow, Result};
-use chacha20poly1305::aead::Aead;
 pub use dkg::*;
 pub use msg::*;
 pub use vss::*;
 
 use ark_ec::msm::FixedBaseMSM;
+use ark_ec::PairingEngine;
 use ark_ff::PrimeField;
 
 use measure_time::print_time;

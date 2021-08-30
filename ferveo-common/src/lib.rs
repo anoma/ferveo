@@ -1,7 +1,20 @@
-use ed25519_dalek as ed25519;
-use ed25519_dalek::Signer;
+use ark_ec::PairingEngine;
 
-use crate::*;
+pub mod keypair;
+pub use keypair::*;
+
+#[derive(Clone, Debug)]
+pub struct Validator<E: PairingEngine> {
+    pub key: PublicKey<E>,
+    pub weight: u32,
+    pub share_start: usize,
+    pub share_end: usize,
+}
+
+impl Rng for ark_std::rand::prelude::StdRng {}
+
+pub trait Rng: ark_std::rand::CryptoRng + ark_std::rand::RngCore {}
+
 use serde::{Deserialize, Serialize};
 
 pub mod ark_serde {
@@ -29,38 +42,6 @@ pub mod ark_serde {
         let bytes = <serde_bytes::ByteBuf>::deserialize(deserializer)?;
         T::deserialize(bytes.as_slice()).map_err(D::Error::custom)
     }
-}
-
-impl SignedMessage {
-    pub fn sign<M>(tau: u64, msg: &M, key: &ed25519::Keypair) -> SignedMessage
-    where
-        M: Serialize,
-    {
-        print_time!("Signing Message");
-        let msg_bytes = bincode::serialize(&(tau, msg)).unwrap();
-        let signature = key.sign(&msg_bytes);
-        SignedMessage {
-            msg_bytes,
-            signature,
-            signer: key.public,
-        }
-    }
-    pub fn verify<'de, M>(&'de self) -> Result<(u64, M)>
-    where
-        M: Deserialize<'de>,
-    {
-        print_time!("Verifying Message");
-        self.signer
-            .verify_strict(&self.msg_bytes, &self.signature)?;
-        bincode::deserialize::<'de, _>(&self.msg_bytes).map_err(|e| e.into()) //TODO: handle error
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub struct SignedMessage {
-    msg_bytes: Vec<u8>,
-    signature: ed25519::Signature,
-    pub signer: ed25519::PublicKey,
 }
 
 #[test]

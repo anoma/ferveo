@@ -2,29 +2,25 @@ use crate::*;
 use ark_ec::PairingEngine;
 use ark_ff::Field;
 use ark_std::{end_timer, start_timer};
+use std::collections::BTreeMap;
 
 /// The DKG context that holds all of the local state for participating in the DKG
-pub struct PubliclyVerifiableDKG<E>
-where
-    E: PairingEngine,
-{
+pub struct PubliclyVerifiableDkg<E: PairingEngine> {
     //pub ed_key: ed25519::Keypair,
     pub params: Params,
     pub pvss_params: PubliclyVerifiableParams<E>,
-    pub session_keypair: PubliclyVerifiableKeypair<E>,
-    pub participants: Vec<PubliclyVerifiableParticipant<E>>,
+    pub session_keypair: ferveo_common::Keypair<E>,
+    pub validators: Vec<ferveo_common::Validator<E>>,
     pub vss: BTreeMap<u32, PubliclyVerifiableSS<E>>,
     pub domain: ark_poly::Radix2EvaluationDomain<E::Fr>,
-    pub state: DKGState,
+    pub state: DkgState,
     pub me: usize,
+    pub validator_set: tendermint::validator::Set,
     //pub local_shares: Vec<E::G2Affine>,
     //pub announce_messages: Vec<PubliclyVerifiableAnnouncement<E>>,
 }
 
-impl<E> PubliclyVerifiableDKG<E>
-where
-    E: PairingEngine,
-{
+impl<E: PairingEngine> PubliclyVerifiableDkg<E> {
     /// Create a new DKG context to participate in the DKG
     /// Every identity in the DKG is linked to an ed25519 public key;
     /// `ed_key` is the local identity.
@@ -32,6 +28,7 @@ where
     /// `rng` is a cryptographic random number generator
     pub fn new<R: Rng>(
         validator_set: &tendermint::validator::Set,
+        validator_keys: &[ferveo_common::PublicKey<E>],
         params: Params,
         me: usize,
         rng: &mut R,
@@ -43,17 +40,23 @@ where
         .ok_or_else(|| anyhow!("unable to construct domain"))?;
 
         Ok(Self {
-            session_keypair: PubliclyVerifiableKeypair::<E>::new(rng),
+            session_keypair: ferveo_common::Keypair::<E>::new(rng),
             params,
             pvss_params: PubliclyVerifiableParams::<E> {
                 g: E::G1Projective::prime_subgroup_generator(),
                 h: E::G2Projective::prime_subgroup_generator(),
             },
-            participants: vec![],
+            //participants: vec![],
             vss: BTreeMap::new(),
             domain,
-            state: DKGState::Init,
+            state: DkgState::Init,
             me,
+            validator_set: validator_set.clone(),
+            validators: partition_domain(
+                &params,
+                validator_set,
+                validator_keys,
+            )?,
             //me: 0, // TODO: invalid value
             //final_state: None,
             //local_shares: vec![],
@@ -64,10 +67,7 @@ where
     /// Create a new PVSS instance within this DKG session, contributing to the final key
     /// `rng` is a cryptographic random number generator
     /// Returns a PVSS dealing message to post on-chain
-    pub fn share<R: Rng>(
-        &mut self,
-        rng: &mut R,
-    ) -> Result<PubliclyVerifiableMessage<E>> {
+    pub fn share<R: Rng>(&mut self, rng: &mut R) -> Result<Message<E>> {
         use ark_std::UniformRand;
         print_time!("PVSS Sharing");
 
@@ -77,12 +77,12 @@ where
         let sharing = vss.clone();
         self.vss.insert(self.me as u32, vss);
 
-        Ok(PubliclyVerifiableMessage::Deal(sharing))
+        Ok(Message::Deal(sharing))
     }
     /// Aggregate all received PVSS messages into a single message, prepared to post on-chain
-    pub fn aggregate(&mut self) -> PubliclyVerifiableMessage<E> {
+    pub fn aggregate(&mut self) -> Message<E> {
         let pvss = PubliclyVerifiableSS::<E>::aggregate(self, &self.vss);
-        PubliclyVerifiableMessage::Aggregate(pvss)
+        Message::Aggregate(pvss)
     }
 
     /// Converts an ed25519 key to the index of that participant
@@ -101,77 +101,69 @@ where
     }
 
     /// Handle a DKG related message posted on chain
-    /// `signer` is the ed25519 public key of the sender of the message
+    /// `sender` is the validator id of the sender of the message
     /// `payload` is the content of the message
     pub fn handle_message(
         &mut self,
-        dealer: u32,
-        payload: PubliclyVerifiableMessage<E>,
+        sender: u32,
+        payload: Message<E>,
     ) -> Result<Option<SignedMessage>> {
         match payload {
-            PubliclyVerifiableMessage::Deal(sharing) => {
-                if let DKGState::Init = self.state {
+            Message::Deal(sharing) => {
+                if let DkgState::Init = self.state {
                     /*let dealer = self.find_by_key(signer).ok_or_else(|| {
                         anyhow!("received dealing from unknown dealer")
                     })? as u32;*/
-                    if dealer != self.me as u32 {
-                        if self.vss.contains_key(&dealer) {
-                            return Err(anyhow!("Repeat dealer {}", dealer));
+                    if sender != self.me as u32 {
+                        if self.vss.contains_key(&sender) {
+                            return Err(anyhow!("Repeat dealer {}", sender));
                         }
-                        self.vss.insert(dealer, sharing);
+                        self.vss.insert(sender, sharing);
                     }
                     // TODO: Shall we add here a check whether enough dealers (> 66%) have shared their PVSS? If so, we'd move to a Dealt state.
                     // Once we are in a dealt state, we'd trigger the generation of the transcript and share the decryption keys
                 }
                 Ok(None)
             }
-            PubliclyVerifiableMessage::Aggregate(vss) => {
-                if let DKGState::Shared = self.state {
+            Message::Aggregate(vss) => {
+                if let DkgState::Shared = self.state {
                     let minimum_weight = self.params.total_weight
                         - self.params.security_threshold;
                     let verified_weight = vss.verify_aggregation(&self)?;
                     if verified_weight >= minimum_weight {
                         //self.local_shares = local_shares;
-                        self.state = DKGState::Success;
+                        self.state = DkgState::Success;
                     } else {
-                        self.state = DKGState::Aggregated {
+                        self.state = DkgState::Aggregated {
                             finalized_weight: verified_weight,
                         };
                     }
                 }
                 Ok(None)
-            }
-            _ => Err(anyhow!("Unknown message type for this DKG engine")),
+            } //_ => Err(anyhow!("Unknown message type for this DKG engine")),
         }
     }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(bound = "")]
-pub enum PubliclyVerifiableMessage<E: PairingEngine> {
-    #[serde(with = "ark_serde")]
+pub enum Message<E: PairingEngine> {
+    #[serde(with = "ferveo_common::ark_serde")]
     Deal(PubliclyVerifiableSS<E>),
-    #[serde(with = "ark_serde")]
+    #[serde(with = "ferveo_common::ark_serde")]
     Aggregate(PubliclyVerifiableSS<E>),
-}
-
-#[derive(Clone, Debug)]
-pub struct PubliclyVerifiableParticipant<E: PairingEngine> {
-    pub session_key: PubliclyVerifiablePublicKey<E>,
-    pub weight: u32,
-    pub share_range: std::ops::Range<usize>,
 }
 
 #[derive(Debug, Clone)]
 pub struct PubliclyVerifiableAnnouncement<E: PairingEngine> {
-    pub session_key: PubliclyVerifiablePublicKey<E>,
+    pub session_key: ferveo_common::PublicKey<E>,
     pub stake: u64,
 }
 
 #[cfg(test)]
 mod tests {
 
-    use crate::dkg::PubliclyVerifiableDKG;
+    use crate::dkg::PubliclyVerifiableDkg;
     use crate::*;
     use ark_bls12_381::G1Affine;
     use ark_ec::{bls12::Bls12, PairingEngine};
@@ -226,7 +218,7 @@ mod tests {
         let mut contexts = vec![];
         for _ in 0..10 {
             contexts.push(
-                PubliclyVerifiableDKG::<ark_bls12_381::Bls12_381>::new(
+                PubliclyVerifiableDkg::<ark_bls12_381::Bls12_381>::new(
                     params.clone(),
                     rng,
                 )
@@ -245,7 +237,7 @@ mod tests {
 
         let msg_loop =
             |contexts: &mut Vec<
-                PubliclyVerifiableDKG<ark_bls12_381::Bls12_381>,
+                PubliclyVerifiableDkg<ark_bls12_381::Bls12_381>,
             >,
              messages: &mut VecDeque<SignedMessage>| loop {
                 if messages.is_empty() {
@@ -382,9 +374,9 @@ mod tests {
                 scalar_bits,
                 window_size,
             });
-            let mut lagrange_N_0 = domain.iter().product::<<Bls12<ark_bls12_381::Parameters> as PairingEngine>::Fr>();
+            let mut lagrange_n_0 = domain.iter().product::<<Bls12<ark_bls12_381::Parameters> as PairingEngine>::Fr>();
             if domain.len() % 2 == 1 {
-                lagrange_N_0 = -lagrange_N_0;
+                lagrange_n_0 = -lagrange_n_0;
             }
             public_contexts.push(PublicDecryptionContext::<
                 ark_bls12_381::Bls12_381,
@@ -394,7 +386,7 @@ mod tests {
                     public_key_shares: public.to_vec(),
                 },
                 blinded_key_shares,
-                lagrange_N_0,
+                lagrange_n_0,
             });
         }
         for private in private_contexts.iter_mut() {
@@ -407,7 +399,7 @@ mod tests {
         // create Decryption Shares
         let mut shares: Vec<DecryptionShare<ark_bls12_381::Bls12_381>> = vec![];
         for context in private_contexts.iter() {
-            shares.push(context.create_decryption_share(&ciphertext));
+            shares.push(context.create_share(&ciphertext));
         }
 
         let prepared_blinded_key_shares =

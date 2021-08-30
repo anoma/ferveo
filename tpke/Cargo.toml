@@ -28,16 +28,9 @@ ark-bls12-381 = "0.3"
 itertools="0.10"
 
 [dev-dependencies]
-criterion = "=0.3.4"
-
-[profile.test]
-opt-level = 3
+criterion = "0.3"
 
 [[bench]]
 name = "benchmarks"
 harness = false
-
-[profile.bench]
-opt-level = 3
-debug = true
 

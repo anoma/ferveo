@@ -1,8 +1,5 @@
 use crate::*;
 
-pub mod keypair;
-pub use keypair::*;
-
 pub mod subproductdomain;
 pub use subproductdomain::*;
 
