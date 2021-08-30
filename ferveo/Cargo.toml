@@ -72,7 +72,7 @@ pprof = { version = "0.5", features = ["flamegraph", "criterion"] }
 
 [[example]]
 name = "pvdkg"
-path = "../examples/pvdkg.rs"
+path = "examples/pvdkg.rs"
 
 #[[bench]]
 #name = "pairing"
@@ -85,5 +85,5 @@ path = "../examples/pvdkg.rs"
 
 [[bench]]
 name = "pvdkg"
-path = "../benches/benchmarks/pvdkg.rs"
+path = "benches/benchmarks/pvdkg.rs"
 harness = false
