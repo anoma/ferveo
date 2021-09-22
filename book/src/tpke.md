@@ -4,7 +4,7 @@ Based on [A Simple and Efficient Threshold Cryptosystem from the Gap Diffie-Hell
 
 ## Overview
 
-The threshold encryption scheme allows the encrypter to derive a **shared secret** \\(s\\) from the threshold public key \\(Y\\), such that sufficient threshold of validators holding private key shares \\(Z_i\\) associated with \\(Y\\) can also derive the shared secret. Both encrypter and decrypter can use the shared secret to derive a ChaCha20 symmetric key via HKDF.
+The threshold encryption scheme allows the encrypter to derive a **shared secret** \\(s\\) from the threshold public key \\(Y\\), such that sufficient threshold of validators holding private key shares \\(Z_i\\) associated with \\(Y\\) can also derive the shared secret. Both encrypter and decrypter use the shared secret to derive a symmetric key for a key-committing AEAD via HKDF.
 
 ### To encrypt
 
@@ -30,7 +30,6 @@ Check that \\(e(U, H_{\mathbb{G}_2} (U))= e(G, W)\\) for ciphertext validity.
 1. Check ciphertext validity.
 2. Each decryption share is \\(C_i = e(U, Z_i)\\).
 3. To combine decryption shares, s = \\(\prod C_i^{\lambda_i(0)}\\) where \\(\lambda_i(0)\\) is the lagrange coefficient over the appropriate size domain.
-
 
 ### Threshold Decryption (fast method)
 

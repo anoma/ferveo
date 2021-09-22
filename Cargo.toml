@@ -1,97 +1,23 @@
-[package]
-name = "ferveo"
-version = "0.1.0"
-edition = "2018"
-license = "AGPL-3.0"
-repository = "https://gitlab.com/metastatedev/ferveo"
-readme = "README.md"
-description = "An implementation of a DKG protocol for front-running protection on public blockchains."
-keywords = ["DKG"]
-categories = ["cryptography"]
-authors = ["Heliax AG <hello@heliax.dev>"]
+[workspace]
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
-ark-poly-commit = "0.3" 
-ark-std = "0.3"
-ark-pallas = "0.3"
-ark-bls12-381 = "0.3"
-ark-ec = "0.3"
-ark-ff = "0.3"
-ark-serialize = "0.3"
-ark-poly = "0.3"
-rand = "0.8"
-rand_old = { package = "rand", version = "0.7" }
-either = "1.6.1"
-ff = "0.8"
-hex = "0.4.2"
-miracl_core = "2.3.0"
-num = "0.4"
-sha2 = "0.9.1"
-ed25519-dalek = { version = "1", features = ["serde", "batch"] }
-x25519-dalek = { version = "1.1", features = ["serde"] }
-curve25519-dalek = { version = "3.0", features = ["serde"] }
-serde = { version = "1.0", features = ["derive"] }
-blake2 = "0.9.1"
-rand_chacha = "0.3.0"
-blake2b_simd = "0.5.11"
-zeroize = { version = "1", default-features = false, features = ["zeroize_derive"] }
-chacha20poly1305 = "0.8"
-serde_bytes = { version = "0.11" }
-bincode = "1.3"
-anyhow = "1.0"
-serde_json = "1.0"
-borsh = "0.9"
-subtle = "2.4"
-itertools = "0.10.1"
-measure_time = "0.7"
-redjubjub = "0.4.0"
-ark-ed-on-bls12-381 = "0.3.0"
-group-threshold-cryptography = {path = "./tpke/"}
-
-[dependencies.digest]
-version = "0.9.0"
-features = ["alloc"]
-
-[dev-dependencies]
-criterion = "=0.3.4"
-pprof = { version = "0.4", features = ["flamegraph", "criterion"] }
-
-# local override for bls12-381
-#[patch.crates-io]
-#bls12_381 = { git = 'https://github.com/A-Manning/bls12_381.git', branch = "ash/scalar-traits" }
+members = [
+  "ferveo",
+  "ferveo-common",
+  "tpke"
+]
 
 [profile.bench]
 opt-level = 3
 debug = true
+lto = true
+codegen-units = 1
 
 # Optimizations are needed such that the tests run in a reasonable timeframe
-#[profile.test]
-#opt-level = 3
+[profile.test]
+opt-level = 3
+debug = true
 
 [profile.release]
 debug = true
-
-#[[bench]]
-#name = "benchmarks"
-#harness = false
-#debug = true
-
-[[example]]
-name = "pvdkg"
-debug = true
-
-#[[bench]]
-#name = "pairing"
-#harness = false
-#debug = false
-
-#[[bench]]
-#name = "bench_main"
-#harness = false
-
-[[bench]]
-name = "pvdkg"
-path = "benches/benchmarks/pvdkg.rs"
-harness = false
+lto = true
+codegen-units = 1

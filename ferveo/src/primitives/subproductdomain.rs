@@ -283,7 +283,7 @@ pub fn build_circulant<F: FftField>(
     circulant
 }
 /// Computes the Toeplitz matrix of polynomial times the vector v
-pub fn toeplitz_mul<E: PairingEngine, const normalize: bool>(
+pub fn toeplitz_mul<E: PairingEngine, const NORMALIZE: bool>(
     polynomial: &Poly<E::Fr>,
     v: &[E::G1Affine],
     size: usize,

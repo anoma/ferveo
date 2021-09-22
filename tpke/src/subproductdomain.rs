@@ -1,3 +1,6 @@
+#![allow(non_snake_case)]
+#![allow(dead_code)]
+
 use ark_ec::{msm::FixedBaseMSM, PairingEngine, ProjectiveCurve};
 use ark_ff::{FftField, Field, PrimeField, Zero};
 use ark_poly::polynomial::univariate::DensePolynomial as Poly;
@@ -13,7 +16,8 @@ pub fn fast_multiexp<Projective: ProjectiveCurve>(
     let window_size = FixedBaseMSM::get_mul_window_size(scalars.len());
 
     let scalar_bits = Projective::ScalarField::size_in_bits();
-    let base_table = FixedBaseMSM::get_window_table(scalar_bits, window_size, base);
+    let base_table =
+        FixedBaseMSM::get_window_table(scalar_bits, window_size, base);
 
     let exp = FixedBaseMSM::multi_scalar_mul::<Projective>(
         scalar_bits,
@@ -24,9 +28,12 @@ pub fn fast_multiexp<Projective: ProjectiveCurve>(
     Projective::batch_normalization_into_affine(&exp)
 }
 
+#[allow(dead_code)]
 pub fn poly_from_scalar<F: FftField>(s: &F) -> Poly<F> {
     Poly::<F> { coeffs: vec![*s] }
 }
+
+#[allow(dead_code)]
 pub fn moduli_from_scalar<F: FftField>(s: &F) -> Poly<F> {
     Poly::<F> {
         coeffs: vec![-*s, F::one()],
@@ -76,7 +83,10 @@ pub fn rev<F: FftField>(f: &mut Poly<F>, m: usize) {
 
 /// GG Algorithm 9.5
 /// Divide f by g in nearly linear time
-pub fn fast_divide_monic<F: FftField>(f: &Poly<F>, g: &Poly<F>) -> (Poly<F>, Poly<F>) {
+pub fn fast_divide_monic<F: FftField>(
+    f: &Poly<F>,
+    g: &Poly<F>,
+) -> (Poly<F>, Poly<F>) {
     //assert_eq!(g.coeffs.last(), F::one()); //TODO: check monic condition
 
     if f.coeffs().len() < g.coeffs().len() {
@@ -126,20 +136,27 @@ impl<F: FftField> SubproductDomain<F> {
         let prime = derivative::<F>(&t.m);
         SubproductDomain { u, t, prime }
     }
+
+    #[allow(dead_code)]
     /// Evaluate a polynomial f over the subproduct domain u
     pub fn evaluate(&self, f: &Poly<F>) -> Vec<F> {
         let mut evals = vec![F::zero(); self.u.len()];
         self.t.evaluate(f, &self.u, &mut evals);
         evals
     }
+
+    #[allow(dead_code)]
     /// Interpolate a polynomial f over the domain, such that f(u_i) = v_i
     pub fn interpolate(&self, v: &[F]) -> Poly<F> {
         self.t.interpolate(&self.u, v)
     }
+
     /// Compute the inverse of the lagrange coefficients necessary to interpolate over u
     pub fn inverse_lagrange_coefficients(&self) -> Vec<F> {
         self.t.inverse_lagrange_coefficients(&self.u)
     }
+
+    #[allow(dead_code)]
     /// Compute a linear combination of lagrange factors times c_i
     pub fn linear_combine(&self, c: &[F]) -> Poly<F> {
         self.t.linear_combine(&self.u, &c)
@@ -223,6 +240,8 @@ impl<F: FftField> SubproductTree<F> {
         left.evaluate(&r_0, u_0, t_0);
         right.evaluate(&r_1, u_1, t_1);
     }
+
+    #[allow(dead_code)]
     /// Fast interpolate over this subproduct tree
     pub fn interpolate(&self, u: &[F], v: &[F]) -> Poly<F> {
         let mut lagrange_coeff = self.inverse_lagrange_coefficients(u);
@@ -233,6 +252,7 @@ impl<F: FftField> SubproductTree<F> {
 
         self.linear_combine(u, &lagrange_coeff)
     }
+
     /// Fast compute lagrange coefficients over this subproduct tree
     pub fn inverse_lagrange_coefficients(&self, u: &[F]) -> Vec<F> {
         //assert u.len() == degree of s.m
@@ -244,6 +264,8 @@ impl<F: FftField> SubproductTree<F> {
         self.evaluate(&m_prime, u, &mut evals);
         evals
     }
+
+    #[allow(dead_code)]
     /// GG Algorithm 10.9
     /// Fast linear combination of moduli over this subproduct tree
     /// On input c = { c_0, ..., c_{n-1} }
@@ -292,14 +314,18 @@ pub fn build_circulant<F: FftField>(
     if n == coeffs.len() - 1 {
         circulant[0] = *coeffs.last().unwrap();
         circulant[n] = *coeffs.last().unwrap();
-        circulant[n + 1..n + 1 + coeffs.len() - 2].copy_from_slice(&coeffs[1..coeffs.len() - 1]);
+        circulant[n + 1..n + 1 + coeffs.len() - 2]
+            .copy_from_slice(&coeffs[1..coeffs.len() - 1]);
     } else {
-        circulant[n + 1..n + 1 + coeffs.len() - 1].copy_from_slice(&coeffs[1..]);
+        circulant[n + 1..n + 1 + coeffs.len() - 1]
+            .copy_from_slice(&coeffs[1..]);
     }
     circulant
 }
+
+#[allow(dead_code)]
 /// Computes the Toeplitz matrix of polynomial times the vector v
-pub fn toeplitz_mul<E: PairingEngine, const normalize: bool>(
+pub fn toeplitz_mul<E: PairingEngine, const NORMALIZE: bool>(
     polynomial: &Poly<E::Fr>,
     v: &[E::G1Affine],
     size: usize,
@@ -310,7 +336,9 @@ pub fn toeplitz_mul<E: PairingEngine, const normalize: bool>(
     let size = ark_std::cmp::max(size, m);
 
     let domain = ark_poly::Radix2EvaluationDomain::<E::Fr>::new(2 * size)
-        .ok_or_else(|| anyhow::anyhow!("toeplitz multiplication on too large a domain"))?;
+        .ok_or_else(|| {
+            anyhow::anyhow!("toeplitz multiplication on too large a domain")
+        })?;
 
     let circulant_size = domain.size();
     let toeplitz_size = circulant_size / 2;
