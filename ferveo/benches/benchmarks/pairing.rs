@@ -1,7 +1,7 @@
 use ark_bls12_381::*;
 use ark_ec::*;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use redjubjub::*;
+//use redjubjub::*;
 use std::convert::TryFrom;
 
 use ark_bls12_381::*;
@@ -260,7 +260,7 @@ pub fn pairing(c: &mut Criterion) {
         })
     });
 }
-
+/*
 enum Item {
     SpendAuth {
         vk_bytes: VerificationKeyBytes<SpendAuth>,
@@ -326,7 +326,7 @@ pub fn redjubjub(c: &mut Criterion) {
         );
     }
     group.finish();
-}
+}*/
 
 fn ed25519_batch(c: &mut Criterion) {
     let mut group = c.benchmark_group("Ed25519 Batch Verification");
@@ -383,7 +383,7 @@ pub fn bench_batch_inverse(c: &mut Criterion) {
 criterion_group!(
     ec,
     pairing,
-    redjubjub,
+    //redjubjub,
     ed25519_batch,
     lagrange,
     bench_batch_inverse

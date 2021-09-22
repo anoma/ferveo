@@ -47,7 +47,7 @@ subtle = "2.4"
 itertools = "0.10.1"
 measure_time = "0.7"
 #redjubjub = "0.4.0"
-#ark-ed-on-bls12-381 = "0.3.0"
+ark-ed-on-bls12-381 = "0.3.0"
 group-threshold-cryptography = { path = "../tpke" }
 #tendermint = { path = "../../tendermint-rs/tendermint" }
 tendermint = { git = "https://github.com/heliaxdev/tendermint-rs" }
