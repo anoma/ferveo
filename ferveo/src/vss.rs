@@ -7,7 +7,7 @@ pub use pvss::*;
 
 /// The possible States of a VSS instance
 #[derive(Clone, Debug)]
-pub enum VSSState<Affine: AffineCurve> {
+pub enum VssState<Affine: AffineCurve> {
     /// The VSS is currently in a Sharing state with weight_ready
     /// of participants signaling Ready for this VSS
     Sharing { weight_ready: u32 },

@@ -2,18 +2,15 @@ use crate::*;
 use ark_ec::PairingEngine;
 use ark_serialize::*;
 use itertools::Itertools;
-use serde::*;
+use std::collections::BTreeMap;
 
-pub type ShareEncryptions<E: PairingEngine> = Vec<E::G2Affine>;
+pub type ShareEncryptions<E> = Vec<<E as PairingEngine>::G2Affine>;
 
 /// The dealer posts the Dealing to the blockchain to initiate the VSS
 #[derive(CanonicalSerialize, CanonicalDeserialize, Clone, Debug)]
 pub struct PubliclyVerifiableSS<E: PairingEngine> {
     /// Feldman commitment to the VSS polynomial, F = g^{\phi}
     pub coeffs: Vec<E::G1Affine>,
-
-    // \hat{u}_2 = \hat{u}_1^{a_0}
-    pub u_hat_2: E::G2Affine,
 
     // ek_i^{f(\omega_j)}
     pub shares: Vec<ShareEncryptions<E>>,
@@ -27,14 +24,11 @@ pub struct PubliclyVerifiableSS<E: PairingEngine> {
 
 #[derive(Clone)]
 pub struct PubliclyVerifiableParams<E: PairingEngine> {
-    pub g_1: E::G1Projective,
-    pub u_hat_1: E::G2Affine,
+    pub g: E::G1Projective,
+    pub h: E::G2Projective,
 }
 
-impl<E> PubliclyVerifiableSS<E>
-where
-    E: PairingEngine,
-{
+impl<E: PairingEngine> PubliclyVerifiableSS<E> {
     /// Verify that this PVSS instance is a valid aggregation of
     /// the PVSS instances, produced by `aggregate`,
     /// and received by the DKG context `dkg`
@@ -42,11 +36,11 @@ where
     ///  and the local private keyshares
     pub fn verify_aggregation(
         &self,
-        dkg: &PubliclyVerifiableDKG<E>,
-    ) -> Result<(u32, Vec<E::G2Affine>)> {
+        dkg: &PubliclyVerifiableDkg<E>,
+    ) -> Result<u32> {
         print_time!("PVSS verify_aggregation");
-        let local_shares = self.verify(dkg)?;
-        let mut Y = E::G1Projective::zero();
+        self.verify(dkg);
+        let mut y = E::G1Projective::zero();
         let mut weight = 0u32;
         for (dealer, pvss) in dkg.vss.iter() {
             let c = pvss.coeffs[0].into_projective();
@@ -58,11 +52,11 @@ where
             {
                 return Err(anyhow!("PVSS sigma verification"));
             }
-            Y += c;
-            weight += dkg.participants[*dealer as usize].weight;
+            y += c;
+            weight += dkg.validators[*dealer as usize].weight;
         }
-        if Y.into_affine() == self.coeffs[0] {
-            Ok((weight, local_shares))
+        if y.into_affine() == self.coeffs[0] {
+            Ok(weight)
         } else {
             Err(anyhow!(
                 "aggregation does not match received PVSS instances"
@@ -73,14 +67,12 @@ where
     /// Aggregate the PVSS instances in `pvss` from DKG session `dkg` ]
     /// into a new PVSS instance
     pub fn aggregate(
-        dkg: &PubliclyVerifiableDKG<E>,
+        dkg: &PubliclyVerifiableDkg<E>,
         pvss: &BTreeMap<u32, PubliclyVerifiableSS<E>>,
     ) -> Self {
         let mut pvss_iter = pvss.iter();
         let (_, first_pvss) = pvss_iter.next().unwrap(); //TODO: unwrap?
         let mut coeffs = batch_to_projective(&first_pvss.coeffs);
-
-        let mut u_hat_2 = first_pvss.u_hat_2.into_projective();
 
         let mut shares = first_pvss
             .shares
@@ -91,7 +83,6 @@ where
             for (a, b) in coeffs.iter_mut().zip_eq(next.coeffs.iter()) {
                 *a += b.into_projective();
             }
-            u_hat_2 += next.u_hat_2.into_projective();
             for (a, b) in shares.iter_mut().zip_eq(next.shares.iter()) {
                 for (c, d) in a.iter_mut().zip_eq(b.iter()) {
                     *c += d.into_projective();
@@ -112,7 +103,6 @@ where
         }
         Self {
             coeffs: E::G1Projective::batch_normalization_into_affine(&coeffs),
-            u_hat_2: u_hat_2.into_affine(),
             shares,
             sigma,
             commitment: E::G1Projective::batch_normalization_into_affine(
@@ -126,7 +116,7 @@ where
     /// `rng` a cryptographic random number generator
     pub fn new<R: Rng>(
         s: &E::Fr,
-        dkg: &PubliclyVerifiableDKG<E>,
+        dkg: &PubliclyVerifiableDkg<E>,
         rng: &mut R,
     ) -> Result<Self> {
         let mut phi = DensePolynomial::<E::Fr>::rand(
@@ -138,30 +128,25 @@ where
         let evals = phi.evaluate_over_domain_by_ref(dkg.domain);
 
         // commitment to coeffs
-        let coeffs = fast_multiexp(&phi.coeffs, dkg.pvss_params.g_1);
+        let coeffs = fast_multiexp(&phi.coeffs, dkg.pvss_params.g);
 
         let shares = dkg
-            .participants
+            .validators
             .iter()
-            .map(|participant| {
-                let share_range = participant.share_range.clone();
-
+            .map(|validator| {
                 fast_multiexp(
-                    &evals.evals[share_range],
-                    participant.session_key.encryption_key.into_projective(),
+                    &evals.evals[validator.share_start..validator.share_end],
+                    validator.key.encryption_key.into_projective(),
                 )
             })
             .collect::<Vec<ShareEncryptions<E>>>();
 
         //phi.zeroize(); // TODO zeroize?
 
-        let u_hat_2 = dkg.pvss_params.u_hat_1.mul(*s).into_affine(); //TODO: new base
-
         let sigma = E::G2Affine::prime_subgroup_generator().mul(*s).into(); //todo hash to curve
 
         let vss = Self {
             coeffs,
-            u_hat_2,
             shares,
             sigma,
             commitment: vec![], // Optimistically avoid computing the commitment
@@ -171,62 +156,38 @@ where
     }
 
     /// Verify the PVSS instance `self` is a valid PVSS instance for the DKG context `dkg`
-    pub fn verify(
-        &self,
-        dkg: &PubliclyVerifiableDKG<E>,
-    ) -> Result<Vec<E::G2Affine>> {
+    pub fn verify(&self, dkg: &PubliclyVerifiableDkg<E>) -> bool {
         print_time!("PVSS verify");
 
-        let me = &dkg.participants[dkg.me as usize];
-
-        if self.shares.len() != dkg.participants.len() {
-            return Err(anyhow!("wrong vss length"));
+        if self.shares.len() != dkg.validators.len() {
+            return false; //Err(anyhow!("wrong vss length"));
         }
 
-        //let pairings = vec![];
-        //let random_coefficients = vec![];
-        // check e(F_0, u_hat_1) == e(g_1, u_hat_2)
-        if E::pairing(self.coeffs[0], dkg.pvss_params.u_hat_1)
-            != E::pairing(dkg.pvss_params.g_1, self.u_hat_2)
-        {
-            return Err(anyhow!("invalid"));
-        }
         {
             print_time!("check encryptions");
             //check e()
-            dkg.participants.iter().zip(self.shares.iter()).all(
-                |(participant, shares)| {
-                    let share_range = participant.share_range.clone();
-                    let ek = participant.session_key.encryption_key;
+            dkg.validators.iter().zip(self.shares.iter()).all(
+                |(validator, shares)| {
+                    let ek = validator.key.encryption_key;
                     let alpha = E::Fr::one(); //TODO: random number!
                     let mut powers_of_alpha = alpha;
-                    let mut Y = E::G2Projective::zero();
-                    let mut A = E::G1Projective::zero();
-                    for (Y_i, A_i) in shares
-                        .iter()
-                        .zip_eq(self.commitment[share_range].iter())
-                    {
-                        Y += Y_i.mul(powers_of_alpha);
-                        A += A_i.mul(powers_of_alpha);
+                    let mut y = E::G2Projective::zero();
+                    let mut a = E::G1Projective::zero();
+                    for (y_i, a_i) in shares.iter().zip_eq(
+                        self.commitment
+                            [validator.share_start..validator.share_end]
+                            .iter(),
+                    ) {
+                        y += y_i.mul(powers_of_alpha);
+                        a += a_i.mul(powers_of_alpha);
                         powers_of_alpha *= alpha;
                     }
 
-                    E::pairing(dkg.pvss_params.g_1, Y) == E::pairing(A, ek)
+                    E::pairing(dkg.pvss_params.g, y) == E::pairing(a, ek)
                 },
             );
         }
-
-        let local_shares = {
-            print_time!("decrypt shares");
-
-            self.shares[dkg.me]
-                .iter()
-                .map(|p| p.mul(dkg.session_keypair.decryption_key))
-                .collect::<Vec<_>>()
-        };
-        Ok(E::G2Projective::batch_normalization_into_affine(
-            &local_shares,
-        ))
+        true
     }
 }
 /*
@@ -278,14 +239,14 @@ fn test_pvss() {
 
 #[test]
 fn test_pvss() {
-    let rng = &mut ark_std::test_rng();
+    let mut rng = &mut ark_std::test_rng();
     use ark_bls12_381::Bls12_381;
     type Fr = <Bls12_381 as PairingEngine>::Fr;
     type G1 = <Bls12_381 as PairingEngine>::G1Affine;
     type G2 = <Bls12_381 as PairingEngine>::G2Affine;
 
-    let mut phi = DensePolynomial::<Fr>::rand(8192 / 3, rng);
-    use ark_std::UniformRand;
+    let mut phi = DensePolynomial::<Fr>::rand(2 * 128 / 3, &mut rng);
+    //use ark_std::UniformRand;
     let domain = ark_poly::Radix2EvaluationDomain::<Fr>::new(8192)
         .ok_or_else(|| anyhow!("unable to construct domain"))
         .unwrap();
@@ -294,12 +255,10 @@ fn test_pvss() {
 
     let g_1 = G1::prime_subgroup_generator();
     // commitment to coeffs
-    let coeffs = fast_multiexp(&phi.coeffs, g_1.into_projective());
+    let _coeffs = fast_multiexp(&phi.coeffs, g_1.into_projective());
 
-    use itertools::Itertools;
-
-    let weight = 8192 / 150;
-    let shares = (0..150)
+    let weight = 128 / 4;
+    let shares = (0..4)
         .map(|participant| {
             let share_range =
                 (participant * weight)..((participant + 1) * weight);
@@ -310,4 +269,19 @@ fn test_pvss() {
             )
         })
         .collect::<Vec<_>>();
+
+    // use group_threshold_cryptography::*;
+    // // let mut rng = test_rng
+    // let shares_num = 8192;();
+    // let threshold = shares_num*2/3;
+    // let num_entities = 150;
+
+    // let msg: &[u8] = "abc".as_bytes();
+
+    // // let (pubkey, privkey, _) = setup::<Bls12_381>(threshold, shares_num, num_entities);
+
+    // let ciphertext = encrypt::<ark_std::rand::rngs::StdRng, Bls12_381>(msg, pubkey, &mut rng);
+    // let plaintext = decrypt(&ciphertext, privkey);
+
+    // assert!(msg == plaintext)
 }

@@ -12,8 +12,8 @@ readme = "README.md"
 hex = "=0.4.3"
 rand_core = "0.6"
 rand = "0.8"
-rayon = "=1.5.0"
-thiserror = "=1.0.26"
+rayon = "1.5"
+thiserror = "=1.0.29"
 anyhow = "=1.0"
 
 blake2b_simd = "=0.5.11"
@@ -28,16 +28,9 @@ ark-bls12-381 = "0.3"
 itertools="0.10"
 
 [dev-dependencies]
-criterion = "=0.3.4"
-
-[profile.test]
-opt-level = 3
+criterion = "0.3"
 
 [[bench]]
 name = "benchmarks"
 harness = false
-
-[profile.bench]
-opt-level = 3
-debug = true
 

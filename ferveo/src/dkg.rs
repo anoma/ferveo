@@ -2,8 +2,6 @@
 #![allow(non_snake_case)]
 #![allow(unused_imports)]
 
-//use ark_poly_commit::kzg10::{Powers, VerifierKey};
-
 use crate::*;
 use anyhow::anyhow;
 use ark_ec::{AffineCurve, PairingEngine, ProjectiveCurve};
@@ -14,7 +12,6 @@ use ark_poly::{
     EvaluationDomain, Polynomial,
 };
 use ed25519_dalek as ed25519;
-use serde::*;
 
 pub mod common;
 pub mod pv;
@@ -30,13 +27,11 @@ pub struct Params {
 }
 
 #[derive(Debug, Clone)]
-pub enum DKGState<E: ark_ec::PairingEngine> {
-    Init {
-        announce_messages: Vec<PubliclyVerifiableAnnouncement<E>>,
-    },
-    Sharing {
-        finalized_weight: u32,
-    },
+pub enum DkgState {
+    Init,
+    Dealt,
+    Shared,
+    Aggregated { finalized_weight: u32 },
     Success,
-    Failure,
+    Invalid,
 }

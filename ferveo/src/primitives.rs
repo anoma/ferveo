@@ -1,11 +1,7 @@
 use crate::*;
 
-pub mod keypair;
-pub use keypair::*;
-
 pub mod subproductdomain;
 pub use subproductdomain::*;
-
 
 /// Compute a fast multiexp of many scalars times the same base
 /// Only convenient for when called once with given base; if called

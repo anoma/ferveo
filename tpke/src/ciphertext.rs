@@ -1,6 +1,10 @@
-use crate::*;
+use ark_ec::{AffineCurve, PairingEngine};
+use ark_ff::{One, ToBytes, UniformRand};
 use chacha20::cipher::{NewCipher, StreamCipher};
 use chacha20::{ChaCha20, Key, Nonce};
+use rand_core::RngCore;
+
+use crate::{construct_tag_hash, hash_to_g2};
 
 #[derive(Clone, Debug)]
 pub struct Ciphertext<E: PairingEngine> {
@@ -19,7 +23,6 @@ impl<E: PairingEngine> Ciphertext<E> {
         ]) == E::Fqk::one()
     }
     fn construct_tag_hash(&self) -> E::G2Affine {
-        use ark_ff::ToBytes;
         let mut hash_input = Vec::<u8>::new();
         self.nonce.write(&mut hash_input).unwrap();
         hash_input.extend_from_slice(&self.ciphertext);
@@ -57,7 +60,10 @@ pub fn encrypt<R: RngCore, E: PairingEngine>(
 
 pub fn check_ciphertext_validity<E: PairingEngine>(c: &Ciphertext<E>) -> bool {
     let g_inv = E::G1Prepared::from(-E::G1Affine::prime_subgroup_generator());
-    let hash_g2 = E::G2Prepared::from(construct_tag_hash::<E>(c.nonce, &c.ciphertext[..]));
+    let hash_g2 = E::G2Prepared::from(construct_tag_hash::<E>(
+        c.nonce,
+        &c.ciphertext[..],
+    ));
 
     E::product_of_pairings(&[
         (E::G1Prepared::from(c.nonce), hash_g2),
@@ -65,7 +71,10 @@ pub fn check_ciphertext_validity<E: PairingEngine>(c: &Ciphertext<E>) -> bool {
     ]) == E::Fqk::one()
 }
 
-pub fn decrypt<E: PairingEngine>(ciphertext: &Ciphertext<E>, privkey: E::G2Affine) -> Vec<u8> {
+pub fn decrypt<E: PairingEngine>(
+    ciphertext: &Ciphertext<E>,
+    privkey: E::G2Affine,
+) -> Vec<u8> {
     let s = E::product_of_pairings(&[(
         E::G1Prepared::from(ciphertext.nonce),
         E::G2Prepared::from(privkey),
