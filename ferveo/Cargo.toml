@@ -50,7 +50,7 @@ measure_time = "0.7"
 ark-ed-on-bls12-381 = "0.3.0"
 group-threshold-cryptography = { path = "../tpke" }
 #tendermint = { path = "../../tendermint-rs/tendermint" }
-tendermint = { git = "https://github.com/informalsystems/tendermint-rs" }
+tendermint = {git = "https://github.com/heliaxdev/tendermint-rs", branch = "tomas/lowercase-node-id"}
 ferveo-common = { path = "../ferveo-common" }
 
 [dependencies.digest]
