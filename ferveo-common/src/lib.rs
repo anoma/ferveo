@@ -1,8 +1,20 @@
-use ed25519_dalek as ed25519;
-use ed25519_dalek::Signer;
+use ark_ec::PairingEngine;
 
-use crate::*;
-use ark_std::{end_timer, start_timer};
+pub mod keypair;
+pub use keypair::*;
+
+#[derive(Clone, Debug)]
+pub struct Validator<E: PairingEngine> {
+    pub key: PublicKey<E>,
+    pub weight: u32,
+    pub share_start: usize,
+    pub share_end: usize,
+}
+
+impl Rng for ark_std::rand::prelude::StdRng {}
+
+pub trait Rng: ark_std::rand::CryptoRng + ark_std::rand::RngCore {}
+
 use serde::{Deserialize, Serialize};
 
 pub mod ark_serde {
@@ -32,49 +44,16 @@ pub mod ark_serde {
     }
 }
 
-impl SignedMessage {
-    pub fn sign<M>(tau: u64, msg: &M, key: &ed25519::Keypair) -> SignedMessage
-    where
-        M: Serialize,
-    {
-        print_time!("Signing Message");
-        let msg_bytes = bincode::serialize(&(tau, msg)).unwrap();
-        let signature = key.sign(&msg_bytes);
-        SignedMessage {
-            msg_bytes,
-            signature,
-            signer: key.public,
-        }
-    }
-    pub fn verify<'de, M>(&'de self) -> Result<(u64, M)>
-    where
-        M: Deserialize<'de>,
-    {
-        print_time!("Verifying Message");
-        self.signer
-            .verify_strict(&self.msg_bytes, &self.signature)?;
-        bincode::deserialize::<'de, _>(&self.msg_bytes).map_err(|e| e.into()) //TODO: handle error
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub struct SignedMessage {
-    msg_bytes: Vec<u8>,
-    signature: ed25519::Signature,
-    pub signer: ed25519::PublicKey,
-}
-
 #[test]
 fn test_ark_serde() {
-    use ark_pallas::Affine;
-    //use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+    use ark_bls12_381::G1Affine;
     #[derive(Serialize, Deserialize)]
     struct Test {
         #[serde(with = "ark_serde")]
-        pub p: Affine,
+        pub p: G1Affine,
     }
     use ark_ec::AffineCurve;
-    let p = Affine::prime_subgroup_generator();
+    let p = G1Affine::prime_subgroup_generator();
     let t = Test { p };
     let m = serde_json::to_string(&t).unwrap();
     let _t2: Test = serde_json::from_str(&m).unwrap();

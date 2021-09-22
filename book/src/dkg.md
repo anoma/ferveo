@@ -14,21 +14,22 @@ Some Publicly Verifiable DKG schemes, such as Groth21, produce field private key
 
 In addition to the two independent generators \\(G \in \mathbb{G}_1\\) and \\(H \in \mathbb{G}_2\\), a third independent generator \\(\hat{u}_1 \in \mathbb{G}_2\\) is selected. 
 
-## Session keys
+## Epoch keys
 
-Each validator \\(i\\) generates a **session keypair** for the lifetime of the DKG: a decryption key \\(dk_i \in \mathbb{F}_r\\), and a signing key \\(sk_i\in \mathbb{F}_r \\). 
-
-The signing key is used for a signature of knowledge in the DKG and is independent of the Ed25519 identity used for signing messages in the protocol.
-
-The public session keypair consists of an **encryption key** \\(ek_i \in \mathbb{G}_2\\) and a verification key \\(sk_i \in \mathbb{G}_1\\):
+Each validator \\(i\\) generates a **epoch keypair**: a private decryption key \\(dk_i \in \mathbb{F}_r\\), and a public encryption key \\(ek_i\in \mathbb{G}_2 \\). The encryption key is derived from the decryption key:
 
 \\[ek_i = [dk_i] H \\]
-\\[vk_i = [sk_i] G \\]
+
+Each validator is required to generate an epoch keypair at genesis, or upon joining the validator set. Each validator should generate and announce a new epoch public key once per epoch, but in the event that a validator does not announce a new epoch public key during an epoch, the last announced epoch public key should be used in the DKG. For this reason, each validator should persist their latest epoch private key on disk.
 
 ## Publicly Verifiable Secret Sharing
 
-The validators, in decreasing order of number of key shares, each act as a dealer for exactly one PVSS instance until at least 2/3 by weight of key shares have successfully posted a verified correct PVSS instance to the blockchain. In case a dealer's PVSS instance does not verify as correct, that instance is discarded (and penalties may be imposed) and additional validators act as dealers until the 2/3 threshold is reached.
+The validators should each generate exactly one PVSS instance as a dealer, and include that instance as a VoteExtension to a specially designated DKG block. The next block proposer is responsible for verifying and aggregating at least 2/3 by weight of PVSS instances, and including the aggregation in the next block.
+
+For performance reasons, the aggregating validator may sort the PVSS instances by decreasing validator weight, and only include sufficient instances to reach the necessary 2/3 total weight. PVSS instances above the 2/3 weight threshold are ignored.
+
+In case a dealer's PVSS instance does not verify as correct, that instance is discarded (and penalties may be imposed).
 
 ## Output
 
-Once 2/3 by weight of dealers have posted correct PVSS instances, all of the correct instances are aggregated into a single PVSS instance. The commitment to the constant term of the aggregated PVSS instance, \\(F_0\\), is the public key output \\(Y\\) from the PVDKG, and each validators aggregated private key shares \\(Z_{i,\omega_j} \\) are the private key shares associated with \\(Y\\)
+Once 2/3 by weight of correct PVSS instances have been aggregated into a single PVSS instance, the commitment to the constant term of the aggregated PVSS instance, \\(F_0\\), is the public key output \\(Y\\) from the PVDKG, and each validators aggregated private key shares \\(Z_{i,\omega_j} \\) are the private key shares associated with \\(Y\\)
