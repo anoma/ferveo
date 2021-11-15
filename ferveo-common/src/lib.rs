@@ -15,8 +15,6 @@ impl Rng for ark_std::rand::prelude::StdRng {}
 
 pub trait Rng: ark_std::rand::CryptoRng + ark_std::rand::RngCore {}
 
-use serde::{Deserialize, Serialize};
-
 pub mod ark_serde {
     use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
     use serde_bytes::{Deserialize, Serialize};
@@ -46,6 +44,7 @@ pub mod ark_serde {
 
 #[test]
 fn test_ark_serde() {
+    use serde::{Serialize, Deserialize};
     use ark_bls12_381::G1Affine;
     #[derive(Serialize, Deserialize)]
     struct Test {

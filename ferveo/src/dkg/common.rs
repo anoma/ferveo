@@ -13,20 +13,19 @@ use itertools::izip;
 /// partition_domain returns a vector of DKG participants
 pub fn partition_domain<E: PairingEngine>(
     params: &Params,
-    validator_set: &tendermint::validator::Set,
+    validator_set: &ValidatorSet,
     validator_keys: &[ferveo_common::PublicKey<E>],
 ) -> Result<Vec<ferveo_common::Validator<E>>> {
-    let validators = validator_set.validators();
     // Sort participants from greatest to least stake
 
     // Compute the total amount staked
     let total_voting_power = params.total_weight as f64
-        / validator_set.total_voting_power().value() as f64;
+        / validator_set.total_voting_power() as f64;
 
     // Compute the weight of each participant rounded down
-    let mut weights = validators
+    let mut weights = validator_set.validators
         .iter()
-        .map(|p| (p.power() as f64 * total_voting_power).floor() as u32)
+        .map(|p| (p.power as f64 * total_voting_power).floor() as u32)
         .collect::<Vec<_>>();
 
     // Add any excess weight to the largest weight participants
@@ -44,8 +43,8 @@ pub fn partition_domain<E: PairingEngine>(
 
     let mut allocated_weight = 0usize;
     let mut participants = vec![];
-    for (validator, weight, key) in
-        izip!(validators.iter(), weights.iter(), validator_keys.iter())
+    for (_, weight, key) in
+        izip!(validator_set.validators.iter(), weights.iter(), validator_keys.iter())
     {
         participants.push(ferveo_common::Validator::<E> {
             key: *key,
