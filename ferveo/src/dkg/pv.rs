@@ -15,10 +15,33 @@ pub struct PubliclyVerifiableDkg<E: PairingEngine> {
     pub domain: ark_poly::Radix2EvaluationDomain<E::Fr>,
     pub state: DkgState,
     pub me: usize,
-    pub validator_set: tendermint::validator::Set,
+    pub validator_set: ValidatorSet,
     //pub local_shares: Vec<E::G2Affine>,
     //pub announce_messages: Vec<PubliclyVerifiableAnnouncement<E>>,
 }
+
+#[derive(Clone)]
+/// Represents a tendermint validator
+pub struct TendermintValidator {
+    /// Total voting power in tendermint consensus
+    pub power: u64
+}
+
+#[derive(Clone)]
+/// The set of tendermint validators for a dkg instance
+pub struct ValidatorSet {
+    pub validators: Vec<TendermintValidator>,
+}
+
+impl ValidatorSet {
+    pub fn total_voting_power(&self) -> u64 {
+        self.validators
+            .iter()
+            .map(|v| v.power)
+            .sum()
+    }
+}
+
 
 impl<E: PairingEngine> PubliclyVerifiableDkg<E> {
     /// Create a new DKG context to participate in the DKG
@@ -27,7 +50,7 @@ impl<E: PairingEngine> PubliclyVerifiableDkg<E> {
     /// `params` contains the parameters of the DKG such as number of shares
     /// `rng` is a cryptographic random number generator
     pub fn new<R: Rng>(
-        validator_set: &tendermint::validator::Set,
+        validator_set: ValidatorSet,
         validator_keys: &[ferveo_common::PublicKey<E>],
         params: Params,
         me: usize,
@@ -51,12 +74,12 @@ impl<E: PairingEngine> PubliclyVerifiableDkg<E> {
             domain,
             state: DkgState::Init,
             me,
-            validator_set: validator_set.clone(),
             validators: partition_domain(
                 &params,
-                validator_set,
+                &validator_set,
                 validator_keys,
             )?,
+            validator_set,
             //me: 0, // TODO: invalid value
             //final_state: None,
             //local_shares: vec![],
@@ -175,17 +198,10 @@ mod tests {
     };
     use itertools::izip;
 
-    fn create_info(vp: u64) -> tendermint::validator::Info {
-        use std::convert::TryFrom;
-        tendermint::validator::Info::new(
-            tendermint::public_key::PublicKey::from_raw_ed25519(&vec![
-                48, 163, 55, 132, 231, 147, 230, 163, 56, 158, 127, 218, 179,
-                139, 212, 103, 218, 89, 122, 126, 229, 88, 84, 48, 32, 0, 185,
-                174, 63, 72, 203, 52,
-            ])
-            .unwrap(),
-            tendermint::vote::Power::try_from(vp).unwrap(),
-        )
+    fn create_info(vp: u64) -> TendermintValidator {
+       TendermintValidator {
+           power: vp,
+       }
     }
 
     #[test]
@@ -200,9 +216,9 @@ mod tests {
             security_threshold: 300 / 3,
             total_weight: 300,
         };
-        let validator_set = tendermint::validator::Set::without_proposer(
-            (1..11u64).map(|vp| create_info(vp)).collect::<Vec<_>>(),
-        );
+        let validator_set = ValidatorSet {
+            validators: (1..11u64).map(|vp| TendermintValidator{power: vp}).collect::<Vec<_>>(),
+        };
 
         let validator_keys = (0..10)
             .map(|_| {
@@ -215,7 +231,7 @@ mod tests {
         for me in 0..10 {
             contexts.push(
                 PubliclyVerifiableDkg::<ark_bls12_381::Bls12_381>::new(
-                    &validator_set,
+                    validator_set.clone(),
                     &validator_keys,
                     params.clone(),
                     me,
