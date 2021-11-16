@@ -6,7 +6,7 @@ use crate::*;
 impl SignedMessage {
     pub fn sign<M>(tau: u64, msg: &M, key: &ed25519::Keypair) -> SignedMessage
     where
-        M: Serialize,
+        M: serde::Serialize,
     {
         print_time!("Signing Message");
         let msg_bytes = bincode::serialize(&(tau, msg)).unwrap();
@@ -19,7 +19,7 @@ impl SignedMessage {
     }
     pub fn verify<'de, M>(&'de self) -> Result<(u64, M)>
     where
-        M: Deserialize<'de>,
+        M: serde::Deserialize<'de>,
     {
         print_time!("Verifying Message");
         self.signer
@@ -28,7 +28,7 @@ impl SignedMessage {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
 pub struct SignedMessage {
     msg_bytes: Vec<u8>,
     signature: ed25519::Signature,
