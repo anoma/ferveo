@@ -1,20 +1,20 @@
 use crate::*;
 use itertools::izip;
+use ferveo_common::ValidatorPublicKey;
 
-/// partition_domain takes as input a vector of Announcement messages from
+/// partition_domain takes as input a vector of validators from
 /// participants in the DKG, containing their total stake amounts
-/// and their ephemeral encryption key
+/// and public address (as Bech32m string)
 ///
-/// The Announcement messages are stable-sorted by staking weight
-/// (so highest weight participants come first, then by announcement order)
+/// The validators are *assumed to be* stable-sorted by staking weight
+/// (so highest weight participants come first), then by address
 /// and the DKG share domain is partitioned into continuous segments roughly
 /// the same relative size as the staked weight.
 ///
 /// partition_domain returns a vector of DKG participants
 pub fn partition_domain<E: PairingEngine>(
     params: &Params,
-    validator_set: &ValidatorSet,
-    validator_keys: &[ferveo_common::PublicKey<E>],
+    validator_set: &ValidatorSet
 ) -> Result<Vec<ferveo_common::Validator<E>>> {
     // Sort participants from greatest to least stake
 
@@ -38,16 +38,12 @@ pub fn partition_domain<E: PairingEngine>(
         *i += 1;
     }
 
-    // total_weight is allocated among all participants
-    assert_eq!(weights.iter().sum::<u32>(), params.total_weight);
-
     let mut allocated_weight = 0usize;
     let mut participants = vec![];
-    for (_, weight, key) in
-        izip!(validator_set.validators.iter(), weights.iter(), validator_keys.iter())
+    for weight in &weights
     {
         participants.push(ferveo_common::Validator::<E> {
-            key: *key,
+            key: ValidatorPublicKey::Unannounced,
             weight: *weight,
             share_start: allocated_weight,
             share_end: allocated_weight + *weight as usize,

@@ -3,28 +3,29 @@ use ark_ec::PairingEngine;
 use ark_ff::Field;
 use ark_std::{end_timer, start_timer};
 use std::collections::BTreeMap;
+use ferveo_common::{ValidatorPublicKey, PublicKey};
+use ark_ec::bn::TwistType::D;
 
 /// The DKG context that holds all of the local state for participating in the DKG
 pub struct PubliclyVerifiableDkg<E: PairingEngine> {
-    //pub ed_key: ed25519::Keypair,
     pub params: Params,
     pub pvss_params: PubliclyVerifiableParams<E>,
     pub session_keypair: ferveo_common::Keypair<E>,
     pub validators: Vec<ferveo_common::Validator<E>>,
     pub vss: BTreeMap<u32, PubliclyVerifiableSS<E>>,
     pub domain: ark_poly::Radix2EvaluationDomain<E::Fr>,
-    pub state: DkgState,
+    pub state: DkgState<E>,
     pub me: usize,
     pub validator_set: ValidatorSet,
-    //pub local_shares: Vec<E::G2Affine>,
-    //pub announce_messages: Vec<PubliclyVerifiableAnnouncement<E>>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, PartialOrd, Eq, Ord)]
 /// Represents a tendermint validator
 pub struct TendermintValidator {
     /// Total voting power in tendermint consensus
-    pub power: u64
+    pub power: u64,
+    /// The established address of the validator
+    pub address: String,
 }
 
 #[derive(Clone)]
@@ -34,6 +35,18 @@ pub struct ValidatorSet {
 }
 
 impl ValidatorSet {
+    /// Sorts the validators from highest to lowest. This ordering
+    /// first considers staking weight and breaks ties on established
+    /// address
+    pub fn new(mut validators: Vec<TendermintValidator>) -> Self {
+        // reverse the ordering here
+        validators.sort_by(|a, b| b.cmp(a));
+        Self {
+            validators
+        }
+    }
+
+    /// Get the total voting power of the validator set
     pub fn total_voting_power(&self) -> u64 {
         self.validators
             .iter()
@@ -46,14 +59,14 @@ impl ValidatorSet {
 impl<E: PairingEngine> PubliclyVerifiableDkg<E> {
     /// Create a new DKG context to participate in the DKG
     /// Every identity in the DKG is linked to an ed25519 public key;
-    /// `ed_key` is the local identity.
+    /// `validator_set`: The set of validators and their respective voting powers
+    ///                  *IMPORTANT: this set should be reverse sorted*
     /// `params` contains the parameters of the DKG such as number of shares
     /// `rng` is a cryptographic random number generator
     pub fn new<R: Rng>(
         validator_set: ValidatorSet,
-        validator_keys: &[ferveo_common::PublicKey<E>],
         params: Params,
-        me: usize,
+        me: TendermintValidator,
         rng: &mut R,
     ) -> Result<Self> {
         use ark_std::UniformRand;
@@ -62,31 +75,37 @@ impl<E: PairingEngine> PubliclyVerifiableDkg<E> {
         )
         .ok_or_else(|| anyhow!("unable to construct domain"))?;
 
+        // keep track of the owner of this instance in the validator set
+        let me = validator_set
+            .validators
+            .binary_search_by(|probe| me.cmp(probe))
+            .or(Err(anyhow!("could not find this validator in the provided validator set")))?;
+
+        // partition out weight shares of validators based on their voting power
+        let mut validators = partition_domain(
+            &params,
+            &validator_set
+        )?;
+
+        // We don't need to wait for announcements to store our own ephemeral public key
+        let session_keypair =  ferveo_common::Keypair::<E>::new(rng);
+        validators[me].key = ValidatorPublicKey::Announced(session_keypair.public());
         Ok(Self {
-            session_keypair: ferveo_common::Keypair::<E>::new(rng),
+            session_keypair,
             params,
             pvss_params: PubliclyVerifiableParams::<E> {
                 g: E::G1Projective::prime_subgroup_generator(),
                 h: E::G2Projective::prime_subgroup_generator(),
             },
-            //participants: vec![],
             vss: BTreeMap::new(),
             domain,
-            state: DkgState::Init,
+            state: DkgState::Init{accumulated_weight: 0},
             me,
-            validators: partition_domain(
-                &params,
-                &validator_set,
-                validator_keys,
-            )?,
+            validators,
             validator_set,
-            //me: 0, // TODO: invalid value
-            //final_state: None,
-            //local_shares: vec![],
-            // TODO: Validators don't announce themselves through DKG
-            // TODO: Instead, we read stakes from storage
         })
     }
+
     /// Create a new PVSS instance within this DKG session, contributing to the final key
     /// `rng` is a cryptographic random number generator
     /// Returns a PVSS dealing message to post on-chain
@@ -99,20 +118,13 @@ impl<E: PairingEngine> PubliclyVerifiableDkg<E> {
 
         let sharing = vss.clone();
         self.vss.insert(self.me as u32, vss);
-
         Ok(Message::Deal(sharing))
     }
+
     /// Aggregate all received PVSS messages into a single message, prepared to post on-chain
     pub fn aggregate(&mut self) -> Message<E> {
-        let pvss = PubliclyVerifiableSS::<E>::aggregate(self, &self.vss);
-        Message::Aggregate(pvss)
+        Message::Aggregate(aggregate(self, &self.vss))
     }
-
-    /// Converts an ed25519 key to the index of that participant
-    //TODO: this is not a good workaround for finding dealer from ed_key
-    //pub fn find_by_key(&self, ed_key: &ed25519::PublicKey) -> Option<usize> {
-    //    self.participants.iter().position(|p| p.ed_key == *ed_key)
-    //}
 
     /// Returns the public key generated by the DKG
     pub fn final_key(&self) -> E::G1Affine {
@@ -123,47 +135,89 @@ impl<E: PairingEngine> PubliclyVerifiableDkg<E> {
             .into_affine()
     }
 
-    /// Handle a DKG related message posted on chain
-    /// `sender` is the validator id of the sender of the message
+
+    /// Verify a DKG related message in a block proposal
+    /// `sender` is the validator of the sender of the message
     /// `payload` is the content of the message
-    pub fn handle_message(
+    pub fn verify_message(
         &mut self,
-        sender: u32,
+        sender: TendermintValidator,
         payload: Message<E>,
-    ) -> Result<Option<SignedMessage>> {
+    ) -> Result<()> {
         match payload {
-            Message::Deal(sharing) => {
-                if let DkgState::Init = self.state {
-                    /*let dealer = self.find_by_key(signer).ok_or_else(|| {
-                        anyhow!("received dealing from unknown dealer")
-                    })? as u32;*/
-                    if sender != self.me as u32 {
-                        if self.vss.contains_key(&sender) {
-                            return Err(anyhow!("Repeat dealer {}", sender));
-                        }
-                        self.vss.insert(sender, sharing);
-                    }
-                    // TODO: Shall we add here a check whether enough dealers (> 66%) have shared their PVSS? If so, we'd move to a Dealt state.
-                    // Once we are in a dealt state, we'd trigger the generation of the transcript and share the decryption keys
+            Message::Deal(pvss) if matches!(self.state, DkgState::Init{..}) => {
+                // TODO: If this is two slow, we can convert self.validators to
+                // an address keyed hashmap after partitioning the weight shares
+                // in the [`new`] method
+                let sender = self.validator_set
+                    .validators
+                    .binary_search_by(|probe| sender.cmp(probe))
+                    .or( Err(anyhow!("dkg received unknown dealer")))?;
+                if self.vss.contains_key(&(sender as u32)) {
+                    Err(anyhow!("Repeat dealer {}", sender))
+                } else if !pvss.verify_optimistic() {
+                    Err(anyhow!("Invalid PVSS transcript"))
+                } else {
+                    Ok(())
                 }
-                Ok(None)
             }
-            Message::Aggregate(vss) => {
-                if let DkgState::Shared = self.state {
-                    let minimum_weight = self.params.total_weight
-                        - self.params.security_threshold;
-                    let verified_weight = vss.verify_aggregation(&self)?;
-                    if verified_weight >= minimum_weight {
-                        //self.local_shares = local_shares;
-                        self.state = DkgState::Success;
-                    } else {
-                        self.state = DkgState::Aggregated {
-                            finalized_weight: verified_weight,
-                        };
-                    }
+            Message::Aggregate(pvss) if matches!(self.state, DkgState::Shared) => {
+                let minimum_weight = self.params.total_weight
+                    - self.params.security_threshold;
+                let verified_weight = pvss.verify_aggregation(&self)?;
+                // we reject aggregations that fail to meet the security threshold
+                if verified_weight < minimum_weight {
+                    Err(
+                        anyhow!("Aggregation failed because the verified weight was insufficient")
+                    )
+                } else {
+                    Ok(())
                 }
-                Ok(None)
-            } //_ => Err(anyhow!("Unknown message type for this DKG engine")),
+            }
+            _ => Err(anyhow!("DKG state machine is not in correct state to verify this message"))
+        }
+    }
+
+    /// After consensus has agreed to include a verified
+    /// message on the blockchain, we apply the chains
+    /// to the state machine
+    pub fn apply_message(
+        &mut self,
+        sender: TendermintValidator,
+        payload: Message<E>,
+    ) -> Result<()> {
+        match payload {
+            Message::Deal(pvss) if matches!(self.state, DkgState::Init{..}) => {
+                // Add the ephemeral public key and pvss transcript
+                let sender = self.validator_set
+                    .validators
+                    .binary_search_by(|probe| sender.cmp(probe))
+                    .or(Err(anyhow!("dkg received unknown dealer")))?;
+                self.validators[sender].key
+                    = ValidatorPublicKey::Announced(pvss.public_key);
+                self.vss.insert(sender as u32, pvss);
+
+                // we keep track of the amount of weight seen until the security
+                // threshold is met. Then we may change the state of the DKG
+                if let DkgState::Init{ref mut accumulated_weight} =  &mut self.state {
+                    if *accumulated_weight
+                        >= self.params.total_weight - self.params.security_threshold {
+                      self.state = DkgState::Shared;
+                    } else {
+                        *accumulated_weight += self.validators[sender].weight;
+                    }
+                } else {
+                    // protected by match guard
+                    unreachable!()
+                }
+                Ok(())
+            }
+            Message::Aggregate(_) if matches!(self.state, DkgState::Shared) => {
+                // change state and cache the final key
+                self.state = DkgState::Success {final_key: self.final_key()};
+                Ok(())
+            }
+            _ => Err(anyhow!("DKG state machine is not in correct state to apply this message"))
         }
     }
 }
@@ -174,7 +228,7 @@ pub enum Message<E: PairingEngine> {
     #[serde(with = "ferveo_common::ark_serde")]
     Deal(PubliclyVerifiableSS<E>),
     #[serde(with = "ferveo_common::ark_serde")]
-    Aggregate(PubliclyVerifiableSS<E>),
+    Aggregate(AggregatePubliclyVerifiableSS<E>),
 }
 
 #[derive(Debug, Clone)]
@@ -198,9 +252,10 @@ mod tests {
     };
     use itertools::izip;
 
-    fn create_info(vp: u64) -> TendermintValidator {
+    fn create_validator(vp: u64) -> TendermintValidator {
        TendermintValidator {
            power: vp,
+           address: format!("validator_{}", i),
        }
     }
 
@@ -217,7 +272,9 @@ mod tests {
             total_weight: 300,
         };
         let validator_set = ValidatorSet {
-            validators: (1..11u64).map(|vp| TendermintValidator{power: vp}).collect::<Vec<_>>(),
+            validators: (1..11u64).map(|vp|
+                create_validator(vp)
+            ).collect::<Vec<_>>(),
         };
 
         let validator_keys = (0..10)
@@ -232,9 +289,8 @@ mod tests {
             contexts.push(
                 PubliclyVerifiableDkg::<ark_bls12_381::Bls12_381>::new(
                     validator_set.clone(),
-                    &validator_keys,
                     params.clone(),
-                    me,
+                    create_validator(me),
                     rng,
                 )
                 .unwrap(),

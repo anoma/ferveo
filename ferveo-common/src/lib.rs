@@ -1,15 +1,52 @@
 use ark_ec::PairingEngine;
+use ark_serialize::{CanonicalSerialize, SerializationError, Write};
 
 pub mod keypair;
 pub use keypair::*;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, CanonicalSerialize)]
 pub struct Validator<E: PairingEngine> {
-    pub key: PublicKey<E>,
+    pub key: ValidatorPublicKey<E>,
     pub weight: u32,
     pub share_start: usize,
     pub share_end: usize,
 }
+
+/// Initially we do not know the ephemeral public keys
+/// of participating validators. We only learn these
+/// as they are announced.
+#[derive(Clone, Debug)]
+pub enum ValidatorPublicKey<E: PairingEngine> {
+    Announced(PublicKey<E>),
+    Unannounced,
+}
+
+impl<E: PairingEngine> CanonicalSerialize for ValidatorPublicKey<E> {
+    #[inline]
+    fn serialize<W: Write>(&self, mut writer: W) -> Result<(), SerializationError> {
+        match self {
+            Self::Announced(key) => {
+                Some(key.clone())
+            }
+            Self::Unannounced => {
+                None
+            }
+        }.serialize(&mut writer)
+    }
+
+    #[inline]
+    fn serialized_size(&self) -> usize {
+        match self {
+            Self::Announced(key) => {
+                Some(key.clone())
+            }
+            Self::Unannounced => {
+                None
+            }
+        }.serialized_size()
+    }
+}
+
 
 impl Rng for ark_std::rand::prelude::StdRng {}
 

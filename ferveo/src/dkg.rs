@@ -27,11 +27,9 @@ pub struct Params {
 }
 
 #[derive(Debug, Clone)]
-pub enum DkgState {
-    Init,
-    Dealt,
+pub enum DkgState<E: PairingEngine> {
+    Init {accumulated_weight: u32},
     Shared,
-    Aggregated { finalized_weight: u32 },
-    Success,
+    Success { final_key: E::G1Affine},
     Invalid,
 }
