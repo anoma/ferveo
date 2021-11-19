@@ -1,3 +1,4 @@
+use anyhow::{anyhow, Result};
 use ark_ec::PairingEngine;
 use ark_serialize::{CanonicalSerialize, SerializationError, Write};
 
@@ -10,6 +11,17 @@ pub struct Validator<E: PairingEngine> {
     pub weight: u32,
     pub share_start: usize,
     pub share_end: usize,
+}
+
+impl<E: PairingEngine> Validator<E> {
+    pub fn encryption_key(&self) -> Result<E::G2Affine> {
+        match self.key {
+            ValidatorPublicKey::Announced(key) => Ok(key.encryption_key),
+            ValidatorPublicKey::Unannounced => Err(
+                anyhow!("The encryption key for this validator was not announced")
+            )
+        }
+    }
 }
 
 /// Initially we do not know the ephemeral public keys

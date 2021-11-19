@@ -1,59 +1,62 @@
 use crate::*;
+use std::collections::BTreeMap;
+use std::marker::PhantomData;
+use std::ops::Add;
+
 use ark_ec::PairingEngine;
 use ark_serialize::*;
 use itertools::Itertools;
-use std::collections::BTreeMap;
 use ferveo_common::{ValidatorPublicKey, PublicKey};
+use ark_ff::UniformRand;
+use ark_ec::bn::G2Affine;
 
-/// These are the evaluations of weight shares of a single random polynomial
+/// These are the blinded evaluations of weight shares of a single random polynomial
 pub type ShareEncryptions<E> = Vec<<E as PairingEngine>::G2Affine>;
-
-/// Each validator posts a transcript to the chain. Once enough
-/// validators have done this (their total voting power exceeds
-/// 2/3 the total), this will be aggregated into a final key
-///
-/// *IMPORTANT* These messages must be signed
+/// Marker struct for unaggregated PVSS transcripts
 #[derive(CanonicalSerialize, CanonicalDeserialize, Clone, Debug)]
-pub struct PubliclyVerifiableSS<E: PairingEngine> {
-    /// the session public key for the issuing validator
-    pub(crate) public_key: PublicKey<E>,
-
-    /// Feldman commitment to the VSS polynomial, F = g^{\phi}
-    pub coeffs: Vec<E::G1Affine>,
-
-    /// ek_i^{f(\omega_j)}
-    pub shares: ShareEncryptions<E>,
-
-    /// Proof of Knowledge
-    pub sigma: E::G2Affine,
-}
-
-/// This attempts to aggregate individual PVSS transcripts
-/// so that verifications can be run in bulk more efficiently.
-/// If this succeeds and the weight is sufficient, we can
-/// produce the final key.
+pub struct Unaggregated;
+/// Marker struct for aggregated PVSS transcripts
 #[derive(CanonicalSerialize, CanonicalDeserialize, Clone, Debug)]
-pub struct AggregatePubliclyVerifiableSS<E: PairingEngine> {
-    /// Feldman commitment to the VSS polynomial, F = g^{\phi}
-    pub coeffs: Vec<E::G1Affine>,
+pub struct Aggregated;
 
-    /// ek_i^{f(\omega_j)}
-    pub shares: ShareEncryptions<E>,
+/// Trait gate used to add extra methods to aggregated PVSS transcripts
+pub trait Aggregate{}
+/// Apply trait gate to Aggregated marker struct
+impl Aggregate for Aggregated{}
 
-    /// Proof of Knowledge
-    pub sigma: E::G2Affine,
+/// Type alias for non aggregated PVSS transcripts
+pub type Pvss<E> = PubliclyVerifiableSS<E>;
+/// Type alias for aggregated PVSS transcripts
+pub type AggregatedPvss<E> = PubliclyVerifiableSS<E, Aggregated>;
 
-    /// A_i
-    pub commitment: Vec<E::G1Affine>,
-}
-
+/// The choice of group generators
 #[derive(Clone)]
 pub struct PubliclyVerifiableParams<E: PairingEngine> {
     pub g: E::G1Projective,
     pub h: E::G2Projective,
 }
 
-impl <E: PairingEngine> PubliclyVerifiableSS<E> {
+/// Each validator posts a transcript to the chain. Once enough
+/// validators have done this (their total voting power exceeds
+/// 2/3 the total), this will be aggregated into a final key
+#[derive(CanonicalSerialize, CanonicalDeserialize, Clone, Debug)]
+pub struct PubliclyVerifiableSS<E: PairingEngine, T=Unaggregated> {
+
+    /// Feldman commitment to the VSS polynomial, F = g^{\phi}
+    pub coeffs: Vec<E::G1Affine>,
+
+    /// The shares to be dealt to each validator
+    pub shares: Vec<ShareEncryptions<E>>,
+
+    /// Proof of Knowledge
+    pub sigma: E::G2Affine,
+
+    /// Marker struct to distinguish between aggregated and
+    /// non aggregated PVSS transcripts
+    phantom: PhantomData<T>,
+}
+
+impl <E: PairingEngine, T> PubliclyVerifiableSS<E, T> {
 
     /// Create a new PVSS instance
     /// `s`: the secret constant coefficient to share
@@ -69,36 +72,37 @@ impl <E: PairingEngine> PubliclyVerifiableSS<E> {
             rng,
         );
         phi.coeffs[0] = *s;
-
-        let evals = phi.evaluate_over_domain_by_ref(dkg.domain);
-
+        let evals
+            = phi.evaluate_over_domain_by_ref(dkg.domain);
         // commitment to coeffs
         let coeffs = fast_multiexp(&phi.coeffs, dkg.pvss_params.g);
-        let validator = &dkg.validators[dkg.me];
-        let key = match validator.key {
-            ValidatorPublicKey::Announced(key) => Ok(key),
-            _ => Err(
-                anyhow!("An session keypair was not generated for the owner of this dkg instance")
+        let shares = dkg
+            .validators
+            .iter()
+            .filter_map(|val|
+                match val.encryption_key() {
+                    Ok(key) => {
+                        Some(fast_multiexp(
+                            &evals.evals[val.share_start..val.share_end],
+                            key.into_projective(),
+                        ))
+                    }
+                    _ => None
+                }
             )
-        }?;
-        let shares = fast_multiexp(
-            &evals.evals[validator.share_start..validator.share_end],
-            key.encryption_key.into_projective(),
-        )
-        .into_iter()
-        .collect::<ShareEncryptions<E>>();
-
+            .collect::<Vec<ShareEncryptions<E>>>();
+        if shares.len() != dkg.validators.len() {
+            return Err(anyhow!("Not all validator session keys have been announced"));
+        }
         //phi.zeroize(); // TODO zeroize?
-
-        let sigma = E::G2Affine::prime_subgroup_generator().mul(*s).into(); //todo hash to curve
-
+        let sigma =
+            E::G2Affine::prime_subgroup_generator().mul(*s).into(); //todo hash to curve
         let vss = Self {
-            public_key: dkg.session_keypair.public(),
             coeffs,
             shares,
             sigma,
+            phantom: Default::default(),
         };
-
         Ok(vss)
     }
 
@@ -116,89 +120,56 @@ impl <E: PairingEngine> PubliclyVerifiableSS<E> {
     /// If aggregation fails, a validator needs to know that their pvss
     /// transcript was at fault so that the can issue a new one. This
     /// performs the full check.
-    pub fn verify_full(
+    pub fn verify_full<R: Rng>(
         &self,
         dkg: &PubliclyVerifiableDkg<E>,
-        commitment: Option<&[E::G1Affine]>
+        rng: &mut R,
     ) -> bool {
-        let pred = | commitment: &[E::G1Affine] |
-            {
-                let ek = self.public_key.encryption_key;
-                let alpha = E::Fr::one(); //TODO: random number!
+        // compute the commitment
+        let mut commitment = batch_to_projective(&self.coeffs);
+        print_time!("commitment fft");
+        dkg.domain.fft_in_place(&mut commitment);
+
+        dkg.validators.iter().zip(self.shares.iter()).all(
+            |(validator, shares) | {
+                let ek = match validator.encryption_key() {
+                    Ok(key) => key.into_projective(),
+                    Err(_) => return false
+                };
+                let alpha = E::Fr::rand(rng);
                 let mut powers_of_alpha = alpha;
                 let mut y = E::G2Projective::zero();
                 let mut a = E::G1Projective::zero();
-                for (y_i, a_i) in self.shares
+                for (y_i, a_i) in shares
                     .iter()
-                    .zip_eq(commitment.iter())
+                    .zip_eq(
+                        commitment[validator.share_start..validator.share_end]
+                            .iter()
+                    )
                 {
-                    y += y_i.mul(powers_of_alpha);
-                    a += a_i.mul(powers_of_alpha);
+                    y += y_i.mul(powers_of_alpha.into_repr());
+                    a += a_i.mul(powers_of_alpha.into_repr());
                     powers_of_alpha *= alpha;
                 }
                 E::pairing(dkg.pvss_params.g, y) == E::pairing(a, ek)
-            };
-        match commitment {
-            Some(commitment) => pred(commitment),
-            None => {
-                let mut commitment = batch_to_projective(&self.coeffs);
-                print_time!("commitment fft");
-                dkg.domain.fft_in_place(&mut commitment);
-                pred(&E::G1Projective::batch_normalization_into_affine(&commitment))
             }
-        }
+        )
     }
 }
 
-/// Aggregate the PVSS instances in `pvss` from DKG session `dkg`
-/// into a new PVSS instance
-pub fn aggregate<E: PairingEngine>(
-    dkg: &PubliclyVerifiableDkg<E>,
-    pvss: &BTreeMap<u32, PubliclyVerifiableSS<E>>,
-) -> AggregatePubliclyVerifiableSS<E> {
-    let mut pvss_iter = pvss.iter();
-    let (_, first_pvss) = pvss_iter.next().unwrap();
-    let mut coeffs = batch_to_projective(&first_pvss.coeffs);
-
-    let mut shares = batch_to_projective(&first_pvss.shares);
-    for (_, next) in pvss_iter {
-        for (a, b) in coeffs.iter_mut().zip_eq(next.coeffs.iter()) {
-            *a += b.into_projective();
-        }
-        for (a, b) in shares.iter_mut().zip_eq(next.shares.iter()) {
-            *a += b.into_projective();
-        }
-    }
-    let shares = E::G2Projective::batch_normalization_into_affine(&shares);
-
-    let sigma = E::G2Affine::zero();
-
-    let mut commitment = coeffs.clone();
-    {
-        print_time!("commitment fft");
-        dkg.domain.fft_in_place(&mut commitment);
-    }
-    AggregatePubliclyVerifiableSS {
-        coeffs: E::G1Projective::batch_normalization_into_affine(&coeffs),
-        shares,
-        sigma,
-        commitment: E::G1Projective::batch_normalization_into_affine(
-            &commitment,
-        ),
-    }
-}
-
-impl<E: PairingEngine> AggregatePubliclyVerifiableSS<E> {
+/// Extra method available to aggregated PVSS transcripts
+impl<E: PairingEngine, T: Aggregate> PubliclyVerifiableSS<E, T> {
     /// Verify that this PVSS instance is a valid aggregation of
     /// the PVSS instances, produced by [`aggregate`],
     /// and received by the DKG context `dkg`
     /// Returns the total valid weight of the aggregated PVSS
-    pub fn verify_aggregation(
+    pub fn verify_aggregation<R: Rng>(
         &self,
         dkg: &PubliclyVerifiableDkg<E>,
+        rng: &mut R,
     ) -> Result<u32> {
         print_time!("PVSS verify_aggregation");
-        self.verify(dkg);
+        self.verify_full(dkg, rng);
         let mut y = E::G1Projective::zero();
         let mut weight = 0u32;
         for (dealer, pvss) in dkg.vss.iter() {
@@ -213,117 +184,180 @@ impl<E: PairingEngine> AggregatePubliclyVerifiableSS<E> {
             ))
         }
     }
+}
 
-    /// We check the batched commitments of the constituent pvss
-    /// transcripts
-    pub fn verify(&self, dkg: &PubliclyVerifiableDkg<E>) -> bool {
-        print_time!("PVSS verify");
-        print_time!("check encryptions");
-        dkg.vss.iter().all(
-            |(validator_ix, pvss)| {
-                let validator = dkg.validators.get(*validator_ix as usize).unwrap();
-                pvss.verify_full(
-                    &dkg,
-                    Some(&self.commitment[validator.share_start..validator.share_end])
-                )
-            }
-        )
+/// Aggregate the PVSS instances in `pvss` from DKG session `dkg`
+/// into a new PVSS instance
+pub fn aggregate<E: PairingEngine>(
+    dkg: &PubliclyVerifiableDkg<E>,
+) -> PubliclyVerifiableSS<E, Aggregated> {
+    let pvss = &dkg.vss;
+    let mut pvss_iter = pvss.iter();
+    let (_, first_pvss) = pvss_iter.next().unwrap();
+    let mut coeffs = batch_to_projective(&first_pvss.coeffs);
+    let mut sigma = first_pvss.sigma;
+
+    let mut shares = first_pvss
+        .shares
+        .iter()
+        .map(|a| batch_to_projective(a))
+        .collect::<Vec<_>>();
+    for (_, next) in pvss_iter {
+        sigma = sigma.add(next.sigma);
+        coeffs
+            .iter_mut()
+            .zip_eq(next.coeffs.iter())
+            .for_each(|(a, b) | *a += b.into_projective());
+        shares
+            .iter_mut()
+            .zip_eq(next.shares.iter())
+            .for_each(|(a, b)|
+                a.iter_mut()
+                .zip_eq(b.iter())
+                .for_each(|(c, d)| *c += d.into_projective())
+            );
+    }
+    let shares = shares
+        .iter()
+        .map(|a| E::G2Projective::batch_normalization_into_affine(&a))
+        .collect::<Vec<_>>();
+
+    PubliclyVerifiableSS {
+        coeffs: E::G1Projective::batch_normalization_into_affine(&coeffs),
+        shares,
+        sigma,
+        phantom: Default::default()
     }
 }
 
+#[cfg(test)]
+mod test_pvss {
+    use super::*;
 
-/*
-#[test]
-fn test_pvss() {
-    let rng = &mut ark_std::test_rng();
-    type Affine = ark_pallas::Affine;
-    type Scalar = <Affine as AffineCurve>::ScalarField;
-    let mut phi = DensePolynomial::<Scalar>::rand(2, rng);
-    let domain = ark_poly::Radix2EvaluationDomain::<Scalar>::new(4 as usize)
-        .ok_or_else(|| anyhow!("unable to construct domain"))
-        .unwrap();
+    use ark_bls12_381::Bls12_381 as EllipticCurve;
+    use ark_ff::UniformRand;
 
-    let evals = phi.evaluate_over_domain_by_ref(domain);
+    type Fr = <EllipticCurve as PairingEngine>::Fr;
+    type G1 = <EllipticCurve as PairingEngine>::G1Affine;
+    type G2 = <EllipticCurve as PairingEngine>::G2Affine;
 
-    // commitment to coeffs
-    let coeffs = fast_multiexp(
-        &evals.evals,
-        <Affine as AffineCurve>::Projective::prime_subgroup_generator(),
-    );
+    /// Generate a few validators
+    fn gen_validators(num: u64) -> ValidatorSet {
+        ValidatorSet::new(
+            (0..num)
+                .map(
+                    |i| TendermintValidator {
+                        power: i,
+                        address: format!("validator_{}", i),
+                    }
+                )
+                .collect()
+        )
+    }
 
-    let shares = (0..2usize)
-        .map(|participant| evals.evals[participant])
-        .collect::<Vec<_>>();
+    /// Create a small dkg instance for testing with transcripts
+    /// added
+    fn setup_dkg() -> PubliclyVerifiableDkg<EllipticCurve> {
+        let rng = &mut ark_std::test_rng();
+        let validators = gen_validators(4);
+        let mut transcripts = vec![];
+        // create a set of pvss transcripts
+        for validator in validators.validators {
+            let dkg = PubliclyVerifiableDkg::new(
+                gen_validators(4),
+                Params {
+                    tau: 0,
+                    security_threshold: 2,
+                    total_weight: 6
+                },
+                validator,
+                rng,
+            ).expect("Setup failed");
+            transcripts.push(
+                PubliclyVerifiableSS::new(
+                    &Fr::rand(rng),
+                    &dkg,
+                    rng,
+                ).expect("Setup failed")
+            );
+        }
+        // create a dkg instance
+        let mut dkg = PubliclyVerifiableDkg::new(
+            gen_validators(4),
+            Params {
+                tau: 0,
+                security_threshold: 2,
+                total_weight: 6
+            },
+            TendermintValidator{
+                power: 3,
+                address: "validator_3".into(),
+            },
+            rng,
+        ).expect("Setup failed");
 
-    let mut commitment = coeffs
-        .iter()
-        .map(|p| p.into_projective())
-        .collect::<Vec<_>>();
-    domain.fft_in_place(&mut commitment);
+        // add transcripts to the dkg
+        for (ix, pvss) in transcripts.iter().enumerate() {
+            dkg.vss.insert(ix as u32, pvss.clone());
+        }
+        dkg
+    }
 
-    let commitment =
-        <Affine as AffineCurve>::Projective::batch_normalization_into_affine(
-            &commitment,
+    /// Test the happy flow that a pvss with the correct form is created
+    /// and that appropriate validations pass
+    #[test]
+    fn test_new_pvss() {
+        let rng = &mut ark_std::test_rng();
+        let dkg = setup_dkg();
+        let s = Fr::rand(rng);
+        let pvss = PubliclyVerifiableSS::<EllipticCurve>::new(
+            &s,
+            &dkg,
+            rng,
+        ).expect("Test failed");
+        // check that the chosen secret coefficient is correct
+        assert_eq!(pvss.coeffs[0], G1::prime_subgroup_generator().mul(s));
+        // check that the announced public key is correct
+        let expected_key = match &dkg.validators[dkg.me].key {
+            ValidatorPublicKey::Announced(key) => key,
+            _ => panic!("Test failed")
+        };
+        assert_eq!(&pvss.public_key, expected_key);
+        // check that the correct number of shares were created
+        assert_eq!(pvss.shares.len(), 3);
+        // check that the prove of knowledge is correct
+        assert_eq!(pvss.sigma, G2::prime_subgroup_generator().mul(s));
+        // check that the optimistic verify returns true
+        assert!(pvss.verify_optimistic());
+        // check that the full verify returns true
+        assert!(pvss.verify_full(&dkg, rng));
+    }
+
+    /// If a validator does not have a session keypair
+    /// trying to create a pvss transcript will fail
+    #[test]
+    fn cannot_create_pvss_without_session_keypair() {
+        let rng = &mut ark_std::test_rng();
+        let mut dkg = setup_dkg();
+        dkg.validators[dkg.me].key = ValidatorPublicKey::Unannounced;
+        let s = Fr::rand(rng);
+        let err = PubliclyVerifiableSS::<EllipticCurve>::new(
+            &s,
+            &dkg,
+            rng,
+        ).expect_err("Test failed");
+        assert_eq!(
+            err.to_string(),
+            "A session keypair was not generated for the owner of this dkg instance"
         );
+    }
 
-    // TODO: is it faster to do the multiexp first, then the FFT?
-    let shares_commitment = fast_multiexp(
-        &shares,
-        <Affine as AffineCurve>::Projective::prime_subgroup_generator(),
-    );
-    assert_eq!(
-        commitment[0],
-        Affine::prime_subgroup_generator()
-            .mul(shares[0])
-            .into_affine()
-    );
-}*/
+    #[test]
+    fn test_aggregate_pvss() {
+        let rng = &mut ark_std::test_rng();
+        let dkg = setup_dkg();
+        let aggregate = aggregate(&dkg);
 
-#[test]
-fn test_pvss() {
-    let mut rng = &mut ark_std::test_rng();
-    use ark_bls12_381::Bls12_381;
-    type Fr = <Bls12_381 as PairingEngine>::Fr;
-    type G1 = <Bls12_381 as PairingEngine>::G1Affine;
-    type G2 = <Bls12_381 as PairingEngine>::G2Affine;
-
-    let mut phi = DensePolynomial::<Fr>::rand(2 * 128 / 3, &mut rng);
-    //use ark_std::UniformRand;
-    let domain = ark_poly::Radix2EvaluationDomain::<Fr>::new(8192)
-        .ok_or_else(|| anyhow!("unable to construct domain"))
-        .unwrap();
-
-    let evals = phi.evaluate_over_domain_by_ref(domain);
-
-    let g_1 = G1::prime_subgroup_generator();
-    // commitment to coeffs
-    let _coeffs = fast_multiexp(&phi.coeffs, g_1.into_projective());
-
-    let weight = 128 / 4;
-    let shares = (0..4)
-        .map(|participant| {
-            let share_range =
-                (participant * weight)..((participant + 1) * weight);
-
-            fast_multiexp(
-                &evals.evals[share_range],
-                G2::prime_subgroup_generator().into_projective(),
-            )
-        })
-        .collect::<Vec<_>>();
-
-    // use group_threshold_cryptography::*;
-    // // let mut rng = test_rng
-    // let shares_num = 8192;();
-    // let threshold = shares_num*2/3;
-    // let num_entities = 150;
-
-    // let msg: &[u8] = "abc".as_bytes();
-
-    // // let (pubkey, privkey, _) = setup::<Bls12_381>(threshold, shares_num, num_entities);
-
-    // let ciphertext = encrypt::<ark_std::rand::rngs::StdRng, Bls12_381>(msg, pubkey, &mut rng);
-    // let plaintext = decrypt(&ciphertext, privkey);
-
-    // assert!(msg == plaintext)
+        assert_eq!(aggregate.shares.len(), 6);
+    }
 }
