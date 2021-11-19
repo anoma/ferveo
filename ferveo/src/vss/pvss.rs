@@ -30,7 +30,7 @@ pub type Pvss<E> = PubliclyVerifiableSS<E>;
 pub type AggregatedPvss<E> = PubliclyVerifiableSS<E, Aggregated>;
 
 /// The choice of group generators
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct PubliclyVerifiableParams<E: PairingEngine> {
     pub g: E::G1Projective,
     pub h: E::G2Projective,
@@ -66,7 +66,7 @@ impl<E: PairingEngine, T> PubliclyVerifiableSS<E, T> {
         rng: &mut R,
     ) -> Result<Self> {
         let mut phi = DensePolynomial::<E::Fr>::rand(
-            dkg.params.security_threshold as usize,
+            (dkg.params.total_weight - dkg.params.security_threshold) as usize,
             rng,
         );
         phi.coeffs[0] = *s;
@@ -265,7 +265,7 @@ mod test_pvss {
                 gen_validators(4),
                 Params {
                     tau: 0,
-                    security_threshold: 4,
+                    security_threshold: 2,
                     total_weight: 6,
                 },
                 validator.clone(),
@@ -289,7 +289,7 @@ mod test_pvss {
             gen_validators(4),
             Params {
                 tau: 0,
-                security_threshold: 4,
+                security_threshold: 2,
                 total_weight: 6,
             },
             validators.validators[3].clone(),
