@@ -36,25 +36,31 @@ pub fn encrypt<R: RngCore, E: PairingEngine>(
     pubkey: E::G1Affine,
     rng: &mut R,
 ) -> Ciphertext<E> {
-    let r = E::Fr::rand(rng);
-    let g = E::G1Affine::prime_subgroup_generator();
-    let h = E::G2Affine::prime_subgroup_generator();
+    // r
+    let rand_element = E::Fr::rand(rng);
+    // g
+    let g_gen = E::G1Affine::prime_subgroup_generator();
+    // h
+    let h_gen = E::G2Affine::prime_subgroup_generator();
 
-    let ry_prep = E::G1Prepared::from(pubkey.mul(r).into());
-    let s = E::product_of_pairings(&[(ry_prep, h.into())]);
+    let ry_prep = E::G1Prepared::from(pubkey.mul(rand_element).into());
+    // s
+    let product = E::product_of_pairings(&[(ry_prep, h_gen.into())]);
+    // u
+    let blinded = g_gen.mul(rand_element).into();
 
-    let u = g.mul(r).into();
+    let mut cipher = shared_secret_to_chacha::<E>(&product);
+    let mut msg = message.to_vec();
+    cipher.apply_keystream(&mut msg);
 
-    let mut cipher = shared_secret_to_chacha::<E>(&s);
-    let mut v = message.to_vec();
-    cipher.apply_keystream(&mut v);
-
-    let w = construct_tag_hash::<E>(u, &v[..]).mul(r).into();
+    let tag = construct_tag_hash::<E>(blinded, &msg[..])
+        .mul(rand_element)
+        .into();
 
     Ciphertext::<E> {
-        nonce: u,
-        ciphertext: v,
-        auth_tag: w,
+        nonce: blinded,
+        ciphertext: msg,
+        auth_tag: tag,
     }
 }
 

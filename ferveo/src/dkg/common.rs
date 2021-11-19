@@ -1,6 +1,6 @@
 use crate::*;
-use itertools::izip;
 use ferveo_common::ValidatorPublicKey;
+use itertools::izip;
 
 /// partition_domain takes as input a vector of validators from
 /// participants in the DKG, containing their total stake amounts
@@ -14,16 +14,17 @@ use ferveo_common::ValidatorPublicKey;
 /// partition_domain returns a vector of DKG participants
 pub fn partition_domain<E: PairingEngine>(
     params: &Params,
-    validator_set: &ValidatorSet
+    validator_set: &ValidatorSet,
 ) -> Result<Vec<ferveo_common::Validator<E>>> {
     // Sort participants from greatest to least stake
 
     // Compute the total amount staked
-    let total_voting_power = params.total_weight as f64
-        / validator_set.total_voting_power() as f64;
+    let total_voting_power =
+        params.total_weight as f64 / validator_set.total_voting_power() as f64;
 
     // Compute the weight of each participant rounded down
-    let mut weights = validator_set.validators
+    let mut weights = validator_set
+        .validators
         .iter()
         .map(|p| (p.power as f64 * total_voting_power).floor() as u32)
         .collect::<Vec<_>>();
@@ -40,8 +41,7 @@ pub fn partition_domain<E: PairingEngine>(
 
     let mut allocated_weight = 0usize;
     let mut participants = vec![];
-    for weight in &weights
-    {
+    for weight in &weights {
         participants.push(ferveo_common::Validator::<E> {
             key: ValidatorPublicKey::Unannounced,
             weight: *weight,

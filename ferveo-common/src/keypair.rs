@@ -1,7 +1,7 @@
 use ark_ec::PairingEngine;
 use ark_ec::{AffineCurve, ProjectiveCurve};
 use ark_serialize::{
-    CanonicalSerialize, CanonicalDeserialize, SerializationError, Read, Write
+    CanonicalDeserialize, CanonicalSerialize, Read, SerializationError, Write,
 };
 use serde::*;
 
@@ -18,7 +18,16 @@ impl<E: PairingEngine> From<PublicKey<E>> for PreparedPublicKey<E> {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize, CanonicalSerialize, CanonicalDeserialize)]
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    CanonicalSerialize,
+    CanonicalDeserialize,
+)]
 pub struct PublicKey<E: PairingEngine> {
     #[serde(with = "crate::ark_serde")]
     pub encryption_key: E::G2Affine,

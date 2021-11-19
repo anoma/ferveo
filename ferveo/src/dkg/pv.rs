@@ -1,10 +1,10 @@
 use crate::*;
+use ark_ec::bn::TwistType::D;
 use ark_ec::PairingEngine;
 use ark_ff::Field;
 use ark_std::{end_timer, start_timer};
+use ferveo_common::{PublicKey, ValidatorPublicKey};
 use std::collections::BTreeMap;
-use ferveo_common::{ValidatorPublicKey, PublicKey};
-use ark_ec::bn::TwistType::D;
 
 /// The DKG context that holds all of the local state for participating in the DKG
 pub struct PubliclyVerifiableDkg<E: PairingEngine> {
@@ -41,20 +41,14 @@ impl ValidatorSet {
     pub fn new(mut validators: Vec<TendermintValidator>) -> Self {
         // reverse the ordering here
         validators.sort_by(|a, b| b.cmp(a));
-        Self {
-            validators
-        }
+        Self { validators }
     }
 
     /// Get the total voting power of the validator set
     pub fn total_voting_power(&self) -> u64 {
-        self.validators
-            .iter()
-            .map(|v| v.power)
-            .sum()
+        self.validators.iter().map(|v| v.power).sum()
     }
 }
-
 
 impl<E: PairingEngine> PubliclyVerifiableDkg<E> {
     /// Create a new DKG context to participate in the DKG
@@ -79,17 +73,15 @@ impl<E: PairingEngine> PubliclyVerifiableDkg<E> {
         let me = validator_set
             .validators
             .binary_search_by(|probe| me.cmp(probe))
-            .or(Err(anyhow!("could not find this validator in the provided validator set")))?;
+            .map_err(|_| anyhow!("could not find this validator in the provided validator set"))?;
 
         // partition out weight shares of validators based on their voting power
-        let mut validators = partition_domain(
-            &params,
-            &validator_set
-        )?;
+        let mut validators = partition_domain(&params, &validator_set)?;
 
         // We don't need to wait for announcements to store our own ephemeral public key
-        let session_keypair =  ferveo_common::Keypair::<E>::new(rng);
-        validators[me].key = ValidatorPublicKey::Announced(session_keypair.public());
+        let session_keypair = ferveo_common::Keypair::<E>::new(rng);
+        validators[me].key =
+            ValidatorPublicKey::Announced(session_keypair.public());
         Ok(Self {
             session_keypair,
             params,
@@ -99,7 +91,7 @@ impl<E: PairingEngine> PubliclyVerifiableDkg<E> {
             },
             vss: BTreeMap::new(),
             domain,
-            state: DkgState::Init{announced: 1},
+            state: DkgState::Init { announced: 1 },
             me,
             validators,
             validator_set,
@@ -116,8 +108,7 @@ impl<E: PairingEngine> PubliclyVerifiableDkg<E> {
     pub fn share<R: Rng>(&mut self, rng: &mut R) -> Result<Message<E>> {
         use ark_std::UniformRand;
         print_time!("PVSS Sharing");
-        let vss =
-            Pvss::<E>::new(&E::Fr::rand(rng), &self, rng)?;
+        let vss = Pvss::<E>::new(&E::Fr::rand(rng), self, rng)?;
 
         let sharing = vss.clone();
         self.vss.insert(self.me as u32, vss);
@@ -138,7 +129,6 @@ impl<E: PairingEngine> PubliclyVerifiableDkg<E> {
             .into_affine()
     }
 
-
     /// Verify a DKG related message in a block proposal
     /// `sender` is the validator of the sender of the message
     /// `payload` is the content of the message
@@ -153,7 +143,7 @@ impl<E: PairingEngine> PubliclyVerifiableDkg<E> {
                 let sender = self.validator_set
                     .validators
                     .binary_search_by(|probe| sender.cmp(probe))
-                    .or( Err(anyhow!("dkg received unknown validator")))?;
+                    .map_err(|_| anyhow!("dkg received unknown validator"))?;
                 if matches!(self.validators[sender].key, ValidatorPublicKey::Unannounced) {
                     Ok(())
                 } else {
@@ -167,7 +157,7 @@ impl<E: PairingEngine> PubliclyVerifiableDkg<E> {
                 let sender = self.validator_set
                     .validators
                     .binary_search_by(|probe| sender.cmp(probe))
-                    .or( Err(anyhow!("dkg received unknown dealer")))?;
+                    .map_err(|_| anyhow!("dkg received unknown dealer"))?;
                 if self.vss.contains_key(&(sender as u32)) {
                     Err(anyhow!("Repeat dealer {}", sender))
                 } else if !pvss.verify_optimistic() {
@@ -179,7 +169,7 @@ impl<E: PairingEngine> PubliclyVerifiableDkg<E> {
             Message::Aggregate(pvss) if matches!(self.state, DkgState::Dealt) => {
                 let minimum_weight = self.params.total_weight
                     - self.params.security_threshold;
-                let verified_weight = pvss.verify_aggregation(&self, rng)?;
+                let verified_weight = pvss.verify_aggregation(self, rng)?;
                 // we reject aggregations that fail to meet the security threshold
                 if verified_weight < minimum_weight {
                     Err(
@@ -207,7 +197,7 @@ impl<E: PairingEngine> PubliclyVerifiableDkg<E> {
                 let sender = self.validator_set
                     .validators
                     .binary_search_by(|probe| sender.cmp(probe))
-                    .or(Err(anyhow!("dkg received unknown dealer")))?;
+                    .map_err(|_| anyhow!("dkg received unknown dealer"))?;
                 self.validators[sender].key
                     = ValidatorPublicKey::Announced(pk);
 
@@ -229,7 +219,7 @@ impl<E: PairingEngine> PubliclyVerifiableDkg<E> {
                 let sender = self.validator_set
                     .validators
                     .binary_search_by(|probe| sender.cmp(probe))
-                    .or(Err(anyhow!("dkg received unknown dealer")))?;
+                    .map_err(|_| anyhow!("dkg received unknown dealer"))?;
                 self.vss.insert(sender as u32, pvss);
 
                 // we keep track of the amount of weight seen until the security

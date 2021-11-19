@@ -17,9 +17,9 @@ impl<E: PairingEngine> Validator<E> {
     pub fn encryption_key(&self) -> Result<E::G2Affine> {
         match self.key {
             ValidatorPublicKey::Announced(key) => Ok(key.encryption_key),
-            ValidatorPublicKey::Unannounced => Err(
-                anyhow!("The encryption key for this validator was not announced")
-            )
+            ValidatorPublicKey::Unannounced => Err(anyhow!(
+                "The encryption key for this validator was not announced"
+            )),
         }
     }
 }
@@ -35,30 +35,26 @@ pub enum ValidatorPublicKey<E: PairingEngine> {
 
 impl<E: PairingEngine> CanonicalSerialize for ValidatorPublicKey<E> {
     #[inline]
-    fn serialize<W: Write>(&self, mut writer: W) -> Result<(), SerializationError> {
+    fn serialize<W: Write>(
+        &self,
+        mut writer: W,
+    ) -> Result<(), SerializationError> {
         match self {
-            Self::Announced(key) => {
-                Some(key.clone())
-            }
-            Self::Unannounced => {
-                None
-            }
-        }.serialize(&mut writer)
+            Self::Announced(key) => Some(*key),
+            Self::Unannounced => None,
+        }
+        .serialize(&mut writer)
     }
 
     #[inline]
     fn serialized_size(&self) -> usize {
         match self {
-            Self::Announced(key) => {
-                Some(key.clone())
-            }
-            Self::Unannounced => {
-                None
-            }
-        }.serialized_size()
+            Self::Announced(key) => Some(*key),
+            Self::Unannounced => None,
+        }
+        .serialized_size()
     }
 }
-
 
 impl Rng for ark_std::rand::prelude::StdRng {}
 
@@ -93,8 +89,8 @@ pub mod ark_serde {
 
 #[test]
 fn test_ark_serde() {
-    use serde::{Serialize, Deserialize};
     use ark_bls12_381::G1Affine;
+    use serde::{Deserialize, Serialize};
     #[derive(Serialize, Deserialize)]
     struct Test {
         #[serde(with = "ark_serde")]

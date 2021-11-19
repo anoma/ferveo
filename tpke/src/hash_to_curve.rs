@@ -34,7 +34,7 @@ fn hash_to_field_bls12381(
     let m = r.nbits();
     let L = ceil(k + ceil(m, 2), 8);
     let mut okm: [u8; 512] = [0; 512];
-    hmac::xmd_expand(hash, hlen, &mut okm, L * ctr, &dst, &msg);
+    hmac::xmd_expand(hash, hlen, &mut okm, L * ctr, dst, msg);
     let mut fd: [u8; 256] = [0; 256];
     for i in 0..ctr {
         for j in 0..L {
@@ -63,7 +63,7 @@ fn hash_to_field2_bls12381(
     let m = r.nbits();
     let L = ceil(k + ceil(m, 2), 8);
     let mut okm: [u8; 512] = [0; 512];
-    hmac::xmd_expand(hash, hlen, &mut okm, 2 * L * ctr, &dst, &msg);
+    hmac::xmd_expand(hash, hlen, &mut okm, 2 * L * ctr, dst, msg);
     let mut fd: [u8; 256] = [0; 256];
     for i in 0..ctr {
         for j in 0..L {

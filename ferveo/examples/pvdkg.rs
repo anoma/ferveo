@@ -30,7 +30,9 @@ pub fn pvdkg<E: ark_ec::PairingEngine>() {
         total_weight: 300,
     };
     let validator_set = ValidatorSet {
-        validators: (1..11u64).map(|vp| TendermintValidator { power: vp }).collect::<Vec<_>>(),
+        validators: (1..11u64)
+            .map(|vp| TendermintValidator { power: vp })
+            .collect::<Vec<_>>(),
     };
 
     let validator_keys = (0..10)
