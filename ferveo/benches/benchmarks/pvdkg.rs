@@ -36,6 +36,7 @@ criterion_group! {
 
 criterion_main!(pvdkg_bls);
 
+
 /// Generate a few validators
 pub fn gen_validators(num: u64) -> ValidatorSet {
     ValidatorSet::new(

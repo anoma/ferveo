@@ -1,9 +1,11 @@
 pub use ark_bls12_381::Bls12_381 as EllipticCurve;
 use ferveo::*;
+use ferveo_common::Validator;
 
 pub fn main() {
     setup_dealt_dkg(10);
 }
+
 
 /// Generate a few validators
 pub fn gen_validators(num: u64) -> ValidatorSet {
@@ -15,6 +17,7 @@ pub fn gen_validators(num: u64) -> ValidatorSet {
             })
             .collect(),
     )
+
 }
 
 /// Create a test dkg in state [`DkgState::Init`]
@@ -45,7 +48,7 @@ pub fn setup_shared_dkg(
 ) -> PubliclyVerifiableDkg<EllipticCurve> {
     let rng = &mut ark_std::test_rng();
     let mut dkg = setup_dkg(validator, num);
-
+  
     // generated the announcements for all other validators
     for i in 0..num {
         if i as usize == validator {

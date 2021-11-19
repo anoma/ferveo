@@ -51,6 +51,29 @@ impl ValidatorSet {
     }
 }
 
+#[derive(Clone)]
+/// Represents a tendermint validator
+pub struct TendermintValidator {
+    /// Total voting power in tendermint consensus
+    pub power: u64
+}
+
+#[derive(Clone)]
+/// The set of tendermint validators for a dkg instance
+pub struct ValidatorSet {
+    pub validators: Vec<TendermintValidator>,
+}
+
+impl ValidatorSet {
+    pub fn total_voting_power(&self) -> u64 {
+        self.validators
+            .iter()
+            .map(|v| v.power)
+            .sum()
+    }
+}
+
+
 impl<E: PairingEngine> PubliclyVerifiableDkg<E> {
     /// Create a new DKG context to participate in the DKG
     /// Every identity in the DKG is linked to an ed25519 public key;
