@@ -23,7 +23,7 @@ pub fn dkgs(c: &mut Criterion) {
     });*/
     // 2130.7 seconds per iteration to verify pairwise
     group.measurement_time(core::time::Duration::new(60, 0));
-    group.bench_function("PVDKG BLS12-381", |b| b.iter(setup_dealt_dkg(10)));
+    group.bench_function("PVDKG BLS12-381", |b| b.iter(|| setup_dealt_dkg(10)));
 }
 
 use pprof::criterion::{Output, PProfProfiler};
@@ -35,7 +35,6 @@ criterion_group! {
 }
 
 criterion_main!(pvdkg_bls);
-
 
 /// Generate a few validators
 pub fn gen_validators(num: u64) -> ValidatorSet {
@@ -80,13 +79,13 @@ pub fn setup_shared_dkg(
 
     // generated the announcements for all other validators
     for i in 0..num {
-        if i == validator {
+        if i as usize == validator {
             continue;
         }
         let announce = Message::Announce(
             ferveo_common::Keypair::<EllipticCurve>::new(rng).public(),
         );
-        let sender = dkg.validator_set.validators[i].clone();
+        let sender = dkg.validator_set.validators[i as usize].clone();
         dkg.verify_message(&sender, &announce, rng)
             .expect("Setup failed");
         dkg.apply_message(sender, announce).expect("Setup failed");
@@ -108,7 +107,7 @@ pub fn setup_dealt_dkg(num: u64) {
     // iterate over transcripts from lowest weight to highest
     for (sender, pvss) in transcripts.into_iter().rev().enumerate() {
         dkg.apply_message(
-            dkg.validator_set.validators[num - 1 - sender].clone(),
+            dkg.validator_set.validators[num as usize - 1 - sender].clone(),
             pvss,
         )
         .expect("Setup failed");
