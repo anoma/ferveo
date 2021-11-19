@@ -91,7 +91,6 @@ pub mod ark_serde {
 fn test_ark_serde() {
     use serde::{Serialize, Deserialize};
     use ark_bls12_381::G1Affine;
-    use serde::{Deserialize, Serialize};
     #[derive(Serialize, Deserialize)]
     struct Test {
         #[serde(with = "ark_serde")]
