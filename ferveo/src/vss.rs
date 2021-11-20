@@ -1,8 +1,6 @@
-//pub mod dispute;
 pub mod pvss;
 
 use crate::*;
-//pub use dispute::*;
 pub use pvss::*;
 
 /// The possible States of a VSS instance

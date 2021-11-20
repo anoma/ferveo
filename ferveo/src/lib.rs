@@ -17,12 +17,8 @@ use ark_poly::{
     polynomial::univariate::DensePolynomial, polynomial::UVPolynomial,
     EvaluationDomain,
 };
-use ed25519_dalek as ed25519;
-use serde::*;
-
 use ark_std::{end_timer, start_timer};
-//use num::integer::div_ceil;
-use std::rc::Rc;
+use serde::*;
 
 use anyhow::{anyhow, Result};
 pub use dkg::*;
