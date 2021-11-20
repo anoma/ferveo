@@ -1,14 +1,59 @@
+use anyhow::{anyhow, Result};
 use ark_ec::PairingEngine;
+use ark_serialize::{CanonicalSerialize, SerializationError, Write};
 
 pub mod keypair;
 pub use keypair::*;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, CanonicalSerialize)]
 pub struct Validator<E: PairingEngine> {
-    pub key: PublicKey<E>,
+    pub key: ValidatorPublicKey<E>,
     pub weight: u32,
     pub share_start: usize,
     pub share_end: usize,
+}
+
+impl<E: PairingEngine> Validator<E> {
+    pub fn encryption_key(&self) -> Result<E::G2Affine> {
+        match self.key {
+            ValidatorPublicKey::Announced(key) => Ok(key.encryption_key),
+            ValidatorPublicKey::Unannounced => Err(anyhow!(
+                "The encryption key for this validator was not announced"
+            )),
+        }
+    }
+}
+
+/// Initially we do not know the ephemeral public keys
+/// of participating validators. We only learn these
+/// as they are announced.
+#[derive(Clone, Debug)]
+pub enum ValidatorPublicKey<E: PairingEngine> {
+    Announced(PublicKey<E>),
+    Unannounced,
+}
+
+impl<E: PairingEngine> CanonicalSerialize for ValidatorPublicKey<E> {
+    #[inline]
+    fn serialize<W: Write>(
+        &self,
+        mut writer: W,
+    ) -> Result<(), SerializationError> {
+        match self {
+            Self::Announced(key) => Some(*key),
+            Self::Unannounced => None,
+        }
+        .serialize(&mut writer)
+    }
+
+    #[inline]
+    fn serialized_size(&self) -> usize {
+        match self {
+            Self::Announced(key) => Some(*key),
+            Self::Unannounced => None,
+        }
+        .serialized_size()
+    }
 }
 
 impl Rng for ark_std::rand::prelude::StdRng {}
@@ -44,8 +89,8 @@ pub mod ark_serde {
 
 #[test]
 fn test_ark_serde() {
-    use serde::{Serialize, Deserialize};
     use ark_bls12_381::G1Affine;
+    use serde::{Deserialize, Serialize};
     #[derive(Serialize, Deserialize)]
     struct Test {
         #[serde(with = "ark_serde")]

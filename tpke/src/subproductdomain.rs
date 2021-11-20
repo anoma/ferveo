@@ -47,23 +47,29 @@ pub fn moduli_from_scalar<F: FftField>(s: &F) -> Poly<F> {
 /// GG Algorithm 9.3
 /// Computes the inverse of f mod x^l
 /// Takes O(M(l)) field arithmetic operations
-pub fn inverse_mod_xl<F: FftField>(f: &Poly<F>, l: usize) -> Option<Poly<F>> {
-    let r = ark_std::log2(l); // Compute ceil(log_2(l))
-    if let Some(f_0_inv) = f.coeffs[0].inverse() {
+pub fn inverse_mod_xl<F: FftField>(
+    func: &Poly<F>,
+    length: usize,
+) -> Option<Poly<F>> {
+    let log = ark_std::log2(length); // Compute ceil(log_2(l))
+    if let Some(f_0_inv) = func.coeffs[0].inverse() {
         // Invert f(0)^-1 if possible
-        let mut g = Poly::<F> {
+        let mut func_inv = Poly::<F> {
             coeffs: vec![f_0_inv], // Constant polynomial f(0)^-1
         };
 
-        let mut i = 2usize;
+        let mut acc = 2usize;
         // Use Newton iteration which converges to the inverse mod x^l
-        for _ in 0..r {
-            g = &(&g + &g) - &(f * &(&g * &g)); //TODO: is g*2 better than g+g?
-            g.coeffs
-                .resize(ark_std::cmp::min(g.coeffs.len(), i), F::zero()); // Take g remainder mod x^{2^i}
-            i *= 2;
+        for _ in 0..log {
+            func_inv =
+                &(&func_inv + &func_inv) - &(func * &(&func_inv * &func_inv)); //TODO: is func_inv*2 better than func_inv+func_inv?
+            func_inv.coeffs.resize(
+                ark_std::cmp::min(func_inv.coeffs.len(), acc),
+                F::zero(),
+            ); // Take func_inv remainder mod x^{2^i}
+            acc *= 2;
         }
-        Some(g)
+        Some(func_inv)
     } else {
         // No inverse exists because f(0)^-1 does not exist
         None
@@ -84,31 +90,32 @@ pub fn rev<F: FftField>(f: &mut Poly<F>, m: usize) {
 /// GG Algorithm 9.5
 /// Divide f by g in nearly linear time
 pub fn fast_divide_monic<F: FftField>(
-    f: &Poly<F>,
-    g: &Poly<F>,
+    func: &Poly<F>,
+    divisor: &Poly<F>,
 ) -> (Poly<F>, Poly<F>) {
-    //assert_eq!(g.coeffs.last(), F::one()); //TODO: check monic condition
+    //TODO: check monic condition
 
-    if f.coeffs().len() < g.coeffs().len() {
+    if func.coeffs().len() < divisor.coeffs().len() {
         return (
             Poly::<F> {
                 coeffs: vec![F::zero()],
             },
-            f.clone(),
+            func.clone(),
         );
     }
-    let m = f.coeffs().len() - g.coeffs().len();
+    let deg_diff = func.coeffs().len() - divisor.coeffs().len();
 
-    let mut rev_f = f.clone();
-    let mut rev_g = g.clone();
+    let mut rev_f = func.clone();
+    let mut rev_g = divisor.clone();
     rev_f.reverse();
     rev_g.reverse();
 
-    let mut q = &rev_f * &inverse_mod_xl::<F>(&rev_g, m + 1).unwrap();
-    q.coeffs.resize(m + 1, F::zero());
-    rev::<F>(&mut q, m);
-    let r = f - &(g * &q);
-    (q, r)
+    let mut quotient =
+        &rev_f * &inverse_mod_xl::<F>(&rev_g, deg_diff + 1).unwrap();
+    quotient.coeffs.resize(deg_diff + 1, F::zero());
+    rev::<F>(&mut quotient, deg_diff);
+    let remainder = func - &(divisor * &quotient);
+    (quotient, remainder)
 }
 
 /// A subproduct domain is a domain { u_0, ..., u_{n-1} } of scalar values
@@ -159,7 +166,7 @@ impl<F: FftField> SubproductDomain<F> {
     #[allow(dead_code)]
     /// Compute a linear combination of lagrange factors times c_i
     pub fn linear_combine(&self, c: &[F]) -> Poly<F> {
-        self.t.linear_combine(&self.u, &c)
+        self.t.linear_combine(&self.u, c)
     }
 }
 

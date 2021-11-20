@@ -1,3 +1,4 @@
+pub use ark_bls12_381::Bls12_381 as EllipticCurve;
 use criterion::{criterion_group, criterion_main, Criterion};
 use ferveo::*;
 
@@ -22,9 +23,7 @@ pub fn dkgs(c: &mut Criterion) {
     });*/
     // 2130.7 seconds per iteration to verify pairwise
     group.measurement_time(core::time::Duration::new(60, 0));
-    group.bench_function("PVDKG BLS12-381", |b| {
-        b.iter(pvdkg::<ark_bls12_381::Bls12_381>)
-    });
+    group.bench_function("PVDKG BLS12-381", |b| b.iter(|| setup_dealt_dkg(10)));
 }
 
 use pprof::criterion::{Output, PProfProfiler};
@@ -37,64 +36,80 @@ criterion_group! {
 
 criterion_main!(pvdkg_bls);
 
-fn create_info(vp: u64) -> TendermintValidator {
-    TendermintValidator { power: vp }
+/// Generate a few validators
+pub fn gen_validators(num: u64) -> ValidatorSet {
+    ValidatorSet::new(
+        (0..num)
+            .map(|i| TendermintValidator {
+                power: i,
+                address: format!("validator_{}", i),
+            })
+            .collect(),
+    )
 }
 
-pub fn pvdkg<E: ark_ec::PairingEngine>() {
-    use ark_ec::{AffineCurve, ProjectiveCurve};
+/// Create a test dkg in state [`DkgState::Init`]
+pub fn setup_dkg(
+    validator: usize,
+    num: u64,
+) -> PubliclyVerifiableDkg<EllipticCurve> {
     let rng = &mut ark_std::test_rng();
-    //use rand_old::SeedableRng;
-    //let ed_rng = &mut rand_old::rngs::StdRng::from_seed([0u8; 32]);
+    let validators = gen_validators(num);
+    let me = validators.validators[validator].clone();
+    PubliclyVerifiableDkg::new(
+        validators,
+        Params {
+            tau: 0,
+            security_threshold: 300 / 3,
+            total_weight: 300,
+        },
+        me,
+        rng,
+    )
+    .expect("Setup failed")
+}
 
-    let params = Params {
-        tau: 0u64,
-        security_threshold: 300 / 3,
-        total_weight: 300,
-    };
-    let validator_set = ValidatorSet {
-        validators: (1..11u64)
-            .map(|vp| TendermintValidator { power: vp })
-            .collect::<Vec<_>>(),
-    };
+/// Setup a dkg instance with all announcements received
+pub fn setup_shared_dkg(
+    validator: usize,
+    num: u64,
+) -> PubliclyVerifiableDkg<EllipticCurve> {
+    let rng = &mut ark_std::test_rng();
+    let mut dkg = setup_dkg(validator, num);
 
-    let validator_keys = (0..10)
-        .map(|_| {
-            ferveo_common::PublicKey::<ark_bls12_381::Bls12_381>::default()
-        })
-        .collect::<Vec<_>>();
-
-    // for _ in 0..1 {
-    let mut contexts = vec![];
-    for me in 0..10 {
-        contexts.push(
-            PubliclyVerifiableDkg::<ark_bls12_381::Bls12_381>::new(
-                validator_set.clone(),
-                &validator_keys,
-                params.clone(),
-                me,
-                rng,
-            )
-            .unwrap(),
+    // generated the announcements for all other validators
+    for i in 0..num {
+        if i as usize == validator {
+            continue;
+        }
+        let announce = Message::Announce(
+            ferveo_common::Keypair::<EllipticCurve>::new(rng).public(),
         );
+        let sender = dkg.validator_set.validators[i as usize].clone();
+        dkg.verify_message(&sender, &announce, rng)
+            .expect("Setup failed");
+        dkg.apply_message(sender, announce).expect("Setup failed");
     }
-    use std::collections::VecDeque;
-    let mut messages = VecDeque::new();
+    dkg
+}
 
-    let mut dealt_weight = 0u32;
-    for participant in contexts.iter_mut() {
-        if dealt_weight < params.total_weight - params.security_threshold {
-            let msg = participant.share(rng).unwrap();
-            let msg: Message<ark_bls12_381::Bls12_381> = msg; //.verify().unwrap().1;
-            messages.push_back((participant.me, msg));
-            dealt_weight += participant.validators[participant.me].weight;
-        }
+/// Set up a dkg with enough pvss transcripts to meet the threshold
+pub fn setup_dealt_dkg(num: u64) {
+    let rng = &mut ark_std::test_rng();
+    // gather everyone's transcripts
+    let mut transcripts = vec![];
+    for i in 0..num {
+        let mut dkg = setup_shared_dkg(i as usize, num);
+        transcripts.push(dkg.share(rng).expect("Test failed"));
     }
-    for msg in messages.iter() {
-        for node in contexts.iter_mut() {
-            node.handle_message(msg.0 as u32, msg.1.clone()).unwrap();
-        }
+    // our test dkg
+    let mut dkg = setup_shared_dkg(0, num);
+    // iterate over transcripts from lowest weight to highest
+    for (sender, pvss) in transcripts.into_iter().rev().enumerate() {
+        dkg.apply_message(
+            dkg.validator_set.validators[num as usize - 1 - sender].clone(),
+            pvss,
+        )
+        .expect("Setup failed");
     }
-
-    let tpke_pubkey = contexts[0].final_key();
 }
