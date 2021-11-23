@@ -1,11 +1,13 @@
 use anyhow::{anyhow, Result};
 use ark_ec::PairingEngine;
-use ark_serialize::{CanonicalSerialize, SerializationError, Write};
+use ark_serialize::{
+    CanonicalDeserialize, CanonicalSerialize, Read, SerializationError, Write,
+};
 
 pub mod keypair;
 pub use keypair::*;
 
-#[derive(Clone, Debug, CanonicalSerialize)]
+#[derive(Clone, Debug, CanonicalSerialize, CanonicalDeserialize)]
 pub struct Validator<E: PairingEngine> {
     pub key: ValidatorPublicKey<E>,
     pub weight: u32,
@@ -53,6 +55,19 @@ impl<E: PairingEngine> CanonicalSerialize for ValidatorPublicKey<E> {
             Self::Unannounced => None,
         }
         .serialized_size()
+    }
+}
+
+impl<E: PairingEngine> CanonicalDeserialize for ValidatorPublicKey<E> {
+    #[inline]
+    fn deserialize<R: Read>(mut reader: R) -> Result<Self, SerializationError> {
+        let is_some = bool::deserialize(&mut reader)?;
+        let data = if is_some {
+            Self::Announced(PublicKey::<E>::deserialize(&mut reader)?)
+        } else {
+            Self::Unannounced
+        };
+        Ok(data)
     }
 }
 

@@ -175,7 +175,7 @@ mod tests {
         let msg = b"";
         let expected_hex_string =
             "852926add2207b76ca4fa57a8734416c8dc95e24501772c814278700eed6d1e4e8cf62d9c09db0fac349612b759e79a1";
-        test_hash_to_g1(msg, &expected_hex_string)
+        test_hash_to_g1(msg, expected_hex_string)
     }
 
     #[test]
@@ -183,7 +183,7 @@ mod tests {
         let msg = b"abc";
         let expected_hex_string =
             "83567bc5ef9c690c2ab2ecdf6a96ef1c139cc0b2f284dca0a9a7943388a49a3aee664ba5379a7655d3c68900be2f6903";
-        test_hash_to_g1(msg, &expected_hex_string)
+        test_hash_to_g1(msg, expected_hex_string)
     }
 
     #[test]
@@ -191,7 +191,7 @@ mod tests {
         let msg = b"";
         let expected_hex_string =
             "a5cb8437535e20ecffaef7752baddf98034139c38452458baeefab379ba13dff5bf5dd71b72418717047f5b0f37da03d0141ebfbdca40eb85b87142e130ab689c673cf60f1a3e98d69335266f30d9b8d4ac44c1038e9dcdd5393faf5c41fb78a";
-        test_hash_to_g2(msg, &expected_hex_string)
+        test_hash_to_g2(msg, expected_hex_string)
     }
 
     #[test]
@@ -199,6 +199,6 @@ mod tests {
         let msg = b"abc";
         let expected_hex_string =
             "939cddbccdc5e91b9623efd38c49f81a6f83f175e80b06fc374de9eb4b41dfe4ca3a230ed250fbe3a2acf73a41177fd802c2d18e033b960562aae3cab37a27ce00d80ccd5ba4b7fe0e7a210245129dbec7780ccc7954725f4168aff2787776e6";
-        test_hash_to_g2(msg, &expected_hex_string)
+        test_hash_to_g2(msg, expected_hex_string)
     }
 }

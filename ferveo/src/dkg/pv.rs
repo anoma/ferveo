@@ -2,12 +2,13 @@ use crate::*;
 use ark_ec::bn::TwistType::D;
 use ark_ec::PairingEngine;
 use ark_ff::Field;
+use ark_serialize::*;
 use ark_std::{end_timer, start_timer};
 use ferveo_common::{PublicKey, ValidatorPublicKey};
 use std::collections::BTreeMap;
 
 /// The DKG context that holds all of the local state for participating in the DKG
-#[derive(Debug)]
+#[derive(Debug, CanonicalSerialize, CanonicalDeserialize)]
 pub struct PubliclyVerifiableDkg<E: PairingEngine> {
     pub params: Params,
     pub pvss_params: PubliclyVerifiableParams<E>,
@@ -20,7 +21,16 @@ pub struct PubliclyVerifiableDkg<E: PairingEngine> {
     pub validator_set: ValidatorSet,
 }
 
-#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord)]
+#[derive(
+    Clone,
+    Debug,
+    PartialEq,
+    PartialOrd,
+    Eq,
+    Ord,
+    CanonicalSerialize,
+    CanonicalDeserialize,
+)]
 /// Represents a tendermint validator
 pub struct TendermintValidator {
     /// Total voting power in tendermint consensus
@@ -29,7 +39,7 @@ pub struct TendermintValidator {
     pub address: String,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, CanonicalSerialize, CanonicalDeserialize)]
 /// The set of tendermint validators for a dkg instance
 pub struct ValidatorSet {
     pub validators: Vec<TendermintValidator>,
