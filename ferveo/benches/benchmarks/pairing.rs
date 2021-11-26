@@ -1,14 +1,11 @@
 use ark_bls12_381::*;
 use ark_ec::*;
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{black_box, criterion_group, Criterion};
 //use redjubjub::*;
-use std::convert::TryFrom;
 
-use ark_bls12_381::*;
 use ark_ff::Field;
 use ark_std::UniformRand;
 use ed25519_dalek::verify_batch;
-use rand::thread_rng;
 
 pub fn lagrange(c: &mut Criterion) {
     let rng = &mut ark_std::test_rng();
@@ -61,14 +58,14 @@ pub fn pairing(c: &mut Criterion) {
     type G2Prepared = <Bls12_381 as PairingEngine>::G2Prepared;
 
     let P = (0..100)
-        .map(|i| {
+        .map(|_| {
             G1Affine::prime_subgroup_generator()
                 .mul(Fr::rand(rng))
                 .into_affine()
         })
         .collect::<Vec<G1Affine>>();
     let Q = (0..100)
-        .map(|i| {
+        .map(|_| {
             G2Affine::prime_subgroup_generator()
                 .mul(Fr::rand(rng))
                 .into_affine()
@@ -126,7 +123,7 @@ pub fn pairing(c: &mut Criterion) {
     });
 
     let P = (0..(8192 * 2 / 3))
-        .map(|i| {
+        .map(|_| {
             G1Affine::prime_subgroup_generator()
                 .mul(Fr::rand(rng))
                 .into_affine()
@@ -172,7 +169,7 @@ pub fn pairing(c: &mut Criterion) {
         b.iter(|| {
             black_box(
                 Q.iter()
-                    .map(|i| {
+                    .map(|_| {
                         FixedBaseMSM::multi_scalar_mul::<G2Projective>(
                             scalar_bits,
                             window_size,
@@ -186,7 +183,7 @@ pub fn pairing(c: &mut Criterion) {
     });
 
     let Q = (0..(8192 * 2 / 3))
-        .map(|i| {
+        .map(|_| {
             G2Affine::prime_subgroup_generator()
                 .mul(Fr::rand(rng))
                 .into_affine()
@@ -200,7 +197,7 @@ pub fn pairing(c: &mut Criterion) {
             )
         })
     });
-    let base_tables = Q
+    let _base_tables = Q
         .iter()
         .map(|q| {
             FixedBaseMSM::get_window_table(
@@ -216,7 +213,7 @@ pub fn pairing(c: &mut Criterion) {
             black_box(
                 Q.iter()
                     .zip(lagrange.iter())
-                    .map(|(i, lambda)| {
+                    .map(|(_, lambda)| {
                         FixedBaseMSM::multi_scalar_mul::<G2Projective>(
                             scalar_bits,
                             window_size,
@@ -231,7 +228,7 @@ pub fn pairing(c: &mut Criterion) {
 
     use ark_ed_on_bls12_381 as jubjub;
     let P = (0..(8192 * 2 / 3))
-        .map(|i| {
+        .map(|_| {
             jubjub::EdwardsAffine::prime_subgroup_generator()
                 .mul(jubjub::Fr::rand(rng))
                 .into_affine()
@@ -343,7 +340,7 @@ fn ed25519_batch(c: &mut Criterion) {
             b"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         let messages: Vec<&[u8]> = (0..n).map(|_| msg).collect();
         let signatures: Vec<Signature> =
-            keypairs.iter().map(|key| key.sign(&msg)).collect();
+            keypairs.iter().map(|key| key.sign(msg)).collect();
         let public_keys: Vec<PublicKey> =
             keypairs.iter().map(|key| key.public).collect();
 
@@ -361,7 +358,6 @@ fn ed25519_batch(c: &mut Criterion) {
 }
 
 pub fn bench_batch_inverse(c: &mut Criterion) {
-    use ark_std::UniformRand;
     let rng = &mut ark_std::test_rng();
     let n = 8192 * 2 / 3;
     let a = (0..n)

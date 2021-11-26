@@ -30,7 +30,7 @@ pub type Pvss<E> = PubliclyVerifiableSS<E>;
 pub type AggregatedPvss<E> = PubliclyVerifiableSS<E, Aggregated>;
 
 /// The choice of group generators
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, CanonicalSerialize, CanonicalDeserialize)]
 pub struct PubliclyVerifiableParams<E: PairingEngine> {
     pub g: E::G1Projective,
     pub h: E::G2Projective,

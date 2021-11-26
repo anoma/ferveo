@@ -41,7 +41,16 @@ impl<E: PairingEngine> Default for PublicKey<E> {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    CanonicalSerialize,
+    CanonicalDeserialize,
+)]
 pub struct Keypair<E: PairingEngine> {
     #[serde(with = "crate::ark_serde")]
     pub decryption_key: E::Fr,
