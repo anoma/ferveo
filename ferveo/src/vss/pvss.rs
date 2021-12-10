@@ -9,6 +9,7 @@ use ark_ff::UniformRand;
 use ark_serialize::*;
 use ferveo_common::{PublicKey, ValidatorPublicKey};
 use itertools::Itertools;
+use subproductdomain::fast_multiexp;
 
 /// These are the blinded evaluations of weight shares of a single random polynomial
 pub type ShareEncryptions<E> = Vec<<E as PairingEngine>::G2Affine>;

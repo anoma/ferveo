@@ -96,7 +96,7 @@ mod tests {
         if domain.len() % 2 == 1 {
             lagrange_n_0 = -lagrange_n_0;
         }
-        let s = crate::subproductdomain::SubproductDomain::<Fr>::new(domain);
+        let s = subproductdomain::SubproductDomain::<Fr>::new(domain);
         let mut lagrange = s.inverse_lagrange_coefficients();
         ark_ff::batch_inversion_and_mul(&mut lagrange, &lagrange_n_0);
     }

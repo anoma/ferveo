@@ -10,8 +10,6 @@ keywords = ["DKG"]
 categories = ["cryptography"]
 authors = ["Heliax AG <hello@heliax.dev>"]
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 ark-std = "0.3"
 ark-bls12-381 = "0.3"
@@ -27,7 +25,7 @@ miracl_core = "2.3.0"
 num = "0.4"
 ed25519-dalek = { version = "1", features = ["serde", "batch"] }
 serde = { version = "1.0", features = ["derive"] }
-blake2 = "0.9.1"
+blake2 = "0.10"
 blake2b_simd = "1"
 zeroize = { version = "1", default-features = false, features = ["zeroize_derive"] }
 serde_bytes = { version = "0.11" }
@@ -41,9 +39,10 @@ measure_time = "0.8"
 ark-ed-on-bls12-381 = "0.3.0"
 group-threshold-cryptography = { path = "../tpke" }
 ferveo-common = { path = "../ferveo-common" }
+subproductdomain = { path = "../subproductdomain" }
 
 [dependencies.digest]
-version = "0.9.0"
+version = "0.10.0"
 features = ["alloc"]
 
 [dev-dependencies]
@@ -58,3 +57,7 @@ path = "examples/pvdkg.rs"
 name = "pvdkg"
 path = "benches/benchmarks/pvdkg.rs"
 harness = false
+
+[profile.release]
+opt-level = 3
+lto = true

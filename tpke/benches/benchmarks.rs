@@ -114,19 +114,29 @@ pub fn bench_decryption(c: &mut Criterion) {
     let mut group = c.benchmark_group("TPKE");
     group.sample_size(10);
 
-    for msg_num in vec![10, 100, 1000].iter() {
-        for msg_size in vec![100, 1000, 10000].iter() {
-            let a = share_combine_bench(*msg_num, 8192, 150, *msg_size);
-            group.measurement_time(core::time::Duration::new(30, 0));
-            group.bench_function(format!("share_combine: threshold 8192*2/3 - #msg {} - msg-size = {} bytes", msg_num, msg_size), |b| {
+    for num_validators in [100, 150, 200] {
+        for num_shares in [1024, 2048, 4096, 8192] {
+            for msg_num in [1] {
+                //[10, 100, 1000] {
+                for msg_size in [100] {
+                    let a = share_combine_bench(
+                        msg_num,
+                        num_shares,
+                        num_validators,
+                        msg_size,
+                    );
+                    group.measurement_time(core::time::Duration::new(30, 0));
+                    group.bench_function(format!("share_combine: {} validators threshold {}*2/3 - #msg {} - msg-size = {} bytes", num_validators, num_shares, msg_num, msg_size), |b| {
                 b.iter(|| a())
             });
 
-            let a = block_propose_bench(*msg_num, 8192, 150, *msg_size);
-            group.measurement_time(core::time::Duration::new(30, 0));
-            group.bench_function(format!("block_propose: threshold 8192*2/3 - #msg {} - msg-size = {} bytes", msg_num, msg_size), |b| {
-                b.iter(|| a())
-            });
+                    /*                let a = block_propose_bench(msg_num, num_shares, 150, msg_size);
+                        group.measurement_time(core::time::Duration::new(30, 0));
+                        group.bench_function(format!("block_propose: threshold {}*2/3 - #msg {} - msg-size = {} bytes", num_shares, msg_num, msg_size), |b| {
+                        b.iter(|| a())
+                    });*/
+                }
+            }
         }
     }
 }

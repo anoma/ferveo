@@ -15,7 +15,6 @@ rand = "0.8"
 rayon = "1.5"
 thiserror = "=1.0.30"
 anyhow = "=1.0"
-
 blake2b_simd = "=1"
 miracl_core = "=2.3.0"
 chacha20 = "0.8.1"
@@ -26,6 +25,7 @@ ark-serialize = "0.3"
 ark-std = "0.3"
 ark-bls12-381 = "0.3"
 itertools="0.10"
+subproductdomain = { path = "../subproductdomain" }
 
 [dev-dependencies]
 criterion = "0.3"
@@ -34,3 +34,6 @@ criterion = "0.3"
 name = "benchmarks"
 harness = false
 
+[profile.release]
+opt-level = 3
+lto = true
