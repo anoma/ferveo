@@ -1,13 +1,13 @@
 #![allow(non_snake_case)]
 #![allow(dead_code)]
 use crate::hash_to_curve::htp_bls12381_g2;
-use crate::subproductdomain::SubproductDomain;
 use ark_ec::{msm::FixedBaseMSM, AffineCurve, PairingEngine};
 use ark_ff::{Field, One, PrimeField, ToBytes, UniformRand, Zero};
 use ark_poly::EvaluationDomain;
 use ark_poly::{univariate::DensePolynomial, UVPolynomial};
 use ark_serialize::CanonicalSerialize;
 use itertools::izip;
+use subproductdomain::SubproductDomain;
 
 use rand_core::RngCore;
 use std::usize;
@@ -15,7 +15,6 @@ use thiserror::Error;
 
 mod ciphertext;
 mod hash_to_curve;
-mod subproductdomain;
 pub use ciphertext::*;
 mod key_share;
 pub use key_share::*;
