@@ -2,7 +2,7 @@
 name = "ferveo"
 version = "0.1.1"
 edition = "2018"
-license = "AGPL-3.0"
+license = "GPL-3.0"
 repository = "https://gitlab.com/anoma/ferveo"
 readme = "README.md"
 description = "An implementation of a DKG protocol for front-running protection on public blockchains."
