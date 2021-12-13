@@ -1505,6 +1505,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9091b6114800a5f2141aee1d1b9d6ca3592ac062dc5decb3764ec5895a47b4eb"
 
 [[package]]
+<<<<<<< Updated upstream
+=======
+name = "subproductdomain"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ark-bls12-381",
+ "ark-ec",
+ "ark-ff",
+ "ark-poly",
+ "ark-serialize",
+ "ark-std",
+ "criterion",
+ "pprof",
+]
+
+[[package]]
+>>>>>>> Stashed changes
 name = "subtle"
 version = "2.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
