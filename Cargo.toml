@@ -3,7 +3,8 @@
 members = [
   "ferveo",
   "ferveo-common",
-  "tpke"
+  "subproductdomain",
+  "tpke",
 ]
 
 [profile.bench]

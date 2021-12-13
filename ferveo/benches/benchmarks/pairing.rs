@@ -20,7 +20,7 @@ pub fn lagrange(c: &mut Criterion) {
     group.bench_function("BLS12-381 Fr 8192*2/3 lagrange coefficients", |b| {
         b.iter(|| {
             black_box(
-                ferveo::SubproductDomain::<Fr>::new(u.clone())
+                subproductdomain::SubproductDomain::<Fr>::new(u.clone())
                     .inverse_lagrange_coefficients()
                     //.iter()
                     //.map(|x| x.inverse())
@@ -39,7 +39,7 @@ pub fn lagrange(c: &mut Criterion) {
     group.bench_function("Jubjub Fr 8192*2/3 lagrange coefficients", |b| {
         b.iter(|| {
             black_box(
-                ferveo::SubproductDomain::<jubjub::Fr>::new(u.clone())
+                subproductdomain::SubproductDomain::<jubjub::Fr>::new(u.clone())
                     .inverse_lagrange_coefficients()
                     //.iter()
                     //.map(|x| x.inverse())
@@ -135,7 +135,7 @@ pub fn pairing(c: &mut Criterion) {
         u.push(Fr::rand(rng));
     }
 
-    let lagrange = ferveo::SubproductDomain::<Fr>::new(u.clone())
+    let lagrange = subproductdomain::SubproductDomain::<Fr>::new(u.clone())
         .inverse_lagrange_coefficients()
         .iter()
         .map(|x| x.inverse().unwrap())

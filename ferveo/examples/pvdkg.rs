@@ -1,8 +1,12 @@
 pub use ark_bls12_381::Bls12_381 as EllipticCurve;
 use ferveo::*;
+use measure_time::print_time;
 
 pub fn main() {
-    setup_dealt_dkg(10);
+    setup_dealt_dkg(10, 1024);
+    setup_dealt_dkg(10, 2048);
+    setup_dealt_dkg(10, 4096);
+    setup_dealt_dkg(10, 8192);
 }
 
 /// Generate a few validators
@@ -21,6 +25,7 @@ pub fn gen_validators(num: u64) -> ValidatorSet {
 pub fn setup_dkg(
     validator: usize,
     num: u64,
+    shares: u32,
 ) -> PubliclyVerifiableDkg<EllipticCurve> {
     let rng = &mut ark_std::test_rng();
     let validators = gen_validators(num);
@@ -29,8 +34,8 @@ pub fn setup_dkg(
         validators,
         Params {
             tau: 0,
-            security_threshold: 300 / 3,
-            total_weight: 300,
+            security_threshold: shares / 3,
+            total_weight: shares,
         },
         me,
         rng,
@@ -42,9 +47,10 @@ pub fn setup_dkg(
 pub fn setup_shared_dkg(
     validator: usize,
     num: u64,
+    shares: u32,
 ) -> PubliclyVerifiableDkg<EllipticCurve> {
     let rng = &mut ark_std::test_rng();
-    let mut dkg = setup_dkg(validator, num);
+    let mut dkg = setup_dkg(validator, num, shares);
 
     // generated the announcements for all other validators
     for i in 0..num {
@@ -63,18 +69,22 @@ pub fn setup_shared_dkg(
 }
 
 /// Set up a dkg with enough pvss transcripts to meet the threshold
-pub fn setup_dealt_dkg(num: u64) {
+pub fn setup_dealt_dkg(num: u64, shares: u32) {
     let rng = &mut ark_std::test_rng();
     // gather everyone's transcripts
     let mut transcripts = vec![];
     for i in 0..num {
-        let mut dkg = setup_shared_dkg(i as usize, num);
+        let mut dkg = setup_shared_dkg(i as usize, num, shares);
         transcripts.push(dkg.share(rng).expect("Test failed"));
     }
     // our test dkg
-    let mut dkg = setup_shared_dkg(0, num);
+    let mut dkg = setup_shared_dkg(0, num, shares);
     // iterate over transcripts from lowest weight to highest
     for (sender, pvss) in transcripts.into_iter().rev().enumerate() {
+        if let Message::Deal(ss) = pvss.clone() {
+            print_time!("PVSS verify pvdkg");
+            ss.verify_full(&dkg, rng);
+        }
         dkg.apply_message(
             dkg.validator_set.validators[num as usize - 1 - sender].clone(),
             pvss,

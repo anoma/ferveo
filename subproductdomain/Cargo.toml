@@ -1,5 +1,5 @@
 [package]
-name = "ferveo-common"
+name = "subproductdomain"
 version = "0.1.0"
 edition = "2018"
 license = "GPL-3.0"
@@ -9,14 +9,12 @@ authors = ["Heliax AG <hello@heliax.dev>"]
 anyhow = "1.0.47"
 ark-std = "0.3"
 ark-ec = "0.3"
-serde = { version = "1.0", features = ["derive"] }
+ark-ff = "0.3"
 ark-serialize = "0.3"
-serde_bytes = "0.11" 
+ark-poly = "0.3"
 
 [dev-dependencies]
 ark-bls12-381 = "0.3"
-serde_json = "1.0"
-bincode = "1.0"
 
 [profile.release]
 opt-level = 3
