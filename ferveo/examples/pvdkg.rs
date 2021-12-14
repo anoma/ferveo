@@ -1,5 +1,6 @@
 pub use ark_bls12_381::Bls12_381 as EllipticCurve;
 use ferveo::*;
+use ferveo_common::{ValidatorSet, TendermintValidator};
 use measure_time::print_time;
 
 pub fn main() {
@@ -9,15 +10,24 @@ pub fn main() {
     setup_dealt_dkg(10, 8192);
 }
 
+/// Generate a set of keypairs for each validator
+pub fn gen_keypairs(num: u64) -> Vec<ferveo_common::Keypair<EllipticCurve>> {
+    let rng = &mut ark_std::test_rng();
+    (0..num)
+        .map(|_| ferveo_common::Keypair::<EllipticCurve>::new(rng))
+        .collect()
+}
+
 /// Generate a few validators
-pub fn gen_validators(num: u64) -> ValidatorSet {
+pub fn gen_validators(keypairs: &[ferveo_common::Keypair<EllipticCurve>]) -> ValidatorSet<EllipticCurve> {
     ValidatorSet::new(
-        (0..num)
+        (0..keypairs.len())
             .map(|i| TendermintValidator {
-                power: i,
+                power: i as u64,
                 address: format!("validator_{}", i),
+                public_key: keypairs[i as usize].public(),
             })
-            .collect(),
+            .collect()
     )
 }
 
@@ -27,8 +37,8 @@ pub fn setup_dkg(
     num: u64,
     shares: u32,
 ) -> PubliclyVerifiableDkg<EllipticCurve> {
-    let rng = &mut ark_std::test_rng();
-    let validators = gen_validators(num);
+    let keypairs = gen_keypairs(num);
+    let validators = gen_validators(&keypairs);
     let me = validators.validators[validator].clone();
     PubliclyVerifiableDkg::new(
         validators,
@@ -38,35 +48,11 @@ pub fn setup_dkg(
             total_weight: shares,
         },
         me,
-        rng,
+        keypairs[validator].clone(),
     )
     .expect("Setup failed")
 }
 
-/// Setup a dkg instance with all announcements received
-pub fn setup_shared_dkg(
-    validator: usize,
-    num: u64,
-    shares: u32,
-) -> PubliclyVerifiableDkg<EllipticCurve> {
-    let rng = &mut ark_std::test_rng();
-    let mut dkg = setup_dkg(validator, num, shares);
-
-    // generated the announcements for all other validators
-    for i in 0..num {
-        if i as usize == validator {
-            continue;
-        }
-        let announce = Message::Announce(
-            ferveo_common::Keypair::<EllipticCurve>::new(rng).public(),
-        );
-        let sender = dkg.validator_set.validators[i as usize].clone();
-        dkg.verify_message(&sender, &announce, rng)
-            .expect("Setup failed");
-        dkg.apply_message(sender, announce).expect("Setup failed");
-    }
-    dkg
-}
 
 /// Set up a dkg with enough pvss transcripts to meet the threshold
 pub fn setup_dealt_dkg(num: u64, shares: u32) {
@@ -74,11 +60,11 @@ pub fn setup_dealt_dkg(num: u64, shares: u32) {
     // gather everyone's transcripts
     let mut transcripts = vec![];
     for i in 0..num {
-        let mut dkg = setup_shared_dkg(i as usize, num, shares);
+        let mut dkg = setup_dkg(i as usize, num, shares);
         transcripts.push(dkg.share(rng).expect("Test failed"));
     }
     // our test dkg
-    let mut dkg = setup_shared_dkg(0, num, shares);
+    let mut dkg = setup_dkg(0, num, shares);
     // iterate over transcripts from lowest weight to highest
     for (sender, pvss) in transcripts.into_iter().rev().enumerate() {
         if let Message::Deal(ss) = pvss.clone() {
@@ -86,7 +72,7 @@ pub fn setup_dealt_dkg(num: u64, shares: u32) {
             ss.verify_full(&dkg, rng);
         }
         dkg.apply_message(
-            dkg.validator_set.validators[num as usize - 1 - sender].clone(),
+            dkg.validators[num as usize - 1 - sender].validator.clone(),
             pvss,
         )
         .expect("Setup failed");
