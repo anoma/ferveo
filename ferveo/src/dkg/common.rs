@@ -1,6 +1,6 @@
 use crate::*;
-use itertools::izip;
 use ferveo_common::ValidatorSet;
+use itertools::izip;
 
 /// partition_domain takes as input a vector of validators from
 /// participants in the DKG, containing their total stake amounts
@@ -43,19 +43,17 @@ pub fn partition_domain<E: PairingEngine>(
     let mut participants = vec![];
     // note that the order of `participants` corresponds to the same
     // order as `validator_set`
-    for (ix, validator) in validator_set
-        .validators
-        .drain(0..)
-        .enumerate() {
+    for (ix, validator) in validator_set.validators.drain(0..).enumerate() {
         participants.push(ferveo_common::Validator::<E> {
             validator,
             weight: weights[ix],
             share_start: allocated_weight,
             share_end: allocated_weight + weights[ix] as usize,
         });
-        allocated_weight = allocated_weight
-            .checked_add(weights[ix] as usize)
-            .ok_or_else(|| anyhow!("allocated weight overflow"))?;
+        allocated_weight =
+            allocated_weight
+                .checked_add(weights[ix] as usize)
+                .ok_or_else(|| anyhow!("allocated weight overflow"))?;
     }
     Ok(participants)
 }

@@ -49,9 +49,15 @@ impl<E: PairingEngine> CanonicalSerialize for DkgState<E> {
         mut writer: W,
     ) -> Result<(), SerializationError> {
         match self {
-            Self::Sharing { accumulated_weight, block } => {
+            Self::Sharing {
+                accumulated_weight,
+                block,
+            } => {
                 CanonicalSerialize::serialize(&0u8, &mut writer)?;
-                CanonicalSerialize::serialize(&(*accumulated_weight, *block), &mut writer)
+                CanonicalSerialize::serialize(
+                    &(*accumulated_weight, *block),
+                    &mut writer,
+                )
             }
             Self::Dealt => CanonicalSerialize::serialize(&1u8, &mut writer),
             Self::Success { final_key } => {
@@ -65,8 +71,12 @@ impl<E: PairingEngine> CanonicalSerialize for DkgState<E> {
     #[inline]
     fn serialized_size(&self) -> usize {
         match self {
-            Self::Sharing { accumulated_weight, block } => {
-                0u8.serialized_size() + (*accumulated_weight, *block).serialized_size()
+            Self::Sharing {
+                accumulated_weight,
+                block,
+            } => {
+                0u8.serialized_size()
+                    + (*accumulated_weight, *block).serialized_size()
             }
             Self::Dealt => 1u8.serialized_size(),
             Self::Success { final_key } => {
@@ -83,14 +93,15 @@ impl<E: PairingEngine> CanonicalDeserialize for DkgState<E> {
         let variant = <u8 as CanonicalDeserialize>::deserialize(&mut reader)?;
         match variant {
             0 => {
-                let (accumulated_weight, block) = <(u32, u32) as CanonicalDeserialize>::deserialize(
-                    &mut reader,
-                )?;
+                let (accumulated_weight, block) =
+                    <(u32, u32) as CanonicalDeserialize>::deserialize(
+                        &mut reader,
+                    )?;
                 Ok(Self::Sharing {
                     accumulated_weight,
                     block,
                 })
-            },
+            }
             1 => Ok(Self::Dealt),
             2 => Ok(Self::Success {
                 final_key: <E as PairingEngine>::G1Affine::deserialize(

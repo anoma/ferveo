@@ -77,12 +77,12 @@ impl<E: PairingEngine, T> PubliclyVerifiableSS<E, T> {
         let shares = dkg
             .validators
             .iter()
-            .map(|val|
+            .map(|val| {
                 fast_multiexp(
                     &evals.evals[val.share_start..val.share_end],
                     val.validator.public_key.encryption_key.into_projective(),
                 )
-            )
+            })
             .collect::<Vec<ShareEncryptions<E>>>();
         if shares.len() != dkg.validators.len() {
             return Err(anyhow!(
@@ -227,10 +227,10 @@ pub fn aggregate<E: PairingEngine>(
 mod test_pvss {
     use super::*;
 
+    use crate::dkg::pv::test_common::*;
     use ark_bls12_381::Bls12_381 as EllipticCurve;
     use ark_ff::UniformRand;
     use ferveo_common::{TendermintValidator, ValidatorSet};
-    use crate::dkg::pv::test_common::*;
     type Fr = <EllipticCurve as PairingEngine>::Fr;
     type G1 = <EllipticCurve as PairingEngine>::G1Affine;
     type G2 = <EllipticCurve as PairingEngine>::G2Affine;

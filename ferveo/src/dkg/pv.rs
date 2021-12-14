@@ -4,7 +4,7 @@ use ark_ec::PairingEngine;
 use ark_ff::Field;
 use ark_serialize::*;
 use ark_std::{end_timer, start_timer};
-use ferveo_common::{PublicKey, ValidatorSet, TendermintValidator};
+use ferveo_common::{PublicKey, TendermintValidator, ValidatorSet};
 use std::collections::BTreeMap;
 
 /// The DKG context that holds all of the local state for participating in the DKG
@@ -33,7 +33,7 @@ impl<E: PairingEngine> PubliclyVerifiableDkg<E> {
         validator_set: ValidatorSet<E>,
         params: Params,
         me: TendermintValidator<E>,
-        session_keypair: ferveo_common::Keypair<E>
+        session_keypair: ferveo_common::Keypair<E>,
     ) -> Result<Self> {
         use ark_std::UniformRand;
         let domain = ark_poly::Radix2EvaluationDomain::<E::Fr>::new(
@@ -51,7 +51,8 @@ impl<E: PairingEngine> PubliclyVerifiableDkg<E> {
         let validators = partition_domain(&params, validator_set)?;
         // we further partition out valdiators into partitions to submit pvss transcripts
         // so as to minimize network load and enable retrying
-        let my_partition = params.retry_after * (2 * me as u32 / params.retry_after);
+        let my_partition =
+            params.retry_after * (2 * me as u32 / params.retry_after);
         Ok(Self {
             session_keypair,
             params,
@@ -61,7 +62,10 @@ impl<E: PairingEngine> PubliclyVerifiableDkg<E> {
             },
             vss: BTreeMap::new(),
             domain,
-            state: DkgState::Sharing { accumulated_weight: 0, block: 0 },
+            state: DkgState::Sharing {
+                accumulated_weight: 0,
+                block: 0,
+            },
             me,
             validators,
             window: (my_partition, my_partition + params.retry_after),
@@ -74,7 +78,9 @@ impl<E: PairingEngine> PubliclyVerifiableDkg<E> {
     /// Returns a value indicating if we should issue a PVSS transcript
     pub fn increase_block(&mut self) -> PvssScheduler {
         match self.state {
-            DkgState::Sharing {ref mut block, .. } if !self.vss.contains_key(&(self.me as u32)) => {
+            DkgState::Sharing { ref mut block, .. }
+                if !self.vss.contains_key(&(self.me as u32)) =>
+            {
                 *block += 1;
                 // if our scheduled window begins, issue PVSS
                 if self.window.0 + 1 == *block {
@@ -88,7 +94,7 @@ impl<E: PairingEngine> PubliclyVerifiableDkg<E> {
                 } else {
                     PvssScheduler::Wait
                 }
-            },
+            }
             _ => PvssScheduler::Wait,
         }
     }
@@ -101,9 +107,9 @@ impl<E: PairingEngine> PubliclyVerifiableDkg<E> {
         print_time!("PVSS Sharing");
         let vss = Pvss::<E>::new(&E::Fr::rand(rng), self, rng)?;
         match self.state {
-            DkgState::Sharing {
-                ..
-            } | DkgState::Dealt => Ok(Message::Deal(vss)),
+            DkgState::Sharing { .. } | DkgState::Dealt => {
+                Ok(Message::Deal(vss))
+            }
             _ => {
                 Err(anyhow!("DKG is not in a valid state to deal PVSS shares"))
             }
@@ -116,9 +122,9 @@ impl<E: PairingEngine> PubliclyVerifiableDkg<E> {
             DkgState::Dealt | DkgState::Success { .. } => {
                 Ok(Message::Aggregate(aggregate(self)))
             }
-            _ => {
-                Err(anyhow!("Not enough PVSS transcripts received to aggregate"))
-            }
+            _ => Err(anyhow!(
+                "Not enough PVSS transcripts received to aggregate"
+            )),
         }
     }
 
@@ -236,7 +242,9 @@ pub(crate) mod test_common {
     }
 
     /// Generate a few validators
-    pub fn gen_validators(keypairs: &[ferveo_common::Keypair<EllipticCurve>]) -> ValidatorSet<EllipticCurve> {
+    pub fn gen_validators(
+        keypairs: &[ferveo_common::Keypair<EllipticCurve>],
+    ) -> ValidatorSet<EllipticCurve> {
         ValidatorSet::new(
             (0..4)
                 .map(|i| TendermintValidator {
@@ -244,7 +252,7 @@ pub(crate) mod test_common {
                     address: format!("validator_{}", i),
                     public_key: keypairs[i as usize].public(),
                 })
-                .collect()
+                .collect(),
         )
     }
 
@@ -268,7 +276,6 @@ pub(crate) mod test_common {
         )
         .expect("Setup failed")
     }
-
 
     /// Set up a dkg with enough pvss transcripts to meet the threshold
     ///
@@ -308,22 +315,26 @@ mod test_dkg_init {
             TendermintValidator::<EllipticCurve> {
                 power: 0,
                 address: "validator_0".into(),
-                public_key: ferveo_common::Keypair::<EllipticCurve>::new(rng).public(),
+                public_key: ferveo_common::Keypair::<EllipticCurve>::new(rng)
+                    .public(),
             },
             TendermintValidator::<EllipticCurve> {
                 power: 2,
                 address: "validator_1".into(),
-                public_key: ferveo_common::Keypair::<EllipticCurve>::new(rng).public(),
+                public_key: ferveo_common::Keypair::<EllipticCurve>::new(rng)
+                    .public(),
             },
             TendermintValidator::<EllipticCurve> {
                 power: 2,
                 address: "validator_2".into(),
-                public_key: ferveo_common::Keypair::<EllipticCurve>::new(rng).public(),
+                public_key: ferveo_common::Keypair::<EllipticCurve>::new(rng)
+                    .public(),
             },
             TendermintValidator::<EllipticCurve> {
                 power: 1,
                 address: "validator_3".into(),
-                public_key: ferveo_common::Keypair::<EllipticCurve>::new(rng).public(),
+                public_key: ferveo_common::Keypair::<EllipticCurve>::new(rng)
+                    .public(),
             },
         ];
         let expected = vec![
@@ -340,11 +351,12 @@ mod test_dkg_init {
             total_weight: 6,
             retry_after: 2,
         };
-        let validator_set: Vec<TendermintValidator<EllipticCurve>> = partition_domain(&params, validator_set)
-            .expect("Test failed")
-            .iter()
-            .map(|v| v.validator.clone())
-            .collect();
+        let validator_set: Vec<TendermintValidator<EllipticCurve>> =
+            partition_domain(&params, validator_set)
+                .expect("Test failed")
+                .iter()
+                .map(|v| v.validator.clone())
+                .collect();
         assert_eq!(validator_set, expected);
     }
 
@@ -354,7 +366,7 @@ mod test_dkg_init {
     fn test_dkg_fail_unknown_validator() {
         let rng = &mut ark_std::test_rng();
         let keypairs = gen_keypairs();
-        let keypair =  ferveo_common::Keypair::<EllipticCurve>::new(rng);
+        let keypair = ferveo_common::Keypair::<EllipticCurve>::new(rng);
         let err = PubliclyVerifiableDkg::<EllipticCurve>::new(
             gen_validators(&keypairs),
             Params {
@@ -383,7 +395,7 @@ mod test_dkg_init {
     fn test_validator_windows() {
         for i in 0..4_u32 {
             let dkg = setup_dkg(i as usize);
-            assert_eq!(dkg.window, (2*i, 2*i + 2));
+            assert_eq!(dkg.window, (2 * i, 2 * i + 2));
         }
     }
 }
@@ -430,7 +442,9 @@ mod test_dealing {
             if sender < 3 {
                 // check that weight accumulates correctly
                 match dkg.state {
-                    DkgState::Sharing { accumulated_weight, .. } => {
+                    DkgState::Sharing {
+                        accumulated_weight, ..
+                    } => {
                         assert_eq!(accumulated_weight, expected)
                     }
                     _ => panic!("Test failed"),
@@ -460,7 +474,8 @@ mod test_dealing {
         let sender = TendermintValidator::<EllipticCurve> {
             power: 9001,
             address: "Goku".into(),
-            public_key: ferveo_common::Keypair::<EllipticCurve>::new(rng).public(),
+            public_key: ferveo_common::Keypair::<EllipticCurve>::new(rng)
+                .public(),
         };
         // check that verification fails
         assert!(dkg.verify_message(&sender, &pvss, rng).is_err());
@@ -609,15 +624,16 @@ mod test_dealing {
         assert_eq!(dkg.increase_block(), PvssScheduler::Wait);
     }
 
-
     /// Test that the DKG advises us to not issue a PVSS transcript
     /// if we are not in state [`DkgState::Sharing{..}`]
     #[test]
     fn test_pvss_wait_if_not_in_sharing_state() {
         let mut dkg = setup_dkg(0);
-        for state in vec! [
+        for state in vec![
             DkgState::Dealt,
-            DkgState::Success{ final_key: G1::zero()},
+            DkgState::Success {
+                final_key: G1::zero(),
+            },
             DkgState::Invalid,
         ] {
             dkg.state = state;
@@ -659,7 +675,7 @@ mod test_dealing {
         let mut dkg = setup_dkg(0);
         assert_eq!(dkg.increase_block(), PvssScheduler::Issue);
         if let DkgState::Sharing { block, .. } = dkg.state {
-            assert!(dkg.window.0 < block && block < dkg.window.1 );
+            assert!(dkg.window.0 < block && block < dkg.window.1);
         } else {
             panic!("Test failed");
         }

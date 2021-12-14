@@ -8,12 +8,7 @@ pub mod keypair;
 pub use keypair::*;
 use std::cmp::Ordering;
 
-#[derive(
-    Clone,
-    Debug,
-    CanonicalSerialize,
-    CanonicalDeserialize,
-)]
+#[derive(Clone, Debug, CanonicalSerialize, CanonicalDeserialize)]
 /// Represents a tendermint validator
 pub struct TendermintValidator<E: PairingEngine> {
     /// Total voting power in tendermint consensus
@@ -21,7 +16,7 @@ pub struct TendermintValidator<E: PairingEngine> {
     /// The established address of the validator
     pub address: String,
     /// The Public key
-    pub public_key: PublicKey<E>
+    pub public_key: PublicKey<E>,
 }
 
 impl<E: PairingEngine> PartialEq for TendermintValidator<E> {
@@ -30,7 +25,7 @@ impl<E: PairingEngine> PartialEq for TendermintValidator<E> {
     }
 }
 
-impl<E: PairingEngine> Eq for TendermintValidator<E> { }
+impl<E: PairingEngine> Eq for TendermintValidator<E> {}
 
 impl<E: PairingEngine> PartialOrd for TendermintValidator<E> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
@@ -43,8 +38,6 @@ impl<E: PairingEngine> Ord for TendermintValidator<E> {
         (self.power, &self.address).cmp(&(other.power, &other.address))
     }
 }
-
-
 
 #[derive(Clone, Debug, CanonicalSerialize, CanonicalDeserialize)]
 /// The set of tendermint validators for a dkg instance
@@ -78,12 +71,21 @@ pub struct Validator<E: PairingEngine> {
 
 impl<E: PairingEngine> PartialEq for Validator<E> {
     fn eq(&self, other: &Self) -> bool {
-        (&self.validator, self.weight, self.share_start, self.share_end)
-            == (&other.validator, other.weight, other.share_start, other.share_end)
+        (
+            &self.validator,
+            self.weight,
+            self.share_start,
+            self.share_end,
+        ) == (
+            &other.validator,
+            other.weight,
+            other.share_start,
+            other.share_end,
+        )
     }
 }
 
-impl<E: PairingEngine> Eq for Validator<E> { }
+impl<E: PairingEngine> Eq for Validator<E> {}
 
 impl<E: PairingEngine> PartialOrd for Validator<E> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
