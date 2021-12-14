@@ -18,6 +18,7 @@ pub struct PubliclyVerifiableDkg<E: PairingEngine> {
     pub domain: ark_poly::Radix2EvaluationDomain<E::Fr>,
     pub state: DkgState<E>,
     pub me: usize,
+    pub window: (u32, u32),
 }
 
 impl<E: PairingEngine> PubliclyVerifiableDkg<E> {
@@ -48,6 +49,9 @@ impl<E: PairingEngine> PubliclyVerifiableDkg<E> {
 
         // partition out weight shares of validators based on their voting power
         let validators = partition_domain(&params, validator_set)?;
+        // we further partition out valdiators into partitions to submit pvss transcripts
+        // so as to minimize network load and enable retrying
+        let my_partition = params.retry_after * (2 * me as u32 / params.retry_after);
         Ok(Self {
             session_keypair,
             params,
@@ -57,12 +61,37 @@ impl<E: PairingEngine> PubliclyVerifiableDkg<E> {
             },
             vss: BTreeMap::new(),
             domain,
-            state: DkgState::Sharing { accumulated_weight: 0 },
+            state: DkgState::Sharing { accumulated_weight: 0, block: 0 },
             me,
             validators,
+            window: (my_partition, my_partition + params.retry_after),
         })
     }
 
+    /// Increment the number of blocks processed since the DKG protocol
+    /// began if we are still sharing PVSS transcripts.
+    ///
+    /// Returns a value indicating if we should issue a PVSS transcript
+    pub fn increase_block(&mut self) -> PvssScheduler {
+        match self.state {
+            DkgState::Sharing {ref mut block, .. } if !self.vss.contains_key(&(self.me as u32)) => {
+                *block += 1;
+                // if our scheduled window begins, issue PVSS
+                if self.window.0 + 1 == *block {
+                    PvssScheduler::Issue
+                } else if &self.window.1 < block {
+                    // reset the window during which we try to get our
+                    // PVSS on chain
+                    *block = self.window.0 + 1;
+                    // reissue PVSS
+                    PvssScheduler::Issue
+                } else {
+                    PvssScheduler::Wait
+                }
+            },
+            _ => PvssScheduler::Wait,
+        }
+    }
 
     /// Create a new PVSS instance within this DKG session, contributing to the final key
     /// `rng` is a cryptographic random number generator
@@ -162,7 +191,7 @@ impl<E: PairingEngine> PubliclyVerifiableDkg<E> {
 
                 // we keep track of the amount of weight seen until the security
                 // threshold is met. Then we may change the state of the DKG
-                if let DkgState::Sharing{ref mut accumulated_weight} =  &mut self.state {
+                if let DkgState::Sharing{ref mut accumulated_weight, ..} =  &mut self.state {
                     *accumulated_weight += self.validators[sender].weight;
                     if *accumulated_weight
                         >= self.params.total_weight - self.params.security_threshold {
@@ -232,6 +261,7 @@ pub(crate) mod test_common {
                 tau: 0,
                 security_threshold: 2,
                 total_weight: 6,
+                retry_after: 2,
             },
             me,
             keypairs[validator].clone(),
@@ -308,6 +338,7 @@ mod test_dkg_init {
             tau: 0,
             security_threshold: 2,
             total_weight: 6,
+            retry_after: 2,
         };
         let validator_set: Vec<TendermintValidator<EllipticCurve>> = partition_domain(&params, validator_set)
             .expect("Test failed")
@@ -315,7 +346,6 @@ mod test_dkg_init {
             .map(|v| v.validator.clone())
             .collect();
         assert_eq!(validator_set, expected);
-
     }
 
     /// Test that dkg fails to start if the `me` input
@@ -331,6 +361,7 @@ mod test_dkg_init {
                 tau: 0,
                 security_threshold: 4,
                 total_weight: 6,
+                retry_after: 2,
             },
             TendermintValidator::<EllipticCurve> {
                 power: 9001,
@@ -344,6 +375,16 @@ mod test_dkg_init {
             err.to_string(),
             "could not find this validator in the provided validator set"
         )
+    }
+
+    /// Test that the windows of a validator are correctly
+    /// computed from the `retry_after` param
+    #[test]
+    fn test_validator_windows() {
+        for i in 0..4_u32 {
+            let dkg = setup_dkg(i as usize);
+            assert_eq!(dkg.window, (2*i, 2*i + 2));
+        }
     }
 }
 
@@ -389,7 +430,7 @@ mod test_dealing {
             if sender < 3 {
                 // check that weight accumulates correctly
                 match dkg.state {
-                    DkgState::Sharing { accumulated_weight } => {
+                    DkgState::Sharing { accumulated_weight, .. } => {
                         assert_eq!(accumulated_weight, expected)
                     }
                     _ => panic!("Test failed"),
@@ -411,7 +452,8 @@ mod test_dealing {
         assert!(matches!(
             dkg.state,
             DkgState::Sharing {
-                accumulated_weight: 0
+                accumulated_weight: 0,
+                block: 0
             }
         ));
         let pvss = dkg.share(rng).expect("Test failed");
@@ -428,7 +470,8 @@ mod test_dealing {
         assert!(matches!(
             dkg.state,
             DkgState::Sharing {
-                accumulated_weight: 0
+                accumulated_weight: 0,
+                block: 0,
             }
         ));
     }
@@ -442,7 +485,8 @@ mod test_dealing {
         assert!(matches!(
             dkg.state,
             DkgState::Sharing {
-                accumulated_weight: 0
+                accumulated_weight: 0,
+                block: 0,
             }
         ));
         let pvss = dkg.share(rng).expect("Test failed");
@@ -455,7 +499,8 @@ mod test_dealing {
         assert!(matches!(
             dkg.state,
             DkgState::Sharing {
-                accumulated_weight: 0
+                accumulated_weight: 0,
+                block: 0,
             }
         ));
         // check that sending another pvss from same sender fails
@@ -465,13 +510,14 @@ mod test_dealing {
     /// Test that if a validators tries to verify it's own
     /// share message, it passes
     #[test]
-    fn test_pvss_own_pvss() {
+    fn test_own_pvss() {
         let rng = &mut ark_std::test_rng();
         let mut dkg = setup_dkg(0);
         assert!(matches!(
             dkg.state,
             DkgState::Sharing {
-                accumulated_weight: 0
+                accumulated_weight: 0,
+                block: 0,
             }
         ));
         // create share message and check state update
@@ -479,7 +525,8 @@ mod test_dealing {
         assert!(matches!(
             dkg.state,
             DkgState::Sharing {
-                accumulated_weight: 0
+                accumulated_weight: 0,
+                block: 0,
             }
         ));
         let sender = dkg.validators[0].validator.clone();
@@ -490,7 +537,8 @@ mod test_dealing {
         assert!(matches!(
             dkg.state,
             DkgState::Sharing {
-                accumulated_weight: 3
+                accumulated_weight: 3,
+                block: 0,
             }
         ));
     }
@@ -504,7 +552,8 @@ mod test_dealing {
         assert!(matches!(
             dkg.state,
             DkgState::Sharing {
-                accumulated_weight: 0
+                accumulated_weight: 0,
+                block: 0,
             }
         ));
 
@@ -529,7 +578,8 @@ mod test_dealing {
         assert!(matches!(
             dkg.state,
             DkgState::Sharing {
-                accumulated_weight: 0
+                accumulated_weight: 0,
+                block: 0,
             }
         ));
         let sender = dkg.validators[3].validator.clone();
@@ -544,6 +594,76 @@ mod test_dealing {
         assert!(dkg.verify_message(&sender, &pvss, rng).is_ok());
         assert!(dkg.apply_message(sender, pvss).is_ok());
         assert!(matches!(dkg.state, DkgState::Dealt))
+    }
+
+    /// Check that if a validators window has not arrived,
+    /// the DKG advises us to wait
+    #[test]
+    fn test_pvss_wait_before_window() {
+        let mut dkg = setup_dkg(1);
+        if let DkgState::Sharing { block, .. } = dkg.state {
+            assert!(dkg.window.0 > block);
+        } else {
+            panic!("Test failed");
+        }
+        assert_eq!(dkg.increase_block(), PvssScheduler::Wait);
+    }
+
+
+    /// Test that the DKG advises us to not issue a PVSS transcript
+    /// if we are not in state [`DkgState::Sharing{..}`]
+    #[test]
+    fn test_pvss_wait_if_not_in_sharing_state() {
+        let mut dkg = setup_dkg(0);
+        for state in vec! [
+            DkgState::Dealt,
+            DkgState::Success{ final_key: G1::zero()},
+            DkgState::Invalid,
+        ] {
+            dkg.state = state;
+            assert_eq!(dkg.increase_block(), PvssScheduler::Wait);
+        }
+    }
+
+    /// Test that if we already have our PVSS on chain,
+    /// the DKG advises us not to issue a new one
+    #[test]
+    fn test_pvss_wait_if_already_applied() {
+        let rng = &mut ark_std::test_rng();
+        let mut dkg = setup_dkg(0);
+        let pvss = dkg.share(rng).expect("Test failed");
+        let sender = dkg.validators[0].validator.clone();
+        // check that verification fails
+        assert!(dkg.verify_message(&sender, &pvss, rng).is_ok());
+        assert!(dkg.apply_message(sender, pvss).is_ok());
+        assert_eq!(dkg.increase_block(), PvssScheduler::Wait);
+    }
+
+    /// Test that if our own PVSS transcript is not on chain
+    /// after the retry window, the DKG advises us to issue again.
+    #[test]
+    fn test_pvss_reissue() {
+        let mut dkg = setup_dkg(0);
+        dkg.state = DkgState::Sharing {
+            accumulated_weight: 0,
+            block: 2,
+        };
+        assert_eq!(dkg.increase_block(), PvssScheduler::Issue);
+        assert_eq!(dkg.increase_block(), PvssScheduler::Wait);
+    }
+
+    /// Test that we are only advised to issue a PVSS at the
+    /// beginning of our window, not for every block in it
+    #[test]
+    fn test_pvss_wait_middle_of_window() {
+        let mut dkg = setup_dkg(0);
+        assert_eq!(dkg.increase_block(), PvssScheduler::Issue);
+        if let DkgState::Sharing { block, .. } = dkg.state {
+            assert!(dkg.window.0 < block && block < dkg.window.1 );
+        } else {
+            panic!("Test failed");
+        }
+        assert_eq!(dkg.increase_block(), PvssScheduler::Wait);
     }
 }
 
@@ -572,6 +692,7 @@ mod test_aggregation {
         let mut dkg = setup_dealt_dkg();
         dkg.state = DkgState::Sharing {
             accumulated_weight: 0,
+            block: 0,
         };
         assert!(dkg.aggregate().is_err());
         dkg.state = DkgState::Success {
@@ -591,6 +712,7 @@ mod test_aggregation {
         let sender = dkg.validators[dkg.me].validator.clone();
         dkg.state = DkgState::Sharing {
             accumulated_weight: 0,
+            block: 0,
         };
         assert!(dkg.verify_message(&sender, &aggregate, rng).is_err());
         assert!(dkg

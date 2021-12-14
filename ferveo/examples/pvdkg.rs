@@ -46,6 +46,7 @@ pub fn setup_dkg(
             tau: 0,
             security_threshold: shares / 3,
             total_weight: shares,
+            retry_after: 1,
         },
         me,
         keypairs[validator].clone(),
