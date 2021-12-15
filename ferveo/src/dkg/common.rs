@@ -1,5 +1,5 @@
 use crate::*;
-use ferveo_common::ValidatorPublicKey;
+use ferveo_common::ValidatorSet;
 use itertools::izip;
 
 /// partition_domain takes as input a vector of validators from
@@ -14,7 +14,7 @@ use itertools::izip;
 /// partition_domain returns a vector of DKG participants
 pub fn partition_domain<E: PairingEngine>(
     params: &Params,
-    validator_set: &ValidatorSet,
+    mut validator_set: ValidatorSet<E>,
 ) -> Result<Vec<ferveo_common::Validator<E>>> {
     // Sort participants from greatest to least stake
 
@@ -41,16 +41,19 @@ pub fn partition_domain<E: PairingEngine>(
 
     let mut allocated_weight = 0usize;
     let mut participants = vec![];
-    for weight in &weights {
+    // note that the order of `participants` corresponds to the same
+    // order as `validator_set`
+    for (ix, validator) in validator_set.validators.drain(0..).enumerate() {
         participants.push(ferveo_common::Validator::<E> {
-            key: ValidatorPublicKey::Unannounced,
-            weight: *weight,
+            validator,
+            weight: weights[ix],
             share_start: allocated_weight,
-            share_end: allocated_weight + *weight as usize,
+            share_end: allocated_weight + weights[ix] as usize,
         });
-        allocated_weight = allocated_weight
-            .checked_add(*weight as usize)
-            .ok_or_else(|| anyhow!("allocated weight overflow"))?;
+        allocated_weight =
+            allocated_weight
+                .checked_add(weights[ix] as usize)
+                .ok_or_else(|| anyhow!("allocated weight overflow"))?;
     }
     Ok(participants)
 }

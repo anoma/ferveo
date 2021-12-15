@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use ark_ec::PairingEngine;
 use ark_serialize::{
     CanonicalDeserialize, CanonicalSerialize, Read, SerializationError, Write,
@@ -6,68 +6,96 @@ use ark_serialize::{
 
 pub mod keypair;
 pub use keypair::*;
+use std::cmp::Ordering;
+
+#[derive(Clone, Debug, CanonicalSerialize, CanonicalDeserialize)]
+/// Represents a tendermint validator
+pub struct TendermintValidator<E: PairingEngine> {
+    /// Total voting power in tendermint consensus
+    pub power: u64,
+    /// The established address of the validator
+    pub address: String,
+    /// The Public key
+    pub public_key: PublicKey<E>,
+}
+
+impl<E: PairingEngine> PartialEq for TendermintValidator<E> {
+    fn eq(&self, other: &Self) -> bool {
+        (self.power, &self.address) == (other.power, &other.address)
+    }
+}
+
+impl<E: PairingEngine> Eq for TendermintValidator<E> {}
+
+impl<E: PairingEngine> PartialOrd for TendermintValidator<E> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some((self.power, &self.address).cmp(&(other.power, &other.address)))
+    }
+}
+
+impl<E: PairingEngine> Ord for TendermintValidator<E> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        (self.power, &self.address).cmp(&(other.power, &other.address))
+    }
+}
+
+#[derive(Clone, Debug, CanonicalSerialize, CanonicalDeserialize)]
+/// The set of tendermint validators for a dkg instance
+pub struct ValidatorSet<E: PairingEngine> {
+    pub validators: Vec<TendermintValidator<E>>,
+}
+
+impl<E: PairingEngine> ValidatorSet<E> {
+    /// Sorts the validators from highest to lowest. This ordering
+    /// first considers staking weight and breaks ties on established
+    /// address
+    pub fn new(mut validators: Vec<TendermintValidator<E>>) -> Self {
+        // reverse the ordering here
+        validators.sort_by(|a, b| b.cmp(a));
+        Self { validators }
+    }
+
+    /// Get the total voting power of the validator set
+    pub fn total_voting_power(&self) -> u64 {
+        self.validators.iter().map(|v| v.power).sum()
+    }
+}
 
 #[derive(Clone, Debug, CanonicalSerialize, CanonicalDeserialize)]
 pub struct Validator<E: PairingEngine> {
-    pub key: ValidatorPublicKey<E>,
+    pub validator: TendermintValidator<E>,
     pub weight: u32,
     pub share_start: usize,
     pub share_end: usize,
 }
 
-impl<E: PairingEngine> Validator<E> {
-    pub fn encryption_key(&self) -> Result<E::G2Affine> {
-        match self.key {
-            ValidatorPublicKey::Announced(key) => Ok(key.encryption_key),
-            ValidatorPublicKey::Unannounced => Err(anyhow!(
-                "The encryption key for this validator was not announced"
-            )),
-        }
+impl<E: PairingEngine> PartialEq for Validator<E> {
+    fn eq(&self, other: &Self) -> bool {
+        (
+            &self.validator,
+            self.weight,
+            self.share_start,
+            self.share_end,
+        ) == (
+            &other.validator,
+            other.weight,
+            other.share_start,
+            other.share_end,
+        )
     }
 }
 
-/// Initially we do not know the ephemeral public keys
-/// of participating validators. We only learn these
-/// as they are announced.
-#[derive(Clone, Debug)]
-pub enum ValidatorPublicKey<E: PairingEngine> {
-    Announced(PublicKey<E>),
-    Unannounced,
-}
+impl<E: PairingEngine> Eq for Validator<E> {}
 
-impl<E: PairingEngine> CanonicalSerialize for ValidatorPublicKey<E> {
-    #[inline]
-    fn serialize<W: Write>(
-        &self,
-        mut writer: W,
-    ) -> Result<(), SerializationError> {
-        match self {
-            Self::Announced(key) => Some(*key),
-            Self::Unannounced => None,
-        }
-        .serialize(&mut writer)
-    }
-
-    #[inline]
-    fn serialized_size(&self) -> usize {
-        match self {
-            Self::Announced(key) => Some(*key),
-            Self::Unannounced => None,
-        }
-        .serialized_size()
+impl<E: PairingEngine> PartialOrd for Validator<E> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.validator.cmp(&other.validator))
     }
 }
 
-impl<E: PairingEngine> CanonicalDeserialize for ValidatorPublicKey<E> {
-    #[inline]
-    fn deserialize<R: Read>(mut reader: R) -> Result<Self, SerializationError> {
-        let is_some = bool::deserialize(&mut reader)?;
-        let data = if is_some {
-            Self::Announced(PublicKey::<E>::deserialize(&mut reader)?)
-        } else {
-            Self::Unannounced
-        };
-        Ok(data)
+impl<E: PairingEngine> Ord for Validator<E> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.validator.cmp(&other.validator)
     }
 }
 

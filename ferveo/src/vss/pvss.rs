@@ -7,7 +7,7 @@ use ark_ec::bn::G2Affine;
 use ark_ec::PairingEngine;
 use ark_ff::UniformRand;
 use ark_serialize::*;
-use ferveo_common::{PublicKey, ValidatorPublicKey};
+use ferveo_common::PublicKey;
 use itertools::Itertools;
 use subproductdomain::fast_multiexp;
 
@@ -77,12 +77,11 @@ impl<E: PairingEngine, T> PubliclyVerifiableSS<E, T> {
         let shares = dkg
             .validators
             .iter()
-            .filter_map(|val| match val.encryption_key() {
-                Ok(key) => Some(fast_multiexp(
+            .map(|val| {
+                fast_multiexp(
                     &evals.evals[val.share_start..val.share_end],
-                    key.into_projective(),
-                )),
-                _ => None,
+                    val.validator.public_key.encryption_key.into_projective(),
+                )
             })
             .collect::<Vec<ShareEncryptions<E>>>();
         if shares.len() != dkg.validators.len() {
@@ -128,10 +127,11 @@ impl<E: PairingEngine, T> PubliclyVerifiableSS<E, T> {
 
         dkg.validators.iter().zip(self.shares.iter()).all(
             |(validator, shares)| {
-                let ek = match validator.encryption_key() {
-                    Ok(key) => key.into_projective(),
-                    Err(_) => return false,
-                };
+                let ek = validator
+                    .validator
+                    .public_key
+                    .encryption_key
+                    .into_projective();
                 let alpha = E::Fr::rand(rng);
                 let mut powers_of_alpha = alpha;
                 let mut y = E::G2Projective::zero();
@@ -227,95 +227,20 @@ pub fn aggregate<E: PairingEngine>(
 mod test_pvss {
     use super::*;
 
+    use crate::dkg::pv::test_common::*;
     use ark_bls12_381::Bls12_381 as EllipticCurve;
     use ark_ff::UniformRand;
-
+    use ferveo_common::{TendermintValidator, ValidatorSet};
     type Fr = <EllipticCurve as PairingEngine>::Fr;
     type G1 = <EllipticCurve as PairingEngine>::G1Affine;
     type G2 = <EllipticCurve as PairingEngine>::G2Affine;
-
-    /// Generate a few validators
-    fn gen_validators(num: u64) -> ValidatorSet {
-        ValidatorSet::new(
-            (0..num)
-                .map(|i| TendermintValidator {
-                    power: i,
-                    address: format!("validator_{}", i),
-                })
-                .collect(),
-        )
-    }
-
-    /// Create a small dkg instance for testing with transcripts
-    /// added and session keys for each validator
-    fn setup_dkg() -> PubliclyVerifiableDkg<EllipticCurve> {
-        let rng = &mut ark_std::test_rng();
-        let validators = gen_validators(4);
-        let mut transcripts = vec![];
-
-        // create session keys
-        let mut keys = Vec::new();
-        keys.resize_with(4, || {
-            ferveo_common::Keypair::<EllipticCurve>::new(rng)
-        });
-
-        // create a set of pvss transcripts
-        for (ix, validator) in validators.validators.iter().enumerate() {
-            // setup a dkg for a validator
-            let mut dkg = PubliclyVerifiableDkg::new(
-                gen_validators(4),
-                Params {
-                    tau: 0,
-                    security_threshold: 2,
-                    total_weight: 6,
-                },
-                validator.clone(),
-                rng,
-            )
-            .expect("Setup failed");
-
-            // setup the session keys for the dkg
-            dkg.session_keypair = keys[ix];
-            for (ix, key) in keys.iter().enumerate() {
-                dkg.validators[ix].key =
-                    ValidatorPublicKey::Announced(key.public())
-            }
-
-            // generate a pvss transcript from this validator
-            transcripts.push(
-                Pvss::new(&Fr::rand(rng), &dkg, rng).expect("Setup failed"),
-            );
-        }
-        let mut dkg = PubliclyVerifiableDkg::new(
-            gen_validators(4),
-            Params {
-                tau: 0,
-                security_threshold: 2,
-                total_weight: 6,
-            },
-            validators.validators[3].clone(),
-            rng,
-        )
-        .expect("Setup failed");
-
-        // setup the session keys for the dkg
-        dkg.session_keypair = keys[3];
-        for (ix, key) in keys.iter().enumerate() {
-            dkg.validators[ix].key = ValidatorPublicKey::Announced(key.public())
-        }
-        // add transcripts to the dkg
-        for (ix, pvss) in transcripts.into_iter().enumerate() {
-            dkg.vss.insert(ix as u32, pvss);
-        }
-        dkg
-    }
 
     /// Test the happy flow that a pvss with the correct form is created
     /// and that appropriate validations pass
     #[test]
     fn test_new_pvss() {
         let rng = &mut ark_std::test_rng();
-        let dkg = setup_dkg();
+        let dkg = setup_dkg(0);
         let s = Fr::rand(rng);
         let pvss =
             Pvss::<EllipticCurve>::new(&s, &dkg, rng).expect("Test failed");
@@ -333,28 +258,12 @@ mod test_pvss {
         assert!(pvss.verify_full(&dkg, rng));
     }
 
-    /// If a validator does not have a session keypair
-    /// trying to create a pvss transcript will fail
-    #[test]
-    fn cannot_create_pvss_without_session_keypair() {
-        let rng = &mut ark_std::test_rng();
-        let mut dkg = setup_dkg();
-        dkg.validators[dkg.me].key = ValidatorPublicKey::Unannounced;
-        let s = Fr::rand(rng);
-        let err = PubliclyVerifiableSS::<EllipticCurve>::new(&s, &dkg, rng)
-            .expect_err("Test failed");
-        assert_eq!(
-            err.to_string(),
-            "Not all validator session keys have been announced"
-        );
-    }
-
     /// Check that if the proof of knowledge is wrong,
     /// the optimistic verification of PVSS fails
     #[test]
     fn test_verify_pvss_wrong_proof_of_knowledge() {
         let rng = &mut ark_std::test_rng();
-        let dkg = setup_dkg();
+        let dkg = setup_dkg(0);
         let mut s = Fr::rand(rng);
         // ensure that the proof of knowledge is not zero
         while s == Fr::zero() {
@@ -368,25 +277,12 @@ mod test_pvss {
         assert!(!pvss.verify_optimistic());
     }
 
-    /// If a validator does not have a session keypair
-    /// then full validation of a transcript will fail
-    #[test]
-    fn cannot_verify_pvss_without_session_keypair() {
-        let rng = &mut ark_std::test_rng();
-        let mut dkg = setup_dkg();
-        let s = Fr::rand(rng);
-        let pvss = PubliclyVerifiableSS::<EllipticCurve>::new(&s, &dkg, rng)
-            .expect("Test failed");
-        dkg.validators[dkg.me].key = ValidatorPublicKey::Unannounced;
-        assert!(!pvss.verify_full(&dkg, rng))
-    }
-
     /// Check that happy flow of aggregating PVSS transcripts
     /// Should have the correct form and validations pass
     #[test]
     fn test_aggregate_pvss() {
         let rng = &mut ark_std::test_rng();
-        let dkg = setup_dkg();
+        let dkg = setup_dealt_dkg();
         let aggregate = aggregate(&dkg);
         //check that a polynomial of the correct degree was created
         assert_eq!(aggregate.coeffs.len(), 5);
@@ -411,10 +307,10 @@ mod test_pvss {
     fn test_verify_aggregation_fails_if_constant_term_wrong() {
         use std::ops::Neg;
         let rng = &mut ark_std::test_rng();
-        let dkg = setup_dkg();
+        let dkg = setup_dealt_dkg();
         let mut aggregated = aggregate(&dkg);
         while aggregated.coeffs[0] == G1::zero() {
-            let dkg = setup_dkg();
+            let dkg = setup_dkg(0);
             aggregated = aggregate(&dkg);
         }
         aggregated.coeffs[0] = G1::zero();
