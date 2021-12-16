@@ -16,6 +16,8 @@ jobs:
         with:
           mdbook-version: '0.4.6'
           # mdbook-version: 'latest'
+      - name: right folder
+        run: cd book/
 
       - run: mdbook build
 
