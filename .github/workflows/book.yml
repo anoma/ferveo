@@ -1,9 +1,9 @@
-name: github pages
+name: mdbook 
 
 on:
   push:
     branches:
-      - main
+      - master
 
 jobs:
   deploy:
