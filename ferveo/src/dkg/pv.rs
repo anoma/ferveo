@@ -119,7 +119,7 @@ impl<E: PairingEngine> PubliclyVerifiableDkg<E> {
     /// Aggregate all received PVSS messages into a single message, prepared to post on-chain
     pub fn aggregate(&self) -> Result<Message<E>> {
         match self.state {
-            DkgState::Dealt | DkgState::Success { .. } => {
+            DkgState::Dealt => {
                 Ok(Message::Aggregate(aggregate(self)))
             }
             _ => Err(anyhow!(
@@ -162,7 +162,7 @@ impl<E: PairingEngine> PubliclyVerifiableDkg<E> {
                     Ok(())
                 }
             }
-            Message::Aggregate(pvss) if matches!(self.state, DkgState::Dealt | DkgState::Success {..}) => {
+            Message::Aggregate(pvss) if matches!(self.state, DkgState::Dealt) => {
                 let minimum_weight = self.params.total_weight
                     - self.params.security_threshold;
                 let verified_weight = pvss.verify_aggregation(self, rng)?;
@@ -206,7 +206,7 @@ impl<E: PairingEngine> PubliclyVerifiableDkg<E> {
                 }
                 Ok(())
             }
-            Message::Aggregate(_) if matches!(self.state, DkgState::Dealt | DkgState::Success {..}) => {
+            Message::Aggregate(_) if matches!(self.state, DkgState::Dealt) => {
                 // change state and cache the final key
                 self.state = DkgState::Success {final_key: self.final_key()};
                 Ok(())
@@ -702,7 +702,7 @@ mod test_aggregation {
     }
 
     /// Test that aggregate only succeeds if we are in
-    /// the state [`DkgState::Dealt | DkgState::Success{..}`]
+    /// the state [`DkgState::Dealt]
     #[test]
     fn test_aggregate_state_guards() {
         let mut dkg = setup_dealt_dkg();
@@ -714,12 +714,12 @@ mod test_aggregation {
         dkg.state = DkgState::Success {
             final_key: G1::zero(),
         };
-        assert!(dkg.aggregate().is_ok());
+        assert!(dkg.aggregate().is_err());
     }
 
     /// Test that aggregate message fail to be verified
     /// or applied unless dkg.state is
-    /// [`DkgState::Dealt | DkgState::Success{..}`]
+    /// [`DkgState::Dealt`]
     #[test]
     fn test_aggregate_message_state_guards() {
         let rng = &mut ark_std::test_rng();
@@ -737,8 +737,8 @@ mod test_aggregation {
         dkg.state = DkgState::Success {
             final_key: G1::zero(),
         };
-        assert!(dkg.verify_message(&sender, &aggregate, rng).is_ok());
-        assert!(dkg.apply_message(sender, aggregate).is_ok())
+        assert!(dkg.verify_message(&sender, &aggregate, rng).is_err());
+        assert!(dkg.apply_message(sender, aggregate).is_err())
     }
 
     /// Test that an aggregate message will fail to verify if the
