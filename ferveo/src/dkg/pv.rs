@@ -120,7 +120,11 @@ impl<E: PairingEngine> PubliclyVerifiableDkg<E> {
     pub fn aggregate(&self) -> Result<Message<E>> {
         match self.state {
             DkgState::Dealt => {
-                Ok(Message::Aggregate(aggregate(self)))
+                let final_key = self.final_key();
+                Ok(Message::Aggregate(Aggregation {
+                    vss: aggregate(self),
+                    final_key,
+                }))
             }
             _ => Err(anyhow!(
                 "Not enough PVSS transcripts received to aggregate"
@@ -162,17 +166,23 @@ impl<E: PairingEngine> PubliclyVerifiableDkg<E> {
                     Ok(())
                 }
             }
-            Message::Aggregate(pvss) if matches!(self.state, DkgState::Dealt) => {
+            Message::Aggregate(Aggregation{vss, final_key}) if matches!(self.state, DkgState::Dealt) => {
                 let minimum_weight = self.params.total_weight
                     - self.params.security_threshold;
-                let verified_weight = pvss.verify_aggregation(self, rng)?;
+                let verified_weight = vss.verify_aggregation(self, rng)?;
                 // we reject aggregations that fail to meet the security threshold
                 if verified_weight < minimum_weight {
                     Err(
                         anyhow!("Aggregation failed because the verified weight was insufficient")
                     )
                 } else {
-                    Ok(())
+                    if &self.final_key() == final_key {
+                        Ok(())
+                    } else {
+                        Err(
+                            anyhow!("The final key was not correctly derived from the aggregated transcripts")
+                        )
+                    }
                 }
             }
             _ => Err(anyhow!("DKG state machine is not in correct state to verify this message"))
@@ -216,13 +226,29 @@ impl<E: PairingEngine> PubliclyVerifiableDkg<E> {
     }
 }
 
+#[derive(
+    Serialize,
+    Deserialize,
+    Clone,
+    Debug,
+    CanonicalSerialize,
+    CanonicalDeserialize,
+)]
+#[serde(bound = "")]
+pub struct Aggregation<E: PairingEngine> {
+    #[serde(with = "ferveo_common::ark_serde")]
+    vss: AggregatedPvss<E>,
+    #[serde(with = "ferveo_common::ark_serde")]
+    final_key: E::G1Affine,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(bound = "")]
 pub enum Message<E: PairingEngine> {
     #[serde(with = "ferveo_common::ark_serde")]
     Deal(Pvss<E>),
     #[serde(with = "ferveo_common::ark_serde")]
-    Aggregate(AggregatedPvss<E>),
+    Aggregate(Aggregation<E>),
 }
 
 /// Factory functions for testing
@@ -749,6 +775,25 @@ mod test_aggregation {
         let mut dkg = setup_dealt_dkg();
         dkg.params.total_weight = 10;
         let aggregate = dkg.aggregate().expect("Test failed");
+        let sender = dkg.validators[dkg.me].validator.clone();
+        assert!(dkg.verify_message(&sender, &aggregate, rng).is_err());
+    }
+
+    /// If the aggregated pvss passes, check that the announced
+    /// key is correct. Verification should fail if it is not
+    #[test]
+    fn test_aggregate_wont_verify_if_wrong_key() {
+        let rng = &mut ark_std::test_rng();
+        let mut dkg = setup_dealt_dkg();
+        let mut aggregate = dkg.aggregate().expect("Test failed");
+        while dkg.final_key() == G1::zero() {
+            dkg = setup_dealt_dkg();
+        }
+        if let Message::Aggregate(Aggregation { final_key, .. }) =
+            &mut aggregate
+        {
+            *final_key = G1::zero();
+        }
         let sender = dkg.validators[dkg.me].validator.clone();
         assert!(dkg.verify_message(&sender, &aggregate, rng).is_err());
     }
