@@ -10,7 +10,7 @@ anyhow = "1.0.47"
 ark-std = "0.3"
 ark-ec = "0.3"
 serde = { version = "1.0", features = ["derive"] }
-ark-serialize = "0.3"
+ark-serialize = {version = "0.3", features = ["derive"]}
 serde_bytes = "0.11" 
 
 [dev-dependencies]
