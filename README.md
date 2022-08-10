@@ -17,7 +17,7 @@ This library is under development and has not been reviewed, audited, or prepare
 Documentation can be found [here](book/).
 It is recommended to use [mdbook](https://rust-lang.github.io/mdBook/) to render the docs. Run `mdbook serve` in the `book` folder.
 
-A preprint paper describing the construction of Ferveo and the novel cryptosystems used is available at [IACR](https://eprint.iacr.org/2022/898)
+A preprint paper describing the construction of Ferveo and the novel cryptosystems used is available at [IACR](https://eprint.iacr.org/2022/898).
 
 ## Build
 
