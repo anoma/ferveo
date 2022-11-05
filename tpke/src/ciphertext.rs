@@ -81,6 +81,9 @@ pub fn decrypt<E: PairingEngine>(
     ciphertext: &Ciphertext<E>,
     privkey: E::G2Affine,
 ) -> Vec<u8> {
+    if !check_ciphertext_validity(ciphertext) {
+        panic!("Ciphertext is invalid");
+    }
     let s = E::product_of_pairings(&[(
         E::G1Prepared::from(ciphertext.nonce),
         E::G2Prepared::from(privkey),
