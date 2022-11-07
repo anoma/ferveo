@@ -217,4 +217,24 @@ mod tests {
         let plaintext = decrypt_with_shared_secret(&ciphertext, &s);
         assert!(plaintext == msg)
     }
+
+    #[test]
+    fn ciphertext_validity_check() {
+        let mut rng = test_rng();
+        let threshold = 3;
+        let shares_num = 5;
+        let num_entities = 5;
+        let msg: &[u8] = "abc".as_bytes();
+
+        let (pubkey, _privkey, _) =
+            setup::<E>(threshold, shares_num, num_entities);
+        let mut ciphertext = encrypt::<_, E>(msg, pubkey, &mut rng);
+
+        // So far, the ciphertext is valid
+        assert!(check_ciphertext_validity(&ciphertext));
+
+        // Malformed the ciphertext
+        ciphertext.ciphertext[0] += 1;
+        assert!(!check_ciphertext_validity(&ciphertext));
+    }
 }
